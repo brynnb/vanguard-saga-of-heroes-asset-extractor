@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vanguard Mesh Viewer</title>
+    <link rel="stylesheet" href="css/viewer.css">
+</head>
+
+<body>
+    <!-- 3D Viewport Container -->
+    <div id="container"></div>
+
+    <!-- Loading Overlay -->
+    <div id="loading" class="panel">Loading...</div>
+
+    <!-- Controls Panel -->
+    <div id="controls" class="panel">
+        <h3>Vanguard Mesh Viewer</h3>
+        <input type="file" id="file-input" accept=".gltf,.glb" multiple>
+        <input type="file" id="file-input-add" accept=".gltf,.glb" multiple style="display:none">
+
+        <div class="button-row">
+            <button onclick="resetCamera()">Reset Camera</button>
+            <button onclick="toggleWireframe()">Wireframe</button>
+            <button onclick="toggleGrid()">Grid</button>
+            <button onclick="clearModels()">Clear</button>
+        </div>
+
+        <div class="button-row">
+            <button onclick="document.getElementById('file-input-add').click()">Add Files</button>
+            <button onclick="toggleFlyMode()" id="fly-mode-btn">Fly Mode</button>
+            <button onclick="loadDefaults()" class="primary">Load Default</button>
+            <button onclick="toggleDeleteMode()" id="delete-mode-btn" class="secondary">Delete Mode</button>
+        </div>
+
+        <div class="button-row">
+            <button onclick="loadChunkMeshes()" class="primary">Add Chunk Meshes</button>
+        </div>
+
+        <div id="model-list"></div>
+    </div>
+
+    <!-- Stats Panel -->
+    <div id="stats" class="panel">
+        <h4>Statistics</h4>
+        <div class="stat-row"><span class="stat-label">Vertices:</span><span id="stat-vertices"
+                class="stat-value">0</span></div>
+        <div class="stat-row"><span class="stat-label">Triangles:</span><span id="stat-triangles"
+                class="stat-value">0</span></div>
+        <div class="stat-row"><span class="stat-label">Meshes:</span><span id="stat-meshes" class="stat-value">0</span>
+        </div>
+        <div class="stat-row"><span class="stat-label">Textures:</span><span id="stat-textures"
+                class="stat-value">0</span></div>
+    </div>
+
+    <!-- Info Panel -->
+    <div id="info" class="panel">
+        WASD to move | Drag to rotate | Scroll to zoom | F to toggle fly mode
+    </div>
+
+    <!-- Mesh Browser -->
+    <div id="mesh-browser" class="panel">
+        <h4>Mesh Browser (<span id="mesh-count">0</span>)</h4>
+        <input type="text" id="mesh-search" placeholder="Search meshes...">
+        <label class="checkbox-label">
+            <input type="checkbox" id="chunk-only-toggle"> Show chunk only
+        </label>
+        <div id="mesh-list-container"></div>
+    </div>
+
+    <!-- Chunk Browser -->
+    <div id="chunk-browser" class="panel">
+        <h4>Chunk Browser (<span id="chunk-count">0</span>)</h4>
+        <input type="text" id="chunk-search" placeholder="Search chunks...">
+        <div id="chunk-list-container"></div>
+    </div>
+
+    <!-- Debug Dashboard (hidden by default) -->
+    <div id="debug-dashboard" class="panel">
+        <h4>Debug Log</h4>
+        <div id="debug-log" class="debug-log"></div>
+    </div>
+
+    <!-- Three.js and Controls -->
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+
+    <!-- Viewer Modules -->
+    <script type="module" src="js/app.js"></script>
+</body>
+
+</html>

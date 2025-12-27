@@ -1,0 +1,54 @@
+
+******** Loading object StaticMesh'Ra5000_P1_C1_SpeedTrees_mesh.Ra5000_P1_C1_SpeedTrees_ElfTree_New001' ********
+
+ERROR: Memory: bad allocation size 2086168592 bytes
+appMalloc: size=2086168592 (total=0 Mbytes) <- FArray::Empty: 2009433729 x 16 <- TArray::Serialize: 0/0 <- UStaticMesh::SerializeVanguardMesh <- UStaticMesh::Serialize <- LoadObject: StaticMesh'Ra5000_P1_C1_SpeedTrees_mesh.Ra5000_P1_C1_SpeedTrees_ElfTree_New001', pos=EDB948, ver=128/34, game=vang <- UObject::EndLoad <- Main: umodel_build=1572
+
+
+******** /Users/brynnbateman/Downloads/Vanguard EMU/Assets/Meshes/Ra5000_P1_C1_SpeedTrees_mesh.usx ********
+
+ERROR: TArray: index 3644 is out of range (3644)
+Wedges <- ExportCommonMeshData <- ExportStaticMeshLod <- Lod: 0 <- ExportObject: StaticMesh'Ra5000_P1_C1_SpeedTrees_ElfTree_New001_small01' <- ExportObjects <- Main: umodel_build=1572
+
+
+******** /Users/brynnbateman/Downloads/Vanguard EMU/Assets/Meshes/Ra5000_P1_C1_SpeedTrees_mesh.usx ********
+
+ERROR: TArray: index 3156 is out of range (3156)
+Wedges <- ExportCommonMeshData <- ExportStaticMeshLod <- Lod: 0 <- ExportObject: StaticMesh'Ra5000_P1_C1_SpeedTrees_AshRTm001' <- ExportObjects <- Main: umodel_build=1572
+
+
+******** Loading object StaticMesh'Ra5000_P1_C1_SpeedTrees_mesh.Ra5000_P1_C1_SpeedTrees_ElfTree_New001_alt01' ********
+
+ERROR: Package "/Users/brynnbateman/Downloads/Vanguard EMU/Assets/Meshes/Ra5000_P1_C1_SpeedTrees_mesh.usx": wrong import index 1119
+UnPackage::CreateImport: /Users/brynnbateman/Downloads/Vanguard EMU/Assets/Meshes/Ra5000_P1_C1_SpeedTrees_mesh.usx:1119 <- UnPackage::SerializeUObject <- UStaticMesh::SerializeVanguardMesh <- UStaticMesh::Serialize <- LoadObject: StaticMesh'Ra5000_P1_C1_SpeedTrees_mesh.Ra5000_P1_C1_SpeedTrees_ElfTree_New001_alt01', pos=F35F9B, ver=128/34, game=vang <- UObject::EndLoad <- Main: umodel_build=1572
+
+
+******** /Users/brynnbateman/Downloads/Vanguard EMU/Assets/Meshes/Ra5000_P1_C1_SpeedTrees_mesh.usx ********
+
+ERROR: TArray: index 758 is out of range (758)
+Wedges <- ExportCommonMeshData <- ExportStaticMeshLod <- Lod: 0 <- ExportObject: StaticMesh'Ra5000_P1_C1_SpeedTrees_shrub002' <- ExportObjects <- Main: umodel_build=1572
+
+
+******** /Users/brynnbateman/Downloads/Vanguard EMU/Assets/Meshes/Ra5000_P1_C1_SpeedTrees_mesh.usx ********
+
+ERROR: TArray: index 848 is out of range (848)
+Wedges <- ExportCommonMeshData <- ExportStaticMeshLod <- Lod: 0 <- ExportObject: StaticMesh'Ra5000_P1_C1_SpeedTrees_shrub002_flowering01' <- ExportObjects <- Main: umodel_build=1572
+
+
+******** /Users/brynnbateman/Downloads/Vanguard EMU/Assets/Meshes/Ra5000_P1_C1_SpeedTrees_mesh.usx ********
+
+ERROR: TArray: index 3306 is out of range (3306)
+Wedges <- ExportCommonMeshData <- ExportStaticMeshLod <- Lod: 0 <- ExportObject: StaticMesh'Ra5000_P1_C1_SpeedTrees_BeechRT001' <- ExportObjects <- Main: umodel_build=1572
+
+
+******** /Users/brynnbateman/Downloads/Vanguard EMU/Assets/Meshes/Ra5000_P1_C1_SpeedTrees_mesh.usx ********
+
+ERROR: TArray: index 2500 is out of range (2500)
+Wedges <- ExportCommonMeshData <- ExportStaticMeshLod <- Lod: 0 <- ExportObject: StaticMesh'Ra5000_P1_C1_SpeedTrees_AspenRTm001' <- ExportObjects <- Main: umodel_build=1572
+
+
+******** /Users/brynnbateman/Downloads/Vanguard EMU/Assets/Meshes/Ra5000_P1_C1_SpeedTrees_mesh.usx ********
+
+ERROR: TArray: index 2480 is out of range (2480)
+Wedges <- ExportCommonMeshData <- ExportStaticMeshLod <- Lod: 0 <- ExportObject: StaticMesh'Ra5000_P1_C1_SpeedTrees_AshRTsm001' <- ExportObjects <- Main: umodel_build=1572
+

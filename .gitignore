@@ -1,0 +1,9 @@
+gildor2-UEViewer-daa3c14
+output/*
+Dockerfile
+UmodelExport
+UEViewer
+temp_scripts
+__pycache__
+Users/*
+_trash/
