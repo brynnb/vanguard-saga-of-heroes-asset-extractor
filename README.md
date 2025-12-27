@@ -11,7 +11,7 @@ This is still very much a work in progress. It is currently extracting many or m
 * Meshes within a chunk are not getting positioned relative to the chunk's origin properly
 * Water volumes (BSPs) are not yet positioned properly in relation to terrain
 * ~25% of meshes are getting extracted improperly and leading to garbage geometry
-* ~80% of encoded binary data is not yet parsed correctly, perhaps in part becase Vanguard's use of UE2 differs from the source code available online. This is difficult and slow work due to UE2 being proprietary and there not being a lot of documentation available online and the nature of reverse engineering binary formats in the first place.
+* ~20% of encoded binary data is not yet parsed correctly, perhaps in part becase Vanguard's use of UE2 differs from the source code available online. This is difficult and slow work due to UE2 being proprietary and there not being a lot of documentation available online and the nature of reverse engineering binary formats in the first place.
 
 Anything that isn't basic geometry extraction for terrain, meshes, data, and objects is not yet implemented at all. We'd also want to eventually add support for things like particle effects, audio, lighting, textures, and many others.
 
