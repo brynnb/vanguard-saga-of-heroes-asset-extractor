@@ -2,6 +2,9 @@
 
 Extracts and converts assets from the binary client files of Vanguard: Saga of Heroes, a 2007 MMORPG. This workspace contains the tools and specifications needed to extract 3D assets, terrain, and world data from the original game files (Unreal Engine 2.5) and render them in a modern WebGL environment.
 
+![Project Screenshot 1](docs/screenshot1.png)
+![Project Screenshot 2](docs/screenshot2.png)
+
 ---
 
 ## Documentation Index (Read This First)
