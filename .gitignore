@@ -6,4 +6,6 @@ UEViewer
 temp_scripts
 __pycache__
 Users/*
+config.py
+.env
 _trash/
