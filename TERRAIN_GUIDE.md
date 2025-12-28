@@ -34,7 +34,7 @@ Do NOT rely on standard UE2 serialization offsets. Vanguard's VGR textures often
 ### Formats & Decoding
 1. **Format 7 (DXT5)**: 
    - Standard DXT5 block compression.
-   - Use our native Python `decode_dxt5` (in `extract_all_terrain.py`) to avoid Wine/umodel overhead.
+   - Use our native Python `decode_dxt5` (in `extract_all_terrain.py`).
 2. **Format 5 (RGBA8)**:
    - Raw bytes stored as **BGRA**.
    - Must swap Blue and Red channels before displaying.

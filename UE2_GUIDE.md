@@ -48,3 +48,4 @@ for exp in pkg.exports:
   - `< 0`: Pointer to an Import.
   - `== 0`: NULL/None.
 - **Tagged Properties**: Always use `find_property_start()` before `parse_properties()` to skip the initial object class/state metadata.
+- **Mass Extraction**: Property extraction is now an automated stage in `setup.py`. It uses a crawler to scan every export in every chunk and populates the `properties` table.

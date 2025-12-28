@@ -38,32 +38,48 @@ To avoid repeating old mistakes or corrupting the data, every developer and AI a
 ## Quick Start
 
 ### 1. Configure Paths
-Ensure `config.py` points to your Vanguard Assets directory and your SQLite database.
-
-### 2. Start the Data Server
+Copy `config.example.py` to `config.py` and update the `ASSETS_PATH` to point to your Vanguard Assets directory:
 ```bash
-python3 data_server.py
+cp config.example.py config.py
+# Edit config.py with your paths
 ```
 
-### 3. View the Results
+### 2. Initialize the Database
+```bash
+python3 setup.py
+```
+This will index all asset files, process chunk data, and extract property metadata for all objects.
+
+**Flags:**
+- `--reset` - Delete existing database and start fresh
+- `--full` - Also run terrain and mesh extraction (may take much longer)
+
+### 3. Start the Server
+```bash
+python3 server.py
+```
+
+### 4. View the Results
 - **Mesh/World Viewer**: [http://localhost:8000/mesh_viewer/](http://localhost:8000/mesh_viewer/)
-- **Data/Extractor Browser**: [http://localhost:8000/data_viewer.html](http://localhost:8000/data_viewer.html)
+- **Data/Extractor Browser**: [http://localhost:8000/data_viewer/](http://localhost:8000/data_viewer/)
 
 ---
 
 ## Main Pipeline Components
 
-### Extractors (`extractors/`)
+### Extractors (`scripts/extractors/`)
 - `extract_all_terrain.py`: **The main terrain engine.** Uses native Python to parse heightmaps and textures without umodel.
 - `staticmesh_pipeline.py`: Pulls StaticMeshes from `.usx` packages into the glTF library.
 - `extract_chunk_data.py`: Populates the database with object placements from VGR files.
+- `extract_properties.py`: **Universal property crawler.** Parses every class member (Location, Scale, Mesh references) into the database.
+- `index_meshes.py`: Builds the mesh_index table mapping mesh names to packages.
 
-### Generators (`generators/`)
+### Generators (`scripts/generators/`)
 - `generate_objects_scene.py`: Reconstructs local chunk scenes by "exploding" prefabs and placing meshes in world space.
 
-### Core Libraries (`ue2/` & `lib/`)
+### Core Libraries (`ue2/` & `scripts/lib/`)
 - `ue2/package.py`: The foundation. Parses UE2 package headers, name tables, and exports.
-- `lib/staticmesh_construct.py`: The binary definition of a Vanguard mesh section.
+- `scripts/lib/staticmesh_construct.py`: The binary definition of a Vanguard mesh section.
 
 ---
 
@@ -71,7 +87,7 @@ python3 data_server.py
 
 | Viewer | Path | Purpose |
 |-------|------|---------|
-| **Data Viewer** | `data_viewer.html` | Browse the SQLite database, view export properties, and run extractors. |
+| **Data Viewer** | `data_viewer/` | Browse the SQLite database, view export properties, and run extractors. |
 | **Mesh/World Viewer** | `mesh_viewer/` | Modern 3D viewer for browsing exported meshes and reconstructed chunk scenes. |
 | **Legacy Viewer** | `_archive/vanguard_viewer.html` | (Archived) Original standalone drag-and-drop glTF viewer. |
 
@@ -87,5 +103,5 @@ python3 data_server.py
 
 ## Current Pipeline Milestone
 - **Terrain**: 100% extracted with High-Quality DXT5/RGBA textures.
-- **Meshes**: 70% native parsing coverage; umodel fallback for variants.
+- **Meshes**: 70% native parsing coverage for buildings and environmental assets.
 - **World**: 229,000+ objects indexed and renderable in the multi-chunk viewer.

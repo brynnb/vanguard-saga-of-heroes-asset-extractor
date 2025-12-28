@@ -1132,6 +1132,18 @@ def show_stats(conn):
         print(f"  {row[0]}: {row[1]:,} exports")
 
 
+def print_progress_bar(iteration, total, prefix='', suffix='', decimals=1, length=40, fill='█', print_end="\r"):
+    """
+    Call in a loop to create terminal progress bar
+    """
+    percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
+    filled_length = int(length * iteration // total)
+    bar = fill * filled_length + '-' * (length - filled_length)
+    print(f'\r{prefix} |{bar}| {percent}% {suffix}', end=print_end)
+    if iteration == total: 
+        print()
+
+
 def main():
     import argparse
 
@@ -1140,6 +1152,7 @@ def main():
     parser.add_argument(
         "--class", dest="class_filter", help="Only parse specific class"
     )
+    parser.add_argument("--silent", action="store_true", help="Suppress all output except errors")
     args = parser.parse_args()
 
     conn = sqlite3.connect(DB_PATH)
@@ -1150,44 +1163,46 @@ def main():
         conn.close()
         return
 
-    print("=" * 60)
-    print("UNIVERSAL PROPERTY PARSER")
-    print("=" * 60)
+    if not args.silent:
+        print("=" * 60)
+        print("UNIVERSAL PROPERTY PARSER")
+        print("=" * 60)
 
     # Initialize fresh properties table
-    print("\nInitializing properties table...")
+    if not args.silent:
+        print("\nInitializing properties table...")
     init_database(conn)
 
     # Get all chunks
     chunks = conn.execute("SELECT id, filename, filepath FROM chunks").fetchall()
-    print(f"Processing {len(chunks)} chunks...")
+    if not args.silent:
+        print(f"Processing {len(chunks)} chunks...")
 
     total_stats = {"exports": 0, "properties": 0, "failed": 0}
 
+    total_chunks = len(chunks)
     for i, (chunk_id, filename, filepath) in enumerate(chunks):
-        if i % 20 == 0:
-            print(
-                f"Progress: {i}/{len(chunks)} ({total_stats['properties']:,} properties)"
-            )
-
         stats = parse_chunk(conn, chunk_id, filepath, args.class_filter)
         total_stats["exports"] += stats["exports"]
         total_stats["properties"] += stats["properties"]
         total_stats["failed"] += stats["failed"]
+        
+        print_progress_bar(i + 1, total_chunks, prefix='   Progress:', suffix=f'({i+1}/{total_chunks})', length=40)
 
     conn.close()
 
-    print("\n" + "=" * 60)
-    print("PARSING COMPLETE")
-    print("=" * 60)
-    print(f"Exports processed: {total_stats['exports']:,}")
-    print(f"Properties parsed: {total_stats['properties']:,}")
-    print(f"Failed to parse: {total_stats['failed']:,}")
+    if not args.silent:
+        print("\n" + "=" * 60)
+        print("PARSING COMPLETE")
+        print("=" * 60)
+        print(f"Exports processed: {total_stats['exports']:,}")
+        print(f"Properties parsed: {total_stats['properties']:,}")
+        print(f"Failed to parse: {total_stats['failed']:,}")
 
-    # Show stats
-    conn = sqlite3.connect(DB_PATH)
-    show_stats(conn)
-    conn.close()
+        # Show stats
+        conn = sqlite3.connect(DB_PATH)
+        show_stats(conn)
+        conn.close()
 
 
 if __name__ == "__main__":

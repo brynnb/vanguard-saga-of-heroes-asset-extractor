@@ -54,19 +54,12 @@ We have identified two distinct StaticMesh binary formats sharing the same packa
 - **Detection**: Probe `VertexCount` at the standard offset; if valid but non-zero, or if followed by invalid `ColorCount` (misalignment), treat as Variant.
 
 ## 4. Extraction & Pipeline
-We use a two-pronged approach for meshes:
-
-1. **Native Parser** (`renderer/lib/staticmesh_construct.py`):
-   - Stabilized for ~70% of meshes.
-   - Provides 100% byte coverage for supported variants.
-   - Saves parsed metadata to the `staticmesh_data` database table.
-
-2. **umodel Fallback**:
-   - For complex variants not yet fully supported by the native parser, we use `umodel.exe` via Wine as a fallback.
+We use a native Python parser (`renderer/lib/staticmesh_construct.py`) which is stabilized for ~70% of meshes and provides 100% byte coverage for supported variants.
 
 ### Suffix & Material Handling
 - **LODs**: Meshes often have suffixes like `_L0`, `_L1`. We prioritize `_L0`.
 - **Materials**: Material references are extracted via `extract_mesh_materials.py` and stored in `mesh_materials.json`.
+- **Properties**: All mesh-specific properties (like `LODSet`, `CollisionModel`) are extracted into the `properties` table during world setup.
 
 ## 5. Success Breakthroughs (Post-Mortem)
 - **LOD Suffix Robustness**: The viewer uses an `attemptLoad` cascade: `[BaseName] -> [BaseName]_L0 -> [BaseName]_ver01`.

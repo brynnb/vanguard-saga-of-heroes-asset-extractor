@@ -24,5 +24,3 @@ MESH_MATERIALS_PATH = os.path.join(DATA_DIR, "mesh_materials.json")
 
 # External Tools
 ARCHIVE_DIR = os.path.join(RENDERER_ROOT, "_archive")
-UMODEL_PATH = os.path.join(ARCHIVE_DIR, "gildor2-UEViewer-daa3c14/umodel.exe")
-WINE_PATH = "/Applications/Wine Stable.app/Contents/Resources/wine/bin/wine"

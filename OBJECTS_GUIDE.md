@@ -33,5 +33,6 @@ We generate a combined scene for each chunk named `{ChunkName}_objects.gltf`.
 
 ## 5. Current Status
 - **Scripts**: `renderer/generators/generate_objects_scene.py`.
-- **Database**: `exports` table in `vanguard_data.db`.
+- **Database**: `exports` table and `properties` table in `vanguard_data.db`.
+- **Properties**: Every placed object's properties (Location, Rotation, DrawScale, etc.) are extracted during `setup.py` via the `extract_properties.py` stage.
 - **Resolution**: 95%+ success rate for placed assets. Remaining gaps are typically internal "Brush Models" or legacy sprite effects.

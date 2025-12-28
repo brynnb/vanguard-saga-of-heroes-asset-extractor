@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vanguard Data Explorer</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+  <div class="header">
+    <h1>🔍 Vanguard Data Explorer</h1>
+    <a href="/mesh_viewer/" class="nav-link">3D Mesh Viewer</a>
+    <div class="stats" id="stats" style="margin-left: auto;">Loading...</div>
+  </div>
+
+  <div class="container">
+    <div class="sidebar">
+      <h3>Asset Files</h3>
+      <ul class="class-list">
+        <li class="class-item" id="nav-files" onclick="showFilesView()">
+          <span>📁 All Files</span>
+        </li>
+        <li class="class-item" id="nav-meshes" onclick="showFilesView('Mesh', 'usx')">
+          <span>📦 Mesh Packages</span>
+        </li>
+        <li class="class-item" id="nav-textures" onclick="showFilesView('Texture', 'utx')">
+          <span>🎨 Texture Packages</span>
+        </li>
+        <li class="class-item" id="nav-chunks" onclick="showFilesView('Map', 'vgr')">
+          <span>🌍 Map Chunks</span>
+        </li>
+      </ul>
+
+      <h3>Database</h3>
+      <ul class="class-list">
+        <li class="class-item" id="nav-mesh-index" onclick="showTableView('mesh_index')">
+          <span>🔍 Mesh Index</span>
+          <span class="count" id="count-mesh_index">...</span>
+        </li>
+        <li class="class-item" id="nav-exports-table" onclick="showTableView('exports')">
+          <span>📤 All Exports</span>
+          <span class="count" id="count-exports">...</span>
+        </li>
+        <li class="class-item" id="nav-prefabs" onclick="showTableView('prefabs')">
+          <span>🧩 Prefabs</span>
+          <span class="count" id="count-prefabs">...</span>
+        </li>
+      </ul>
+
+      <h3>Export Classes</h3>
+      <ul class="class-list" id="classList">
+        <li class="loading">Loading...</li>
+      </ul>
+    </div>
+
+    <div class="main">
+      <!-- FILE EXPLORER VIEW -->
+      <div id="fileExplorer" style="display: none; flex-direction: column; height: 100%;">
+        <div class="toolbar">
+          <div>
+            <label>Search:</label>
+            <input type="text" id="fileSearch" placeholder="Filename..."
+              onkeyup="if(event.key === 'Enter') loadFiles()" />
+          </div>
+          <div>
+            <label>Category:</label>
+            <select id="fileCategory" onchange="loadFiles()">
+              <option value="">All Categories</option>
+              <option value="Mesh">Mesh</option>
+              <option value="Texture">Texture</option>
+              <option value="Map">Map</option>
+              <option value="System">System</option>
+              <option value="Audio">Audio</option>
+              <option value="Text">Text</option>
+              <option value="Config">Config</option>
+              <option value="Script">Script</option>
+              <option value="Animation">Animation</option>
+              <option value="Asset">Asset</option>
+              <option value="Unknown">Unknown</option>
+            </select>
+          </div>
+          <div>
+            <label>Ext:</label>
+            <input type="text" id="fileExt" placeholder="e.g. usx" style="width: 80px;"
+              onkeyup="if(event.key === 'Enter') loadFiles()" />
+          </div>
+          <button onclick="loadFiles()">Search</button>
+          <button class="secondary" onclick="clearFileFilters()">Clear</button>
+        </div>
+
+        <div class="content" id="filesContent">
+          <div id="filesList"></div>
+          <div class="pagination" id="filesPagination" style="display: none">
+            <button onclick="prevFilesPage()" id="prevFilesBtn">← Previous</button>
+            <span id="filesPageInfo">Page 1</span>
+            <button onclick="nextFilesPage()" id="nextFilesBtn">Next →</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TABLE EXPLORER VIEW -->
+      <div id="tableExplorer" style="display: none; flex-direction: column; height: 100%;">
+        <div class="toolbar">
+          <div>
+            <strong id="tableTitle" style="color: #e94560; font-size: 1.2rem;">Table: -</strong>
+          </div>
+          <div>
+            <label>Search:</label>
+            <input type="text" id="tableSearch" placeholder="Search..." style="width: 200px;"
+              onkeyup="if(event.key === 'Enter') loadTableData()" />
+          </div>
+          <button onclick="loadTableData()">Search</button>
+          <button class="secondary" onclick="clearTableSearch()">Clear</button>
+        </div>
+
+        <div class="content" id="tableContent">
+          <div id="tableData"></div>
+          <div class="pagination" id="tablePagination" style="display: none">
+            <button onclick="prevTablePage()" id="prevTableBtn">← Previous</button>
+            <span id="tablePageInfo">Page 1</span>
+            <button onclick="nextTablePage()" id="nextTableBtn">Next →</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- File Structure Modal -->
+      <div class="modal-overlay" id="structureModal" onclick="closeStructureModal(event)">
+        <div class="modal-container" onclick="event.stopPropagation()">
+          <div class="modal-header">
+            <h2 id="structureModalTitle">File Structure</h2>
+            <button class="close-btn" onclick="closeStructureModal()">&times;</button>
+          </div>
+          <div class="modal-body">
+            <div class="modal-stats" id="structureStats"></div>
+            <div id="structureContent">Loading...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CLASS EXPLORER VIEW (Existing) -->
+      <div id="classExplorer" style="display: flex; flex-direction: column; height: 100%;">
+        <div class="toolbar">
+          <div>
+            <label>Chunk:</label>
+            <select id="chunkFilter">
+              <option value="">All Chunks</option>
+            </select>
+          </div>
+          <div>
+            <label>Length:</label>
+            <select id="lengthFilter">
+              <option value="">All Lengths</option>
+            </select>
+          </div>
+          <button onclick="loadExports()">Apply Filters</button>
+          <button class="secondary" onclick="clearFilters()">Clear</button>
+        </div>
+
+        <div class="content">
+          <div class="tabs">
+            <div class="tab active" data-tab="exports" onclick="switchTab('exports')">
+              Exports
+            </div>
+            <div class="tab" data-tab="properties" onclick="switchTab('properties')">
+              Properties
+            </div>
+            <div class="tab" data-tab="distribution" onclick="switchTab('distribution')">
+              Length Distribution
+            </div>
+            <div class="tab" data-tab="sql" onclick="switchTab('sql')">
+              SQL Query
+            </div>
+          </div>
+
+          <div id="exportsTab" class="split-panel">
+            <div class="panel-left">
+              <div id="exportsTable">
+                <p class="empty">
+                  Select a class from the sidebar to view exports
+                </p>
+              </div>
+              <div class="pagination" id="pagination" style="display: none">
+                <button onclick="prevPage()" id="prevBtn">← Previous</button>
+                <span id="pageInfo">Page 1</span>
+                <button onclick="nextPage()" id="nextBtn">Next →</button>
+              </div>
+            </div>
+            <div class="panel-right" id="exportDetailPanel">
+              <div class="detail-header">
+                <h3>Export Details</h3>
+                <button class="close-btn" onclick="closeDetailPanel()">×</button>
+              </div>
+              <div class="detail-content" id="detailPanelContent">
+                <p class="empty">Click an export to view details</p>
+              </div>
+            </div>
+          </div>
+
+          <div id="propertiesTab" style="display: none">
+            <div class="chart-container">
+              <h3 style="margin-bottom: 1rem; color: #e94560">
+                Properties for <span id="propsClassName">-</span>
+              </h3>
+              <div id="propertiesList">
+                <p class="empty">Select a class to view its properties</p>
+              </div>
+            </div>
+            <div id="exportDetail" style="display: none; margin-top: 1rem">
+              <div class="chart-container">
+                <h3 style="margin-bottom: 1rem; color: #4ecdc4">
+                  Export Detail: <span id="detailExportName">-</span>
+                </h3>
+                <div id="exportProperties"></div>
+              </div>
+            </div>
+          </div>
+
+          <div id="distributionTab" style="display: none">
+            <div class="chart-container">
+              <h3 style="margin-bottom: 1rem; color: #e94560">
+                Length Distribution
+              </h3>
+              <div id="lengthChart" class="bar-chart">
+                <p class="empty">Select a class to view length distribution</p>
+              </div>
+            </div>
+          </div>
+
+          <div id="sqlTab" style="display: none">
+            <div style="margin-bottom: 1rem">
+              <textarea class="sql-input" id="sqlInput" placeholder="Enter SQL query (SELECT only)...">
+  SELECT * FROM class_summary ORDER BY export_count DESC LIMIT 20</textarea>
+            </div>
+            <button onclick="runQuery()">Run Query</button>
+            <div style="margin-top: 1rem">
+              <strong>Example queries:</strong>
+              <ul style="
+                    margin-top: 0.5rem;
+                    margin-left: 1.5rem;
+                    color: #888;
+                    font-size: 0.85rem;
+                  ">
+                <li style="cursor: pointer; margin: 0.25rem 0"
+                  onclick="setQuery('SELECT * FROM class_summary ORDER BY export_count DESC')">
+                  Class summary
+                </li>
+                <li style="cursor: pointer; margin: 0.25rem 0"
+                  onclick="setQuery('SELECT * FROM length_distribution WHERE class_name=\'WaterVolume\' ORDER BY count DESC')">
+                  WaterVolume lengths
+                </li>
+                <li style="cursor: pointer; margin: 0.25rem 0"
+                  onclick="setQuery('SELECT filename, export_count, name_count FROM chunks ORDER BY export_count DESC LIMIT 20')">
+                  Largest chunks
+                </li>
+                <li style="cursor: pointer; margin: 0.25rem 0"
+                  onclick="setQuery('SELECT class_name, COUNT(DISTINCT data_length) as variants FROM exports GROUP BY class_name ORDER BY variants DESC LIMIT 20')">
+                  Most length variants
+                </li>
+              </ul>
+            </div>
+            <div id="sqlResults" style="margin-top: 1rem"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+
+</html>

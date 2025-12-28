@@ -1,8 +1,9 @@
 # Vanguard Developer Guidelines
 
-**Canonical Database**: `/Users/brynnbateman/Downloads/Vanguard EMU/vanguard_files.db`
-- This is the ONLY database to use for persistent parsing status and binary metrics.
-- All parsed data, unknown regions, and observations go here.
+**Canonical Database**: `output/data/vanguard_data.db`
+- This is the ONLY database to use for all parsed data.
+- All extracted data, unknown regions, and observations go here.
+- Use `config.DB_PATH` in code to reference this database.
 
 **Recommended Parsing Library**: `construct` (https://pypi.org/project/construct/)
 - Use `parse_stream()` instead of `parse()` to track consumed bytes.
@@ -32,9 +33,9 @@ Every parsing discovery MUST be documented in the corresponding domain guide:
 | Data Category | Documentation File | Primary Parser |
 |---------------|-------------------|----------------|
 | **Packages / Headers** | `UE2_GUIDE.md` | `ue2/package.py` |
-| **Terrain / VGR** | `TERRAIN_GUIDE.md` | `extractors/extract_all_terrain.py` |
-| **Meshes / USX** | `MESH_GUIDE.md` | `lib/staticmesh_construct.py` |
-| **World / Prefabs** | `OBJECTS_GUIDE.md` | `extractors/extract_chunk_data.py` |
+| **Terrain / VGR** | `TERRAIN_GUIDE.md` | `scripts/extractors/extract_all_terrain.py` |
+| **Meshes / USX** | `MESH_GUIDE.md` | `scripts/lib/staticmesh_construct.py` |
+| **World / Prefabs** | `OBJECTS_GUIDE.md` | `scripts/extractors/extract_chunk_data.py` |
 | **Engine Source** | `ENGINE_SOURCE_GUIDE.md` | N/A (Reference) |
 
 ---
@@ -74,3 +75,53 @@ When encountering bytes we don't understand:
 - [ ] Parser tested on 5+ different files.
 - [ ] `reader.tell() == len(data)` after parsing.
 - [ ] Database tables (`parsed_exports`, `unknown_regions`) populated.
+
+---
+
+## 7. No Bandaid Fixes (CRITICAL)
+
+**We do not suppress, hide, or work around errors.** If something is broken, we fix the root cause. Covering up problems creates hidden technical debt and makes debugging harder.
+
+### Prohibited Practices
+
+1. **Returning empty data to avoid crashes**: If a database table doesn't exist, the server must return a clear error message (e.g., `{"error": "Table 'files' not found. Run 'python3 setup.py' to initialize."}`), not an empty list.
+
+2. **Catching and silently ignoring exceptions**: If an exception occurs, either handle it properly or let it propagate with a descriptive message.
+
+3. **Conditional feature hiding**: If a feature requires data that doesn't exist, show an actionable error—don't hide the feature.
+
+4. **"Good enough" heuristics without documentation**: If we must use a heuristic or approximation, document why and track the affected cases.
+
+### Required Practices
+
+1. **Fail fast with actionable messages**: Tell the user exactly what went wrong and how to fix it.
+
+2. **Validate preconditions explicitly**: Check that required tables, files, and configurations exist at startup.
+
+3. **Track known issues**: If a root cause fix is deferred, create a GitHub issue and reference it in the code.
+
+---
+
+## 8. Unified Setup Pipeline (CRITICAL)
+
+**All extraction and indexing scripts must be integrated into `setup.py`.** Users should never need to run individual scripts manually during normal setup.
+
+### Rules
+
+1. **Single entry point**: Running `python3 setup.py` must produce a fully working database and all derived files.
+
+2. **New scripts require setup.py integration**: When adding a new extractor or indexer, add it to the appropriate stage in `setup.py`.
+
+3. **Pipeline stages** (current order):
+   - Stage 1: Validate configuration
+   - Stage 2: Initialize database schema
+   - Stage 3: Index asset files
+   - Stage 4: Export chunk data
+   - Stage 5: Index mesh objects
+   - Stage 6: Build texture database
+   - Stage 7: Extract object properties (`extract_properties.py`)
+   - Stage 8: Full extraction (optional, `--full` flag)
+
+4. **Reset capability**: Use `--reset` flag to delete the database and start fresh.
+
+5. **No manual script running**: If you find yourself telling users to "run script X manually," that script should be added to `setup.py`.
