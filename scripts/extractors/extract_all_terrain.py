@@ -102,6 +102,10 @@ def extract_g16_heightmap(pkg, chunk_name):
                             grid_size, grid_size, order='F'
                         ).astype(np.float64)
                         
+                        # Apply vertical shift to align terrain correctly
+                        # Analysis shows the primary seam is at Row 34 in Column-Major order.
+                        heights = np.roll(heights, -35, axis=0)
+                        
                         # Fix wrap-around errors at 256-boundaries
                         # When a value differs from its neighbors' midpoint by ~256,
                         # it indicates a byte wrap that wasn't properly handled
@@ -217,59 +221,99 @@ def decode_dxt5(data, width, height):
 
 def extract_color_texture(pkg, chunk_name):
     """Extract and decode base color texture from VGR package."""
+    candidates = []
+    
+    # Simplify chunk name for matching (e.g. 'chunk_n25_20' -> 'n25_20')
+    search_coord = chunk_name.replace("chunk_", "").lower()
+    
     for exp in pkg.exports:
-        if exp["class_name"] == "Texture" and "baseColor" in exp["object_name"]:
-            tex_data = pkg.get_export_data(exp)
-            if not tex_data or len(tex_data) < 1000: continue
+        if exp["class_name"] != "Texture":
+            continue
             
-            # 1. Detect format from properties
-            fmt = get_texture_format(pkg, tex_data)
+        obj_name = exp["object_name"].lower()
+        score = 0
+        
+        # Priority 1: Contains chunk coordinates AND baseColor
+        if search_coord in obj_name and "basecolor" in obj_name:
+            score = 100
+        # Priority 2: Contains baseColor only
+        elif "basecolor" in obj_name:
+            score = 50
+        # Priority 3: Contains chunk coordinates only
+        elif search_coord in obj_name:
+            score = 30
+        # Priority 4: Ends with _base or base (last resort)
+        elif obj_name.endswith("_base") or obj_name.endswith("base"):
+            # Exclude known generic/utility textures
+            if any(x in obj_name for x in ["shadow", "alpha", "grass", "noise"]):
+                score = 0
+            else:
+                score = 10
+                
+        if score > 0:
+            candidates.append((score, exp))
             
-            # 2. Find Mip 0 by looking for the trailing footer: [USize][VSize][UBits][VBits]
-            # Suffix is 10 bytes: 4 (USize), 4 (VSize), 1 (UBits), 1 (VBits)
-            # We search backwards to find the footer of the first (largest) mip
-            for offset in range(len(tex_data) - 10, 300, -1):
-                try:
-                    u_size, v_size = struct.unpack("<II", tex_data[offset:offset+8])
-                    u_bits, v_bits = tex_data[offset+8], tex_data[offset+9]
+    # Sort by score descending to try the best candidates first
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    
+    for score, exp in candidates:
+        tex_data = pkg.get_export_data(exp)
+        if not tex_data or len(tex_data) < 1000:
+            continue
+            
+        # 1. Detect format from properties
+        fmt = get_texture_format(pkg, tex_data)
+        
+        # 2. Find Mip 0 by looking for the trailing footer: [USize][VSize][UBits][VBits]
+        # Suffix is 10 bytes: 4 (USize), 4 (VSize), 1 (UBits), 1 (VBits)
+        # We search backwards to find the footer of the first (largest) mip
+        for offset in range(len(tex_data) - 10, 300, -1):
+            try:
+                u_size, v_size = struct.unpack("<II", tex_data[offset:offset+8])
+                u_bits, v_bits = tex_data[offset+8], tex_data[offset+9]
+                
+                if u_size in [512, 1024, 2048] and u_size == v_size and (1 << u_bits) == u_size:
+                    # Determine data size based on format
+                    if fmt in [7, 6, 63]: # DXT5/3 (Vanguard sometimes uses 63 for DXT5)
+                        expected_size = u_size * v_size
+                    elif fmt == 3: # DXT1
+                        expected_size = (u_size * v_size) // 2
+                    elif fmt == 5: # RGBA8
+                        expected_size = u_size * v_size * 4
+                    else:
+                        # Fallback: Guess based on mip length if format is unknown
+                        # For a 1024x1024 mip, DXT5 is 1MB, DXT1 is 0.5MB, RGBA8 is 4MB
+                        # We use 1MB as default for unknown terrain textures
+                        expected_size = 1048576 if u_size == 1024 else (u_size * v_size)
                     
-                    if u_size in [512, 1024, 2048] and u_size == v_size and (1 << u_bits) == u_size:
-                        # Determine data size based on format
-                        if fmt == 7 or fmt == 6: # DXT5/3
-                            expected_size = u_size * v_size
-                        elif fmt == 3: # DXT1
-                            expected_size = (u_size * v_size) // 2
-                        elif fmt == 5: # RGBA8
-                            expected_size = u_size * v_size * 4
-                        else:
-                            expected_size = 1048576 if u_size == 1024 else (u_size * v_size)
+                    data_start = offset - expected_size
+                    if data_start >= 0:
+                        # Try to decode if sizes match, even if serialized size prefix check is messy
+                        # (Vanguard size markers are sometimes encoded as properties themselves)
+                        mip_data = tex_data[data_start : offset]
                         
-                        data_start = offset - expected_size
-                        if data_start >= 4:
-                            # Check for serialized size marker prefix
-                            serialized_size = struct.unpack("<I", tex_data[data_start-4 : data_start])[0]
-                            if serialized_size == expected_size:
-                                # print(f"  Detected {u_size}x{v_size} texture (format {fmt}) at offset {data_start}")
-                                mip_data = tex_data[data_start : offset]
-                                
-                                img = None
-                                if fmt in [7, 6] or (fmt is None and expected_size == u_size * v_size):
-                                    img = decode_dxt5(mip_data, u_size, v_size)
-                                elif fmt == 3 or (fmt is None and expected_size == (u_size * v_size) // 2):
-                                    img = decode_dxt1(mip_data, u_size, v_size)
-                                elif fmt == 5 or (fmt is None and expected_size == u_size * v_size * 4):
-                                    # RGBA8 (Format 5) usually BGRA in UE2
-                                    rgba_array = np.frombuffer(mip_data, dtype=np.uint8).reshape(v_size, u_size, 4)
-                                    # Swap B/R for PIL (BGRA -> RGBA)
-                                    rgba_array = rgba_array[:, :, [2, 1, 0, 3]]
-                                    img = Image.fromarray(rgba_array, "RGBA")
-                                
-                                if img:
-                                    # Vanguard Color Textures are standard DXT/RGBA and do NOT need the 
-                                    # 34-pixel column shift that the G16 heightmaps require.
-                                    return img
-                                break
-                except: continue
+                        img = None
+                        # Use fmt if known, else guess DXT5 if size matches
+                        if fmt in [7, 6, 63] or (fmt is None and len(mip_data) == u_size * v_size):
+                            img = decode_dxt5(mip_data, u_size, v_size)
+                        elif fmt == 3 or (fmt is None and len(mip_data) == (u_size * v_size) // 2):
+                            img = decode_dxt1(mip_data, u_size, v_size)
+                        elif fmt == 5 or (fmt is None and len(mip_data) == u_size * v_size * 4):
+                            # RGBA8 (Format 5) usually BGRA in UE2
+                            rgba_array = np.frombuffer(mip_data, dtype=np.uint8).reshape(v_size, u_size, 4)
+                            # Swap B/R for PIL (BGRA -> RGBA)
+                            rgba_array = rgba_array[:, :, [2, 1, 0, 3]]
+                            img = Image.fromarray(rgba_array, "RGBA")
+                        elif len(mip_data) == u_size * v_size: # Absolute fallback to DXT5
+                            img = decode_dxt5(mip_data, u_size, v_size)
+                        
+                        if img:
+                            # Vanguard textures are effectively transposed relative to the mesh
+                            # because the terrain uses column-major indexing.
+                            img = img.transpose(Image.TRANSPOSE)
+                            return img
+                        break
+            except: continue
     return None
 
 def decode_dxt1(data, width, height):
