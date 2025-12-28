@@ -51,3 +51,14 @@ Vanguard (Build 128/Lic 34) is a "modded" version of this source. Common differe
 - **Custom Sections**: Vanguard often appends extra data (like `LODModels`) after the standard UE2 serialization is finished.
 - **Byte Order**: As seen in Terrain G16, Vanguard sometimes swaps byte orders compared to the reference source.
 - **Property Indices**: The indices in the Name Table for properties like `Location` or `Rotation` might differ, but the serialization logic (`InfoByte`, `Size`) usually remains identical.
+
+
+### 4. VGR/Terrain Extensions (Vanguard Specific)
+Vanguard deviates from standard UE2.5 by inserting a **142-byte metadata block** after the Tagged Property list and before the Mipmap data in Texture exports. 
+- **Offset Verification**: The  of the first mip is always at **offset 202** in these objects.
+- **Alignment Importance**: Ensure all 16-bit reads are aligned to the correct even offset (202 for the size field, 206 for the data start) to avoid byte-order noise.
+
+### 4. VGR/Terrain Extensions (Vanguard Specific)
+Vanguard deviates from standard UE2.5 by inserting a 142-byte metadata block after the Tagged Property list and before the Mipmap data in Texture exports. 
+- Offset Verification: The data_size of the first mip is always at offset 202 in these objects.
+- Alignment Importance: Ensure all 16-bit reads are aligned to the correct even offset (202 for the size field, 206 for the data start) to avoid byte-order noise.

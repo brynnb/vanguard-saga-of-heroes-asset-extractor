@@ -125,3 +125,35 @@ When encountering bytes we don't understand:
 4. **Reset capability**: Use `--reset` flag to delete the database and start fresh.
 
 5. **No manual script running**: If you find yourself telling users to "run script X manually," that script should be added to `setup.py`.
+
+---
+
+## 9. Documentation Preservation (CRITICAL)
+
+**Never delete correct information from documentation.** When refactoring or updating guides, preserve all valid content. Deleting working documentation forces re-discovery of already-solved problems.
+
+### Rules
+
+1. **Verify before deleting**: Before removing documentation, confirm the information is actually incorrect by checking the current working code.
+
+2. **Update, don't replace**: When fixing incorrect information, update the specific incorrect parts rather than rewriting entire sections.
+
+3. **Preserve debugging tips**: Symptom-cause tables and debugging advice took real effort to discover—keep them.
+
+4. **Mark deprecated, don't delete**: If a technique is no longer needed (e.g., a manual shift now handled by the parser), move it to a "Historical Notes" section rather than deleting.
+
+5. **Code is truth**: If documentation conflicts with working code, the working code is correct. Update the docs to match the code, not the other way around.
+
+### Examples of What NOT to Do
+
+- ❌ Deleting the 256-boundary heuristic documentation because "we're not sure why it works"
+- ❌ Removing mesh generation code examples when updating texture parsing
+- ❌ Overwriting the entire TERRAIN_GUIDE when only the marker selection logic changed
+- ❌ Deleting debugging symptom tables because "we fixed the bug"
+
+### What TO Do
+
+- ✅ Fix incorrect values (e.g., change "Big-Endian" to "Little-Endian") in-place
+- ✅ Add new sections while preserving existing correct content
+- ✅ Move deprecated techniques to a "Historical/Deprecated" section with explanation
+- ✅ Cross-reference code when documenting to ensure accuracy

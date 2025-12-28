@@ -6,7 +6,7 @@ This is still very much a work in progress. It is currently extracting many or m
 
 ### Current issues:
 
-* Terrain extraction is incomplete in that we're not yet using blending maps (to get proper detailed mix between grass/dirt/stone etc), the rendering of terrain data has visual artifacts that need resolving, and the height scale doesn't appear to match the game's scale.
+* Terrain blending maps (grass/dirt/stone mix) are not yet implemented.
 * Prefabs (collections of meshes) aren't yet positioning sub-elements properly in relation to each other
 * Meshes within a chunk are not getting positioned relative to the chunk's origin properly
 * Water volumes (BSPs) are not yet positioned properly in relation to terrain
@@ -100,8 +100,3 @@ python3 server.py
 - **`output/meshes/`**: The library of exported building and environmental assets (2800+ models).
 
 ---
-
-## Current Pipeline Milestone
-- **Terrain**: 100% extracted with High-Quality DXT5/RGBA textures.
-- **Meshes**: 70% native parsing coverage for buildings and environmental assets.
-- **World**: 229,000+ objects indexed and renderable in the multi-chunk viewer.

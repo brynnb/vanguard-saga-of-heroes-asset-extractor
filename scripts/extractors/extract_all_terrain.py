@@ -63,105 +63,38 @@ def find_texture_exports(pkg, pattern):
 
 
 def extract_g16_heightmap(pkg, chunk_name):
-    """
-    Extract G16 heightmap data directly from binary.
-    Returns (heights_array, grid_size) or (None, None) on failure.
-    """
-    # Find the main heightmap texture (ends with "Height", not "Height_X_Y")
+    """Extract and decode G16 heightmap from VGR package using formal parsing."""
+    from ue2.texture import Texture
     height_name = f"{chunk_name}Height"
-    
     for exp in pkg.exports:
         if exp["class_name"] == "Texture" and exp["object_name"] == height_name:
-            tex_data = pkg.get_export_data(exp)
-            if not tex_data or len(tex_data) < 1000:
-                continue
-            
-            # Try 512x512 first (524288 bytes = 512*512*2)
-            for grid_size in [512, 256]:
-                expected_size = grid_size * grid_size * 2
-                size_marker = struct.pack("<I", expected_size)
-                marker_pos = tex_data.find(size_marker)
-                
-                if marker_pos != -1:
-                    height_start = marker_pos + 4
-                    height_data = tex_data[height_start:height_start + expected_size]
-                    
-                    if len(height_data) == expected_size:
-                        # =================================================
-                        # VANGUARD G16 HEIGHTMAP DECODE
-                        # =================================================
-                        # Vanguard stores heightmaps in COLUMN-MAJOR order
-                        # (Fortran-style), not the typical row-major (C-style).
-                        #
-                        # Byte order is big-endian (first_byte * 256 + second_byte)
-                        #
-                        # Additionally, there are wrap-around errors at 256-
-                        # boundaries that need to be corrected.
-                        # =================================================
-                        heights = np.frombuffer(height_data, dtype='>u2').reshape(
-                            grid_size, grid_size, order='F'
-                        ).astype(np.float64)
-                        
-                        # Apply vertical shift to align terrain correctly
-                        # Analysis shows the primary seam is at Row 34 in Column-Major order.
-                        heights = np.roll(heights, -35, axis=0)
-                        
-                        # Fix wrap-around errors at 256-boundaries
-                        # When a value differs from its neighbors' midpoint by ~256,
-                        # it indicates a byte wrap that wasn't properly handled
-                        
-                        # Horizontal pass (check left/right neighbors)
-                        for row in range(grid_size):
-                            for col in range(1, grid_size - 1):
-                                curr = heights[row, col]
-                                left = heights[row, col - 1]
-                                right = heights[row, col + 1]
-                                expected = (left + right) / 2
-                                diff = curr - expected
-                                
-                                if diff > 200 and diff < 320:
-                                    heights[row, col] -= 256
-                                elif diff < -200 and diff > -320:
-                                    heights[row, col] += 256
-                        
-                        # Vertical pass (check up/down neighbors)
-                        for col in range(grid_size):
-                            for row in range(1, grid_size - 1):
-                                curr = heights[row, col]
-                                up = heights[row - 1, col]
-                                down = heights[row + 1, col]
-                                expected = (up + down) / 2
-                                diff = curr - expected
-                                
-                                if diff > 200 and diff < 320:
-                                    heights[row, col] -= 256
-                                elif diff < -200 and diff > -320:
-                                    heights[row, col] += 256
-                        
-                        return heights, grid_size
-    
+            data = pkg.get_export_data(exp)
+            tex = Texture(data, pkg.names)
+            if tex.mips:
+                mip = tex.mips[0]
+                grid_size = mip.width
+                height_data = mip.data
+                heights = np.frombuffer(height_data, dtype='<u2').reshape(
+                    grid_size, grid_size, order='F'
+                ).astype(np.float64)
+                # heights = np.roll(heights, -35, axis=0) # Removed: Alignment fix in Texture.py
+                for row in range(grid_size):
+                    for col in range(1, grid_size - 1):
+                        curr, left, right = heights[row, col], heights[row, col-1], heights[row, col+1]
+                        diff = curr - (left + right) / 2
+                        if 200 < diff < 320: heights[row, col] -= 256
+                        elif -320 < diff < -200: heights[row, col] += 256
+                for col in range(grid_size):
+                    for row in range(1, grid_size - 1):
+                        curr, up, down = heights[row, col], heights[row-1, col], heights[row+1, col]
+                        diff = curr - (up + down) / 2
+                        if 200 < diff < 320: heights[row, col] -= 256
+                        elif -320 < diff < -200: heights[row, col] += 256
+                return heights, grid_size
     return None, None
 
 
-def get_texture_format(pkg, data):
-    """Scan texture data for Format property."""
-    try:
-        format_idx = -1
-        for i, name_str in enumerate(pkg.names):
-            if name_str == "Format":
-                format_idx = i
-                break
-        if format_idx == -1: return None
-        encoded = b''
-        if format_idx < 0x40: encoded = bytes([format_idx])
-        elif format_idx < 0x2000: encoded = bytes([(format_idx & 0x3F) | 0x40, (format_idx >> 6) & 0x7F])
-        pos = data.find(encoded, 0, 300)
-        if pos != -1:
-            info_pos = pos + len(encoded)
-            if info_pos < len(data) and (data[info_pos] & 0x0F) == 1:
-                return data[info_pos + 1]
-    except Exception: pass
-    return None
+
 
 def decode_dxt5(data, width, height):
     """Decode DXT5 compressed texture to PIL Image."""
@@ -220,101 +153,34 @@ def decode_dxt5(data, width, height):
     except Exception: return None
 
 def extract_color_texture(pkg, chunk_name):
-    """Extract and decode base color texture from VGR package."""
+    """Extract and decode base color texture from VGR package using formal parsing."""
+    from ue2.texture import Texture
     candidates = []
-    
-    # Simplify chunk name for matching (e.g. 'chunk_n25_20' -> 'n25_20')
     search_coord = chunk_name.replace("chunk_", "").lower()
-    
     for exp in pkg.exports:
-        if exp["class_name"] != "Texture":
-            continue
-            
+        if exp["class_name"] != "Texture": continue
         obj_name = exp["object_name"].lower()
         score = 0
-        
-        # Priority 1: Contains chunk coordinates AND baseColor
-        if search_coord in obj_name and "basecolor" in obj_name:
-            score = 100
-        # Priority 2: Contains baseColor only
-        elif "basecolor" in obj_name:
-            score = 50
-        # Priority 3: Contains chunk coordinates only
-        elif search_coord in obj_name:
-            score = 30
-        # Priority 4: Ends with _base or base (last resort)
+        if search_coord in obj_name and "basecolor" in obj_name: score = 100
+        elif "basecolor" in obj_name: score = 50
+        elif search_coord in obj_name: score = 30
         elif obj_name.endswith("_base") or obj_name.endswith("base"):
-            # Exclude known generic/utility textures
-            if any(x in obj_name for x in ["shadow", "alpha", "grass", "noise"]):
-                score = 0
-            else:
-                score = 10
-                
-        if score > 0:
-            candidates.append((score, exp))
-            
-    # Sort by score descending to try the best candidates first
+            if not any(x in obj_name for x in ["shadow", "alpha", "grass", "noise"]): score = 10
+        if score > 0: candidates.append((score, exp))
     candidates.sort(key=lambda x: x[0], reverse=True)
-    
     for score, exp in candidates:
-        tex_data = pkg.get_export_data(exp)
-        if not tex_data or len(tex_data) < 1000:
-            continue
-            
-        # 1. Detect format from properties
-        fmt = get_texture_format(pkg, tex_data)
-        
-        # 2. Find Mip 0 by looking for the trailing footer: [USize][VSize][UBits][VBits]
-        # Suffix is 10 bytes: 4 (USize), 4 (VSize), 1 (UBits), 1 (VBits)
-        # We search backwards to find the footer of the first (largest) mip
-        for offset in range(len(tex_data) - 10, 300, -1):
-            try:
-                u_size, v_size = struct.unpack("<II", tex_data[offset:offset+8])
-                u_bits, v_bits = tex_data[offset+8], tex_data[offset+9]
-                
-                if u_size in [512, 1024, 2048] and u_size == v_size and (1 << u_bits) == u_size:
-                    # Determine data size based on format
-                    if fmt in [7, 6, 63]: # DXT5/3 (Vanguard sometimes uses 63 for DXT5)
-                        expected_size = u_size * v_size
-                    elif fmt == 3: # DXT1
-                        expected_size = (u_size * v_size) // 2
-                    elif fmt == 5: # RGBA8
-                        expected_size = u_size * v_size * 4
-                    else:
-                        # Fallback: Guess based on mip length if format is unknown
-                        # For a 1024x1024 mip, DXT5 is 1MB, DXT1 is 0.5MB, RGBA8 is 4MB
-                        # We use 1MB as default for unknown terrain textures
-                        expected_size = 1048576 if u_size == 1024 else (u_size * v_size)
-                    
-                    data_start = offset - expected_size
-                    if data_start >= 0:
-                        # Try to decode if sizes match, even if serialized size prefix check is messy
-                        # (Vanguard size markers are sometimes encoded as properties themselves)
-                        mip_data = tex_data[data_start : offset]
-                        
-                        img = None
-                        # Use fmt if known, else guess DXT5 if size matches
-                        if fmt in [7, 6, 63] or (fmt is None and len(mip_data) == u_size * v_size):
-                            img = decode_dxt5(mip_data, u_size, v_size)
-                        elif fmt == 3 or (fmt is None and len(mip_data) == (u_size * v_size) // 2):
-                            img = decode_dxt1(mip_data, u_size, v_size)
-                        elif fmt == 5 or (fmt is None and len(mip_data) == u_size * v_size * 4):
-                            # RGBA8 (Format 5) usually BGRA in UE2
-                            rgba_array = np.frombuffer(mip_data, dtype=np.uint8).reshape(v_size, u_size, 4)
-                            # Swap B/R for PIL (BGRA -> RGBA)
-                            rgba_array = rgba_array[:, :, [2, 1, 0, 3]]
-                            img = Image.fromarray(rgba_array, "RGBA")
-                        elif len(mip_data) == u_size * v_size: # Absolute fallback to DXT5
-                            img = decode_dxt5(mip_data, u_size, v_size)
-                        
-                        if img:
-                            # Vanguard textures are effectively transposed relative to the mesh
-                            # because the terrain uses column-major indexing.
-                            img = img.transpose(Image.TRANSPOSE)
-                            return img
-                        break
-            except: continue
+        try:
+            data = pkg.get_export_data(exp)
+            if not data: continue
+            tex = Texture(data, pkg.names)
+            if tex.mips:
+                img = tex.get_image(0)
+                if img:
+                    img = img.transpose(Image.TRANSPOSE)
+                    return img
+        except: continue
     return None
+
 
 def decode_dxt1(data, width, height):
     """Decode DXT1 compressed texture to PIL Image."""
@@ -352,9 +218,12 @@ def decode_dxt1(data, width, height):
 def generate_terrain_gltf(heights, color_image, output_path, chunk_name, grid_size=512):
     """Generate a glTF terrain mesh with texture."""
     
-    # Generate placeholder green texture if no color image
-    if color_image is None:
-        color_image = Image.new("RGB", (grid_size, grid_size), (100, 140, 80))
+    # Texture section (only add if we have an image)
+    texture_b64 = None
+    if color_image is not None:
+        buf = io.BytesIO()
+        color_image.save(buf, format="PNG")
+        texture_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
     
     # Vectorized vertex generation
     y_coords, x_coords = np.meshgrid(
@@ -422,19 +291,20 @@ def generate_terrain_gltf(heights, color_image, output_path, chunk_name, grid_si
             "primitives": [{
                 "attributes": {"POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2},
                 "indices": 3,
-                "material": 0
+                **({"material": 0} if texture_b64 else {})
             }]
         }],
         "materials": [{
             "pbrMetallicRoughness": {
-                "baseColorTexture": {"index": 0},
+                "baseColorTexture": {"index": 0} if texture_b64 else None,
+                "baseColorFactor": [1.0, 1.0, 1.0, 1.0] if not texture_b64 else None,
                 "metallicFactor": 0.0,
                 "roughnessFactor": 1.0
             }
-        }],
-        "textures": [{"source": 0, "sampler": 0}],
-        "samplers": [{"magFilter": 9729, "minFilter": 9987, "wrapS": 10497, "wrapT": 10497}],
-        "images": [{"uri": f"data:image/png;base64,{texture_b64}"}],
+        }] if texture_b64 else [],
+        "textures": [{"source": 0, "sampler": 0}] if texture_b64 else [],
+        "samplers": [{"magFilter": 9729, "minFilter": 9987, "wrapS": 10497, "wrapT": 10497}] if texture_b64 else [],
+        "images": [{"uri": f"data:image/png;base64,{texture_b64}"}] if texture_b64 else [],
         "accessors": [
             {"bufferView": 0, "componentType": 5126, "count": len(vertices_arr), "type": "VEC3", "min": v_min, "max": v_max},
             {"bufferView": 1, "componentType": 5126, "count": len(normals_arr), "type": "VEC3"},
@@ -535,11 +405,33 @@ def main():
     parser.add_argument("--all", action="store_true", help="Process all chunk files")
     parser.add_argument("--chunk", type=str, help="Process single chunk by name")
     parser.add_argument("--silent", action="store_true", help="Suppress all output except errors")
+    parser.add_argument("--texture-only", action="store_true", help="Only extract color textures as PNG (faster)")
     args = parser.parse_args()
     
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     
     conn = sqlite3.connect(DB_PATH) if os.path.exists(DB_PATH) else None
+    
+    # Texture-only mode: just extract PNGs
+    if args.texture_only:
+        chunks = get_all_chunks() if args.all else [args.chunk] if args.chunk else []
+        print(f"Extracting textures for {len(chunks)} chunks...")
+        for chunk in chunks:
+            vgr_path = os.path.join(VANGUARD_MAPS, f"{chunk}.vgr")
+            if not os.path.exists(vgr_path):
+                continue
+            try:
+                pkg = UE2Package(vgr_path)
+                color_image = extract_color_texture(pkg, chunk)
+                if color_image:
+                    out_path = os.path.join(OUTPUT_DIR, f"{chunk}_texture.png")
+                    color_image.save(out_path)
+                    print(f"  {chunk}: OK")
+                else:
+                    print(f"  {chunk}: No texture")
+            except Exception as e:
+                print(f"  {chunk}: ERROR {e}")
+        return
     
     if not args.silent:
         print("=" * 60)

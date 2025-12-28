@@ -8,4 +8,4 @@ __pycache__
 Users/*
 config.py
 .env
-_trash/
+_trash/output/_test_output/

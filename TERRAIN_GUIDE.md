@@ -14,13 +14,11 @@ VGR files are standard UE2 packages that contain one primary `TerrainInfo` actor
 The heightmap is stored as a `Texture` export named `{ChunkName}Height`.
 
 ### Binary Format
-- **Format**: `TEXF_G16` (16-bit grayscale).
+- **Format**: `TEXF_G16` (Format ID 10, 16-bit grayscale).
 - **Pixel Data**: 2 bytes per pixel ($Width \times Height \times 2$).
 - **Size Marker**: Look for a 4-byte little-endian integer containing the expected size (e.g., `0x80000` = 524288 for 512×512×2). The height data follows immediately after.
 
 ### Vanguard-Specific Decoding (CRITICAL)
-
-The G16 heightmap format in Vanguard requires several non-standard transformations:
 
 #### 2.1 Data Storage Order: Column-Major (Fortran Order)
 
@@ -29,31 +27,19 @@ The G16 heightmap format in Vanguard requires several non-standard transformatio
 - When reshaping the array, you MUST use `order='F'`
 
 ```python
-heights = np.frombuffer(height_data, dtype='>u2').reshape(
+heights = np.frombuffer(height_data, dtype='<u2').reshape(
     grid_size, grid_size, order='F'
 ).astype(np.float64)
 ```
 
 **Symptoms if wrong**: The terrain will have severe diagonal striations and spikes at regular 34-pixel intervals.
 
-#### 2.1.1 Alignment Shift (De-swizzle)
+#### 2.2 Byte Order: Little-Endian
 
-After reading the column-major data, a **35-pixel vertical shift** is required to align the terrain correctly within its chunk boundaries. Because of the column-major storage, this affects the **row axis** (axis 0):
+Vanguard uses **little-endian** byte order for G16 heightmaps:
+- Use `dtype='<u2'` in numpy (little-endian unsigned 16-bit)
 
-```python
-# Move the internal seam (at row 34) to the edge
-heights = np.roll(heights, -35, axis=0)
-```
-
-**Symptoms if missing**: A horizontal seam appears ~7% from the top/bottom of the chunk, and it will not align vertically with its neighbors.
-
-#### 2.2 Byte Order: Big-Endian
-
-Vanguard uses **big-endian** byte order for G16 heightmaps:
-- Each 16-bit height value = `first_byte * 256 + second_byte`
-- Use `dtype='>u2'` in numpy (big-endian unsigned 16-bit)
-
-**Symptoms if wrong**: Massive random spikes throughout the terrain.
+**Symptoms if wrong**: Massive random spikes throughout the terrain (values jumping erratically).
 
 #### 2.3 Wrap-Around Correction (256-Boundary Fix) - ⚠️ HEURISTIC
 
@@ -78,76 +64,73 @@ Even with correct byte order and column-major storage, there are **anomalies** a
 # Horizontal pass (check left/right neighbors)
 for row in range(grid_size):
     for col in range(1, grid_size - 1):
-        curr = heights[row, col]
-        left = heights[row, col - 1]
-        right = heights[row, col + 1]
-        expected = (left + right) / 2
-        diff = curr - expected
-        
-        if diff > 200 and diff < 320:
-            heights[row, col] -= 256
-        elif diff < -200 and diff > -320:
-            heights[row, col] += 256
+        curr, left, right = heights[row, col], heights[row, col-1], heights[row, col+1]
+        diff = curr - (left + right) / 2
+        if 200 < diff < 320: heights[row, col] -= 256
+        elif -320 < diff < -200: heights[row, col] += 256
 
 # Vertical pass (check up/down neighbors)
 for col in range(grid_size):
     for row in range(1, grid_size - 1):
-        curr = heights[row, col]
-        up = heights[row - 1, col]
-        down = heights[row + 1, col]
-        expected = (up + down) / 2
-        diff = curr - expected
-        
-        if diff > 200 and diff < 320:
-            heights[row, col] -= 256
-        elif diff < -200 and diff > -320:
-            heights[row, col] += 256
+        curr, up, down = heights[row, col], heights[row-1, col], heights[row+1, col]
+        diff = curr - (up + down) / 2
+        if 200 < diff < 320: heights[row, col] -= 256
+        elif -320 < diff < -200: heights[row, col] += 256
 ```
 
-**Detection Range**: 200-320 works well (centered around 256 with some tolerance).
-
-**Symptoms if not applied**: Regular spikes along height layer transition lines (visible as concentric rings in the heightmap image).
+**Symptoms if not applied**: Regular spikes along height layer transition lines (visible as concentric rings).
 
 #### 2.4 Height Scale
-
-The height scale multiplier is **3.0** (units per raw height value).
+Height scale multiplier: **3.0** (units per raw height value). This is a temporary adjustment for testing purposes but the true number is likely 2.4 and we need to correct some other aspect of height maps or rendering to make it display correctly.
 
 #### 2.5 Terrain Scale
+Horizontal terrain scale: **390.625** units per pixel (200,000 world units / 512 pixels).
 
-Horizontal terrain scale is **390.625** units per pixel (200,000 world units / 512 pixels).
 
-### What NOT to Do
 
-The following approaches were tried and **do not work**:
 
-1. ❌ **Row-major order** (`order='C'`) - causes severe striations every 34 columns
-2. ❌ **Little-endian byte order** (`dtype='<u2'`) - causes massive random spikes
-3. ❌ **34-pixel column shift** (`np.roll(data, ±34, axis=1)`) - this was a red herring; the real fix is column-major order
-4. ❌ **Swapped byte interpretation** (`low << 8 | high`) - causes extreme spikes
-
-## 3. Terrain Textures (DXT5 / RGBA)
+## 3. Terrain Textures (Color Maps)
 Base color textures are found in exports containing `baseColor`.
 
-### Extraction Strategy
-Do NOT rely on standard UE2 serialization offsets. Vanguard's VGR textures often have variable header lengths. Use the **Footer Scanning** method:
-1. Scan backwards from the end of the export data for a **10-byte footer**.
-2. **Footer Format**: `[USize (4)][VSize (4)][UBits (1)][VBits (1)]`.
-3. Valid USizes are typically `512`, `1024`, or `2048`.
-
 ### Formats & Decoding
-1. **Format 7 (DXT5)**: 
-   - Standard DXT5 block compression.
-   - Use our native Python `decode_dxt5` (in `extract_all_terrain.py`).
-2. **Format 5 (RGBA8)**:
-   - Raw bytes stored as **BGRA**.
-   - Must swap Blue and Red channels before displaying.
+| Format ID | Name | Channel Order | Notes |
+|-----------|------|---------------|-------|
+| 7 | DXT5 | Standard | Block-compressed, use DXT5 decoder |
+| 5 | BGRA8 | **BGRA** | Raw bytes: B=0, G=1, R=2, A=3 |
+| 3 | DXT1 | Standard | Block-compressed, use DXT1 decoder |
+| 63 | DXT5 | Standard | Vanguard variant of Format 7 |
 
-**CRITICAL**: Like heightmaps, Vanguard terrain textures are effectively stored in a layout that corresponds to the column-major grid. To align correctly with the mesh, the extracted image MUST be **transposed** (flipped along the diagonal):
+**Critical Note on Format 5**: The channel order is **BGRA**, NOT RGBA or ARGB.
+- Interpreting as RGBA causes pink/red tint
+- Interpreting as ARGB causes grey-blue tint
+
+### 3.1 The LAST-MARKER LAW (Alignment)
+
+Vanguard texture exports contain **multiple size markers** in the header area (typically at offsets 133, 148, 163, 202 for color textures). Only the **LAST** marker with valid (non-zero) payload is the True Marker.
+
+**Why Multiple Markers Exist**: The header contains structures that coincidentally match the expected data size. Earlier markers point to garbage/metadata.
+
+**The Algorithm**:
 ```python
-img = img.transpose(Image.TRANSPOSE)
+# Find all markers in header (first 500 bytes)
+markers = find_all_occurrences(expected_size_bytes, header_area)
+
+# Iterate in REVERSE order - last marker is the true one
+for marker in reversed(markers):
+    payload = data[marker + 4 : marker + 12]
+    if payload != all_zeros:
+        data_start = marker + 4  # TRUE data position
+        break
 ```
 
-**Note**: Unlike heightmaps, color textures **DO NOT** require the -35 pixel alignment shift (they are already correctly windowed).
+**Examples**:
+- `n10_n10Height`: Markers at 125, 194 → **194** is correct
+- `n10_n11baseColor`: Markers at 133, 148, 163, 202 → **202** is correct
+
+### 3.2 Texture Alignment & Transposition
+To align color textures with the terrain mesh:
+1. **Transpose**: Apply `Image.TRANSPOSE` because the mesh uses column-major heightmap data.
+2. **No Shifts**: With correct marker selection, zero coordinate shifts are needed.
 
 ## 4. Mesh Generation
 
@@ -170,9 +153,10 @@ indices = [i0, i0 + grid_size, i0 + 1, i0 + 1, i0 + grid_size, i0 + grid_size + 
 Calculate using central differences of neighboring height values.
 
 ## 5. Current Status
-- **Scripts**: `scripts/extractors/extract_all_terrain.py` (Native Python).
-- **Output**: `output/terrain/terrain_grid/*.gltf`.
-- **Coverage**: 299/321 chunks successful (remaining 22 are ocean or special chunks without heightmaps).
+- **Parser**: `ue2/texture.py` (LAST-Marker Selection + BGRA Decoding)
+- **Extractor**: `scripts/extractors/extract_all_terrain.py`
+- **Output**: `output/terrain/terrain_grid/*.gltf`
+- **Coverage**: ~296/321 chunks successful (remaining are ocean or special chunks).
 
 ## 6. Debugging Tips
 
@@ -181,10 +165,12 @@ Calculate using central differences of neighboring height values.
 | Symptom | Likely Cause |
 |---------|--------------|
 | Regular diagonal striations every 34 pixels | Using row-major instead of column-major order |
-| Massive random spikes (heights in 30000-60000 range) | Wrong byte order (little-endian instead of big-endian) |
+| Massive random spikes (heights jumping erratically) | Wrong byte order or wrong marker selection |
 | Regular spikes along "height layer" contour lines | Missing wrap-around correction |
 | Terrain appears completely flat | Missing or wrong HEIGHT_SCALE factor |
-| Texture misaligned with terrain | Accidentally applying heightmap transforms to texture |
+| Grey/white garbage at texture start | Using first marker instead of LAST marker |
+| Pink/red texture tint | Format 5 interpreted as RGBA instead of BGRA |
+| Grey-blue texture tint | Format 5 interpreted as ARGB instead of BGRA |
 
 ### Testing a Single Chunk
 ```bash
@@ -192,43 +178,32 @@ python scripts/extractors/extract_all_terrain.py --chunk chunk_n10_n10
 ```
 
 ### Verifying Smooth Heights
-Check that adjacent height values have small deltas (typically < 50):
 ```python
 heights = ...  # extracted heightmap
 max_delta = np.abs(np.diff(heights, axis=1)).max()
 print(f"Max horizontal delta: {max_delta}")  # Should be < 300 for smooth terrain
 ```
 
----
-
 ## 7. Known Issues & Future Work
 
 ### Issue #1: 256-Boundary Heuristic (UNRESOLVED ROOT CAUSE)
 
-**Status**: ⚠️ Working but not understood
+**Status**: ⚠️ Working but not fully understood
 
-**Description**: The heightmap data contains anomalies at 256-value boundaries that cause spikes. We apply a heuristic correction (neighbor-averaging to detect and fix ~256-unit outliers), but we do NOT understand the true root cause.
-
-**Current Workaround**: Two-pass correction in `extract_all_terrain.py` that detects values ~256 off from neighbors and adjusts.
-
-**Residual Issues**: 
-- ~1000 pixels per chunk (~0.4%) may still have uncorrected anomalies
-- Some corrections may incorrectly modify legitimate steep terrain features
+**Description**: The heightmap data contains anomalies at 256-value boundaries that cause spikes. We apply a heuristic correction, but the true root cause is not fully understood.
 
 **Investigation Needed**:
-1. Examine Unreal Engine 2.5 source code for terrain serialization (`UnTerrain.cpp`)
-2. Compare raw heightmap bytes with known-good terrain to find encoding pattern
-3. Check if Vanguard uses a custom compression or delta-encoding for G16
-4. Analyze whether the pattern correlates with specific height ranges or tile positions
+1. Examine UE2.5 source code for terrain serialization
+2. Check if Vanguard uses custom compression or delta-encoding for G16
 
-**Files Affected**:
-- `scripts/extractors/extract_all_terrain.py` (lines 105-135)
-- All terrain chunks in `output/terrain/terrain_grid/`
-
-### Issue #2: 22 Failed Chunks
+### Issue #2: ~25 Failed Chunks
 
 **Status**: Expected (not bugs)
 
-**Description**: 22 of 321 chunks fail extraction. These are likely ocean or special chunks that don't contain standard heightmap textures.
+**Description**: Some chunks fail extraction. These are likely ocean or special chunks without standard heightmap textures.
 
-**Investigation Needed**: Verify these are intentionally heightmap-less chunks.
+### Issue #3: Multi-Layer Terrain Textures
+
+**Status**: Not implemented
+
+**Description**: Vanguard terrain likely uses alpha-blended multi-layer textures (grass/rock/dirt). Currently we only extract the base color layer.
