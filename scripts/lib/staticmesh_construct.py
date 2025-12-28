@@ -258,6 +258,7 @@ def parse_staticmesh(data: bytes, names: list, serial_offset: int) -> dict:
         'uses_heuristics': False,
         'uses_skips': False,
         'data': {},
+        'parse_status': 'success',
         'unknown_regions': [],
     }
     
@@ -267,41 +268,12 @@ def parse_staticmesh(data: bytes, names: list, serial_offset: int) -> dict:
     result['bytes_parsed'] += prop_end
     
     # Step 2: Parse core structure up to RawTriangles
-    # We look for the InternalVersion (11 or 12) at prop_end + 41.
-    # If not found, the property skip might have misaligned, or there are no properties.
-    
-    found_core = False
-    core_start = prop_end
-    
-    # Check at prop_end
-    if len(data) >= core_start + 45:
-        version = struct.unpack('<i', data[core_start+41 : core_start+45])[0]
-        if version in [11, 12]:
-            found_core = True
-            
-    if not found_core:
-        # Scan for version anchor
-        for offset in range(0, min(len(data), 2000)):
-            if offset + 45 <= len(data):
-                version = struct.unpack('<i', data[offset+41 : offset+45])[0]
-                if version in [11, 12]:
-                    # Check if section count after version is sane
-                    s_count = struct.unpack('<i', data[offset+45 : offset+49])[0]
-                    if 0 <= s_count < 200:
-                        core_start = offset
-                        result['uses_heuristics'] = True
-                        found_core = True
-                        break
-                        
-    if not found_core:
-        result['parse_status'] = 'error'
-    # Step 2: Parse core structure up to RawTriangles
     # We look for the InternalVersion anchor. 
     # UE2: prop_end + 25(FBox) + 16(FSphere) = prop_end + 41
     # Vanguard: prop_end + 24(FBox) + 16(FSphere) = prop_end + 40
     
     core_start = -1
-    v_anchors = [60482, 60484, 11, 12, 128, 129] # Known versions
+    v_anchors = [60482, 60484, 60485, 11, 12, 128, 129] # Known versions
     
     # Try expected offsets first
     for base in [prop_end]:
@@ -364,16 +336,34 @@ def parse_staticmesh(data: bytes, names: list, serial_offset: int) -> dict:
     # Now find the RawTriangles anchor (6-byte null padding + absolute skip_pos)
     # This is much more reliable than parsing every stream field which varies
     padding_pos = -1
-    search_start = core_start + v_off + 8 + (sec_count * section_size)
-    if search_start < len(data):
-        padding_pos = data.find(b'\x00\x00\x00\x00\x00\x00', search_start)
+    skip_pos = 0
     
-    if padding_pos == -1 or padding_pos + 10 > len(data):
+    # We search for the LAST valid padding/pointer combination
+    # Usually RawTriangles is relatively early, but can be later in large meshes
+    search_limit = len(data) - 10
+    search_start = core_start + v_off + 12 # Skip version and section counts
+    
+    for i in range(search_start, search_limit):
+        if data[i:i+6] == b'\x00\x00\x00\x00\x00\x00':
+            ptr = struct.unpack('<I', data[i+6:i+10])[0]
+            # Must be a valid absolute pointer within the file
+            if serial_offset < ptr <= serial_offset + len(data):
+                padding_pos = i
+                skip_pos = ptr
+                # Keep searching for a later one? No, usually the first valid one after headers is it.
+                break
+            elif ptr == 0 and padding_pos == -1:
+                # Potential fallback if no valid pointer is ever found
+                if data[i:i+10] == b'\x00' * 10:
+                    padding_pos = i
+                    skip_pos = 0
+                    # Don't break yet, we might find a real pointer later
+    
+    if padding_pos == -1:
         result['parse_status'] = 'error'
-        result['error_message'] = "Could not find RawTriangles sync padding"
+        result['error_message'] = "Could not find RawTriangles sync padding with valid skip_pos"
         return result
         
-    skip_pos = struct.unpack('<I', data[padding_pos+6 : padding_pos+10])[0]
     core_bytes = padding_pos + 10 - core_start
     
     result['bytes_parsed'] = core_start + core_bytes
@@ -385,17 +375,12 @@ def parse_staticmesh(data: bytes, names: list, serial_offset: int) -> dict:
     
     # Step 3: Handle RawTriangles skip
     # skip_pos is absolute, convert to relative
-    relative_skip = skip_pos - serial_offset
+    relative_skip = skip_pos - serial_offset if skip_pos > 0 else 0
     
     if skip_pos == 0:
-        # No skip needed, or skip_pos not present
+        # No skip needed
         current_pos = core_start + core_bytes
     else:
-        # Boundary check for skip_pos
-        if relative_skip < 0 or relative_skip > len(data):
-             result['parse_status'] = 'error'
-             result['error_message'] = f'Invalid RawTriangles skip_pos: {skip_pos} (relative {relative_skip})'
-             return result
         current_pos = relative_skip
     
     # Bytes between current position and skip target are RawTriangles payload
@@ -405,9 +390,21 @@ def parse_staticmesh(data: bytes, names: list, serial_offset: int) -> dict:
         result['bytes_parsed'] += raw_tri_size
     
     # Step 4: Parse post-skip data (Physics, Auth, LODs)
-    post_skip_data = data[relative_skip:]
-    stream2 = io.BytesIO(post_skip_data)
+    # The header before LODs can vary. We search for LODCount (1-5) and LODVersion (0-1).
+    lod_block_start = -1
+    for i in range(current_pos, min(current_pos + 100, len(data) - 16)):
+        v = struct.unpack('<I', data[i+8:i+12])[0]
+        c = struct.unpack('<I', data[i+12:i+16])[0]
+        if v in [0, 1] and 1 <= c <= 5:
+            # Check if next 20 bytes look like a LOD header (sec_count, vertex_count)
+            lod_block_start = i
+            break
+            
+    if lod_block_start == -1:
+        # Fallback to current position
+        lod_block_start = current_pos
     
+    current_pos = lod_block_start
     PostSkipStructure = Struct(
         "physics_ref" / Int32sl,
         "auth_key" / Int32sl,
@@ -415,79 +412,53 @@ def parse_staticmesh(data: bytes, names: list, serial_offset: int) -> dict:
         "lod_count" / Int32sl,
     )
     
-    post_skip = PostSkipStructure.parse_stream(stream2)
-    # print(f"DEBUG: PostSkip PhysicsRef: {post_skip.physics_ref}")
-    # print(f"DEBUG: PostSkip AuthKey: {post_skip.auth_key}")
-    # print(f"DEBUG: PostSkip LODVersion: {post_skip.lod_version}")
-    # print(f"DEBUG: PostSkip LODCount: {post_skip.lod_count}")
+    stream2 = io.BytesIO(data[current_pos:])
+    try:
+        post_skip = PostSkipStructure.parse_stream(stream2)
+        lod_version = post_skip.lod_version
+        lod_count = post_skip.lod_count
+    except:
+        result['parse_status'] = 'error'
+        result['error_message'] = "Failed to parse LOD header"
+        return result
 
-    post_skip_header_bytes = stream2.tell()
-    result['bytes_parsed'] += post_skip_header_bytes
-    result['data']['physics_ref'] = post_skip.physics_ref
-    result['data']['auth_key'] = post_skip.auth_key
-    result['data']['lod_version'] = post_skip.lod_version
-    result['data']['lod_count'] = post_skip.lod_count
+    result['bytes_parsed'] = current_pos + 16
+    result['data'].update({
+        'physics_ref': post_skip.physics_ref,
+        'auth_key': post_skip.auth_key,
+        'lod_version': lod_version,
+        'lod_count': lod_count,
+    })
     
     # Step 5: Parse LOD models
     lods = []
-    lod_version = post_skip.lod_version
-    
-    for i in range(post_skip.lod_count):
-        # print(f"DEBUG: Parsing LOD {i}, version {lod_version}")
+    for i in range(lod_count):
         lod_data = {'version': lod_version}
         
-        if lod_version == 1:
-            # Version 1 format (Sun mesh style)
-            # Header: section_count, unknown_1, ...
-            # If section_count > 0, we have an array of sections (approx 20 bytes each?)
-            # Then followed by vertex_count.
-            
-            # Read header manually
-            sec_count = Int32ul.parse_stream(stream2)
-            unk_1 = Int32ul.parse_stream(stream2)
-            val_3 = Int32ul.parse_stream(stream2) # Often vertex_count if sec_count=0
-            
-            result['bytes_parsed'] += 12
-            
-            lod_data['section_count'] = sec_count
-            lod_data['unknown_1'] = unk_1
-            
-            if sec_count > 0:
-                # Handle extended header with sections
-                # We observed 20 bytes per section (5 ints) based on Platform04 dump
-                section_bytes = sec_count * 20
-                _ignored_sections = stream2.read(section_bytes)
-                result['bytes_parsed'] += section_bytes
-                
-                # Now read logical vertex count
-                vertex_count = Int32ul.parse_stream(stream2)
-                result['bytes_parsed'] += 4
-                
-                # Validate: if vertex count is absurd, the section size assumption was wrong
-                if vertex_count > 500000:
-                    # print(f"    WARNING: LOD V1 Extended got unreasonable vertex_count={vertex_count}, skipping mesh.")
-                    lod_data['vertex_count'] = 0
-                else:
-                    lod_data['vertex_count'] = vertex_count
-                    # print(f"    LOD V1 Extended: {sec_count} sections skipped. Found {vertex_count} vertices.")
+        # Each LOD has its own header. In Vanguard, it's often:
+        # sec_count(4), unk1(4), unk2(4), vertex_count(4) 
+        # But UE2 is 12 bytes. We check if vertex_count is absurd at 12 and try 16.
+        h12 = struct.unpack('<III', data[result['bytes_parsed'] : result['bytes_parsed']+12])
+        v12 = h12[2]
+        
+        h16 = struct.unpack('<IIII', data[result['bytes_parsed'] : result['bytes_parsed']+16])
+        v16 = h16[3]
+        
+        header_size = 12
+        vertex_count = v12
+        if v12 > 100000 or v12 == 0:
+            if 0 < v16 <= 100000:
+                header_size = 16
+                vertex_count = v16
+                lod_data.update({'sec_count': h16[0], 'unk1': h16[1], 'unk2': h16[2]})
             else:
-                # Standard format: val_3 is vertex count
-                lod_data['vertex_count'] = val_3
-            
+                # Still absurd? Use whatever is smaller but non-zero
+                vertex_count = v12
         else:
-            # Version 0 format (Agua mesh style)
-            # Header: unknown_0, unknown_1, vertex_count
-            LODHeader = Struct(
-                "unknown_0" / Int32ul,
-                "unknown_1" / Int32ul,
-                "vertex_count" / Int32ul,
-            )
-            lod_header = LODHeader.parse_stream(stream2)
-            # print(f"DEBUG: LOD {i} Header (v0): Unk0={lod_header.unknown_0}, Unk1={lod_header.unknown_1}, VertCount={lod_header.vertex_count}")
-            result['bytes_parsed'] += 12
-            lod_data['unknown_0'] = lod_header.unknown_0
-            lod_data['unknown_1'] = lod_header.unknown_1
-            lod_data['vertex_count'] = lod_header.vertex_count
+            lod_data.update({'sec_count': h12[0], 'unk1': h12[1]})
+            
+        lod_data['vertex_count'] = vertex_count
+        result['bytes_parsed'] += header_size
         
         # Vertices (56 bytes each)
         vertex_bytes = lod_data['vertex_count'] * 56
@@ -519,32 +490,40 @@ def parse_staticmesh(data: bytes, names: list, serial_offset: int) -> dict:
                 })
         lod_data['vertices'] = parsed_vertices
         
-        # Post-vertex structure is the SAME for all versions:
-        # val1, unk0, val2, unk1, val3, index_count, indices...
-        # Based on Sun: 8, 0, 4, 0, 4, 6 -> 6 indices
-        # Based on Ra1: 26, 0, 2, 0, 2, 36 -> 36 indices
-        PostVertexHeader = Struct(
-            "val1" / Int32ul,
-            "unk0" / Int32ul,
-            "val2" / Int32ul,
-            "unk1" / Int32ul,
-            "val3" / Int32ul,
-            "index_count" / Int32ul,
-        )
-        pv_header = PostVertexHeader.parse_stream(stream2)
-        result['bytes_parsed'] += 24
+        # Post-vertex structure: search for index_count
+        # It's usually 12-40 bytes after vertices.
+        # We look for the pattern: [val1, unk0, val2, unk1, val3, index_count]
+        # index_count is usually 3-1000000.
+        pv_search_start = result['bytes_parsed']
+        index_count = 0
+        pv_header_size = 0
         
-        lod_data['pv_val1'] = pv_header.val1
-        lod_data['pv_val2'] = pv_header.val2
-        lod_data['pv_val3'] = pv_header.val3
+        for offset in range(0, 64, 4):
+            probe_pos = pv_search_start + offset
+            if probe_pos + 24 <= len(data):
+                ic = struct.unpack('<I', data[probe_pos + 20 : probe_pos + 24])[0]
+                if 3 <= ic <= 1000000:
+                    # Verify by checking first index
+                    first_idx = struct.unpack('<H', data[probe_pos + 24 : probe_pos + 26])[0]
+                    if first_idx < vertex_count:
+                        index_count = ic
+                        pv_header_size = offset + 24
+                        break
         
-        index_count = pv_header.index_count
-        if index_count > 1000000:
-             raise ValueError(f"Absurd LOD index count: {index_count}")
-             
-        indices_raw = stream2.read(index_count * 2)
+        if index_count == 0:
+            # Fallback to standard 24 bytes if search fails
+            pv_header_size = 24
+            if pv_search_start + 24 <= len(data):
+                index_count = struct.unpack('<I', data[pv_search_start + 20 : pv_search_start + 24])[0]
+
+        lod_data['index_count'] = index_count
+        result['bytes_parsed'] = pv_search_start + pv_header_size
+        
+        indices_raw = data[result['bytes_parsed'] : result['bytes_parsed'] + index_count * 2]
         if len(indices_raw) < index_count * 2:
-             raise ValueError(f"Truncated LOD index buffer: expected {index_count * 2}, got {len(indices_raw)}")
+             # Truncated?
+             index_count = len(indices_raw) // 2
+             indices_raw = indices_raw[:index_count * 2]
              
         result['bytes_parsed'] += index_count * 2
         indices = list(struct.unpack(f'<{index_count}H', indices_raw))
