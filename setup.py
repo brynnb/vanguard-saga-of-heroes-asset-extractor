@@ -23,6 +23,7 @@ import sys
 import sqlite3
 import time
 from pathlib import Path
+import argparse
 from datetime import datetime
 
 # Add project root to path
@@ -570,19 +571,37 @@ def print_summary(config):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Vanguard Asset Extractor Setup")
+    parser.add_argument('--reset', action='store_true', help='Delete existing database and start fresh')
+    parser.add_argument('--full', action='store_true', help='Run full extraction (Terrain + Meshes)')
+    parser.add_argument('--skip-core', action='store_true', help='Skip core setup stages (1-4) if DB exists')
+    
+    # Granular stage flags
+    parser.add_argument('--db', action='store_true', help='Stage 2: Initialize Database')
+    parser.add_argument('--files', action='store_true', help='Stage 3: Index Files')
+    parser.add_argument('--chunks', action='store_true', help='Stage 4: Export Chunk Data')
+    parser.add_argument('--mesh-index', action='store_true', help='Stage 5: Index Mesh Objects')
+    parser.add_argument('--textures', action='store_true', help='Stage 6: Build Texture Database')
+    parser.add_argument('--properties', action='store_true', help='Stage 7: extract Object Properties')
+    parser.add_argument('--terrain', action='store_true', help='Stage 8a: Extract Terrain')
+    parser.add_argument('--meshes', action='store_true', help='Stage 8b: Extract StaticMeshes')
+    parser.add_argument('--limit', type=int, default=0, help='Limit number of items to process in Stage 8')
+    
+    args = parser.parse_args()
+    
+    # Determine if we are running specific stages or default flow
+    specific_stage = any([args.db, args.files, args.chunks, args.mesh_index, 
+                         args.textures, args.properties, args.terrain, args.meshes])
+    
     print("\n" + "=" * 60)
     print("VANGUARD ASSET EXTRACTOR - SETUP")
     print("=" * 60)
     
-    # Check for flags
-    reset_mode = "--reset" in sys.argv
-    full_mode = "--full" in sys.argv
-    
-    # Stage 1: Validate config
+    # Stage 1: Validate config (always run)
     config = validate_config()
     
     # Handle --reset flag
-    if reset_mode:
+    if args.reset:
         print("\n   ⚠ RESET MODE: Deleting existing database...")
         if os.path.exists(config.DB_PATH):
             os.remove(config.DB_PATH)
@@ -590,37 +609,63 @@ def main():
         else:
             print("   (No existing database found)")
     
+    # Default flow runs stages 2-7 unless skipped or specific stage selected
+    should_run_defaults = not specific_stage and not args.skip_core
+    
     # Stage 2: Initialize database
-    init_database(config)
+    if args.db or should_run_defaults:
+        init_database(config)
     
     # Stage 3: Index files
-    index_files(config)
+    if args.files or should_run_defaults:
+        index_files(config)
     
     # Stage 4: Export chunk data
-    export_chunk_data(config)
+    if args.chunks or should_run_defaults:
+        export_chunk_data(config)
     
     # Stage 5: Index meshes
-    print("\n" + "=" * 60)
-    print("STAGE 5: Indexing Mesh Objects")
-    print("=" * 60)
-    run_extractor("Mesh Index", "index_meshes.py", silent=False, args=["--silent"])
+    if args.mesh_index or should_run_defaults:
+        print("\n" + "=" * 60)
+        print("STAGE 5: Indexing Mesh Objects")
+        print("=" * 60)
+        run_extractor("Mesh Index", "index_meshes.py", silent=False, args=["--silent"])
     
     # Stage 6: Build texture database
-    print("\n" + "=" * 60)
-    print("STAGE 6: Building Texture Database")
-    print("=" * 60)
-    run_extractor("Texture DB", "build_texture_db.py", silent=False, args=["--silent"])
+    if args.textures or should_run_defaults:
+        print("\n" + "=" * 60)
+        print("STAGE 6: Building Texture Database")
+        print("=" * 60)
+        run_extractor("Texture DB", "build_texture_db.py", silent=False, args=["--silent"])
     
     # Stage 7: Property Extraction
-    print("\n" + "=" * 60)
-    print("STAGE 7: Extracting Object Properties")
-    print("=" * 60)
-    print("   This parses class member values (Location, Mesh, etc.)")
-    run_extractor("Property Extraction", "extract_properties.py", silent=False, args=["--silent"])
+    if args.properties or should_run_defaults:
+        print("\n" + "=" * 60)
+        print("STAGE 7: Extracting Object Properties")
+        print("=" * 60)
+        print("   This parses class member values (Location, Mesh, etc.)")
+        run_extractor("Property Extraction", "extract_properties.py", silent=False, args=["--silent"])
     
-    # Stage 8 (optional): Full extraction
-    if full_mode:
-        run_full_extraction(config)
+    # Stage 8: Full Extraction (Terrain + Meshes)
+    # Only run if --full is set OR specific flags are set
+    if args.full or args.terrain:
+        print("\n" + "=" * 60)
+        print("STAGE 8a: Terrain Extraction")
+        print("=" * 60)
+        print_progress_bar(0, 1, prefix='   Terrain:', suffix='Running...', length=40)
+        if run_extractor("Terrain Extraction", "extract_all_terrain.py", silent=False, args=["--all", "--silent"]):
+            print_progress_bar(1, 1, prefix='   Terrain:', suffix='Complete  ', length=40)
+
+    if args.full or args.meshes:
+        print("\n" + "=" * 60)
+        print("STAGE 8b: StaticMesh Extraction")
+        print("=" * 60)
+        print_progress_bar(0, 1, prefix='   StaticMesh:', suffix='Running...', length=40)
+        mesh_args = ["--silent"]
+        if args.limit > 0:
+            mesh_args.extend(["--limit", str(args.limit)])
+        if run_extractor("StaticMesh Pipeline", "staticmesh_pipeline.py", silent=False, args=mesh_args):
+            print_progress_bar(1, 1, prefix='   StaticMesh:', suffix='Complete  ', length=40)
     
     # Summary
     print_summary(config)

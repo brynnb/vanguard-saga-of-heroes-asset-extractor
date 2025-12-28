@@ -573,6 +573,7 @@ def process_package(pkg_path: str, conn: Optional[sqlite3.Connection], session_i
     stats = {'success': 0, 'error': 0, 'skipped': 0, 'exported': 0}
     
     file_id = get_or_create_file_id(conn, pkg_path) if conn else 0
+    # sys.stderr.write(f"DEBUG: Processing {os.path.basename(pkg_path)}\n")
     meshes = parse_staticmesh_file(pkg_path)
     
     for mesh in meshes:

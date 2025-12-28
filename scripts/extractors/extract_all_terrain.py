@@ -33,9 +33,11 @@ VANGUARD_MAPS = os.path.join(config.ASSETS_PATH, "Maps")
 OUTPUT_DIR = config.TERRAIN_GRID_DIR
 
 # Vanguard-specific terrain decoding constants
-# See PARSING_GUIDELINES.md for details
+# See TERRAIN_GUIDE.md for details
 COLUMN_SHIFT = 34  # Column de-swizzle offset
-HEIGHT_SCALE = 2.4  # Canonical UE2 terrain height scale
+# Height scale: raw 16-bit values (0-65535) multiplied by this factor
+# Original UE2 uses TerrainScale.Z but Vanguard appears to need higher value
+HEIGHT_SCALE = 3.0  # Increased from 2.4 for better height variation
 TERRAIN_SCALE = 390.625  # Units per pixel (200k world / 512 grid)
 
 
@@ -88,24 +90,49 @@ def extract_g16_heightmap(pkg, chunk_name):
                         # =================================================
                         # VANGUARD G16 HEIGHTMAP DECODE
                         # =================================================
-                        # Vanguard uses non-standard byte order and column 
-                        # swizzling for heightmaps.
+                        # Vanguard stores heightmaps in COLUMN-MAJOR order
+                        # (Fortran-style), not the typical row-major (C-style).
                         #
-                        # Standard UE2: height = high_byte << 8 | low_byte
-                        # Vanguard:     height = low_byte << 8 | high_byte
+                        # Byte order is big-endian (first_byte * 256 + second_byte)
                         #
-                        # Columns are offset by 34 pixels (de-swizzle required)
+                        # Additionally, there are wrap-around errors at 256-
+                        # boundaries that need to be corrected.
                         # =================================================
-                        raw_bytes = np.frombuffer(height_data, dtype=np.uint8)
-                        low_bytes = raw_bytes[::2].reshape(grid_size, grid_size).astype(np.float64)
-                        high_bytes = raw_bytes[1::2].reshape(grid_size, grid_size).astype(np.float64)
+                        heights = np.frombuffer(height_data, dtype='>u2').reshape(
+                            grid_size, grid_size, order='F'
+                        ).astype(np.float64)
                         
-                        # De-swizzle columns
-                        low_bytes = np.roll(low_bytes, -COLUMN_SHIFT, axis=1)
-                        high_bytes = np.roll(high_bytes, -COLUMN_SHIFT, axis=1)
+                        # Fix wrap-around errors at 256-boundaries
+                        # When a value differs from its neighbors' midpoint by ~256,
+                        # it indicates a byte wrap that wasn't properly handled
                         
-                        # Vanguard byte order: low << 8 | high
-                        heights = low_bytes * 256 + high_bytes
+                        # Horizontal pass (check left/right neighbors)
+                        for row in range(grid_size):
+                            for col in range(1, grid_size - 1):
+                                curr = heights[row, col]
+                                left = heights[row, col - 1]
+                                right = heights[row, col + 1]
+                                expected = (left + right) / 2
+                                diff = curr - expected
+                                
+                                if diff > 200 and diff < 320:
+                                    heights[row, col] -= 256
+                                elif diff < -200 and diff > -320:
+                                    heights[row, col] += 256
+                        
+                        # Vertical pass (check up/down neighbors)
+                        for col in range(grid_size):
+                            for row in range(1, grid_size - 1):
+                                curr = heights[row, col]
+                                up = heights[row - 1, col]
+                                down = heights[row + 1, col]
+                                expected = (up + down) / 2
+                                diff = curr - expected
+                                
+                                if diff > 200 and diff < 320:
+                                    heights[row, col] -= 256
+                                elif diff < -200 and diff > -320:
+                                    heights[row, col] += 256
                         
                         return heights, grid_size
     
