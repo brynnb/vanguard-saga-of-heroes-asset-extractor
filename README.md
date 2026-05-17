@@ -4,6 +4,29 @@
 
 This project is the extraction side of my other project, [Vanguard: Eternal Sagas](https://www.eternalsagas.com/), which is the actual implementation of these assets into a modern engine. Both sides of this work are the result of hundreds of hours of reverse engineering, parser writing, binary inspection, format reconstruction, and reimplementation into a new engine. The Eternal Sagas website also has multiple pages showing the assets that this project extracts, including the character models, music, 3D world, and world objects.
 
+<table>
+  <tr>
+    <td width="50%">
+      <img src="https://github.com/user-attachments/assets/c422ea53-8a68-4c16-a5d6-6d81cba06ffd" alt="1">
+    </td>
+    <td width="50%">
+      <img src="https://github.com/user-attachments/assets/4094dd37-fba7-47cf-81fd-7e5cad36872e" alt="2">
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="https://github.com/user-attachments/assets/7722fce1-310f-4bf4-9613-4340e4510017" alt="3">
+    </td>
+    <td width="50%">
+      <img src="https://github.com/user-attachments/assets/a42734de-c826-48ba-9018-c59ae05c3efd" alt="4">
+    </td>
+  </tr>
+</table>
+
+
+
+
+
 This is a fan-made preservation and recreation project and is not affiliated with, endorsed by, or connected to Daybreak Game Company LLC or any of its subsidiaries. Vanguard: Saga of Heroes is a registered trademark of Daybreak Game Company LLC. This repository does not distribute Vanguard client files, extracted game assets, generated output, or any other copyrighted Vanguard asset content.
 
 ## What It Extracts
