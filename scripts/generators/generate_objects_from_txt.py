@@ -1,0 +1,1248 @@
+#!/usr/bin/env python3
+"""
+Generate glTF object placement scenes from objects.txt map reference files.
+
+The objects.txt files are produced by scripts/extractors/bulk_extract_chunk_data.py,
+which uses the Unreal-Library CLI to decompile placed actor properties. This
+generator performs Vanguard-specific placement conversion and glTF writing.
+
+Coordinate mapping (must match terrain mesh in extract_all_terrain.py):
+  Vanguard: X=East, Y=North, Z=Up (left-handed)
+  glTF:     X=Right, Y=Up, Z=Forward (right-handed)
+
+  The terrain heightmap is reshaped with numpy order='F' (column-major),
+  which transposes the X/Y axes in the resulting grid. This means:
+    Terrain glTF X = Vanguard world_Y (north axis)
+    Terrain glTF Y = height = (raw_height - 10001) * 10
+    Terrain glTF Z = Vanguard world_X (east axis)
+
+  Objects must use the same swapped mapping:
+    glTF_X = Vanguard_Y  (Location.Y)
+    glTF_Y = Vanguard_Z  (Location.Z = height)
+    glTF_Z = Vanguard_X  (Location.X)
+
+  Meshes from staticmesh_pipeline.py already do this same swap at export time,
+  BUT they also negate Z: gz = -vy. So mesh local space has Z negated relative
+  to world space. The placement nodes should NOT negate — the mesh child handles it.
+
+Rotation mapping:
+  UE2: Pitch=X rotation, Yaw=Z rotation (around up axis), Roll=Y rotation
+  In glTF Y-up space: Yaw → rotation around Y axis
+  UE2 uses 65536 units = 360 degrees, left-handed rotation convention
+  glTF is right-handed, so yaw direction is negated
+"""
+
+import json
+import math
+import os
+import re
+import struct
+import sys
+import base64
+import numpy as np
+from pathlib import Path
+
+# Project paths
+PROJECT_ROOT = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+)
+sys.path.insert(0, PROJECT_ROOT)
+
+try:
+    import config
+
+    OUTPUT_DIR = config.TERRAIN_GRID_DIR
+    MESH_BUILDINGS_DIR = config.MESH_BUILDINGS_DIR
+    MAPS_DIR = config.MAPS_DIR
+    REFERENCE_MAPS_DIR = getattr(
+        config,
+        "REFERENCE_MAPS_DIR",
+        os.path.join(config.OUTPUT_DIR, "reference", "Maps"),
+    )
+except ImportError:
+    OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output/terrain/terrain_grid")
+    MESH_BUILDINGS_DIR = os.path.join(PROJECT_ROOT, "output/meshes/buildings")
+    MAPS_DIR = os.path.expanduser("~/Downloads/Vanguard EMU/Assets/Maps")
+    REFERENCE_MAPS_DIR = os.path.join(PROJECT_ROOT, "output", "reference", "Maps")
+
+# Path to pre-parsed SGO prefab data.
+SGO_PREFABS_JSON = os.path.join(PROJECT_ROOT, "output/data/sgo_prefabs.json")
+
+
+def _read_compact_index(data, pos):
+    """Read a UE2 compact index from binary data."""
+    b0 = data[pos]; pos += 1
+    neg = b0 & 0x80
+    more = b0 & 0x40
+    val = b0 & 0x3F
+    shift = 6
+    while more:
+        b = data[pos]; pos += 1
+        more = b & 0x80
+        val |= (b & 0x7F) << shift
+        shift += 7
+    if neg:
+        val = -val
+    return val, pos
+
+
+def _parse_mesh_lookup_table(ti_data, import_names):
+    """Parse the MeshIndex → StaticMesh lookup table from native body.
+
+    The native body contains a serialized array of 0x68-byte structs at
+    ATerrainInfo::this+0x658.  Each struct's offset +4 holds a UObject*
+    compact index pointing to the actual StaticMesh import.  The array is
+    serialized AFTER DecoLayers and BEFORE DecoInstances.
+
+    Returns dict mapping mesh_index (int) → mesh_name (str), or empty dict on failure.
+    """
+    total = len(ti_data)
+
+    # Find native body start: int32=1 followed by int32=256 (Sectors count)
+    nb_start = None
+    for off in range(35000, min(55000, total - 8)):
+        v1 = struct.unpack_from('<I', ti_data, off)[0]
+        v2 = struct.unpack_from('<I', ti_data, off + 4)[0]
+        if v1 == 1 and v2 == 256:
+            nb_start = off
+            break
+    if nb_start is None:
+        return {}
+
+    nb = ti_data[nb_start:]
+    pos = 4  # skip int32=1
+
+    # Skip Sectors TArray<UObject*>
+    count = struct.unpack_from('<i', nb, pos)[0]; pos += 4
+    for _ in range(count):
+        _, pos = _read_compact_index(nb, pos)
+
+    pos += 8   # SectorsX, SectorsY
+    pos += 96  # 2x FCoords
+    pos += 8   # HeightmapX, HeightmapY
+
+    # UObject* + TArray<float>
+    _, pos = _read_compact_index(nb, pos)
+    fcount = struct.unpack_from('<i', nb, pos)[0]; pos += 4
+    pos += fcount * 4
+
+    pos += 4  # int32 (this+0x16cc)
+
+    # Skip DecoLayers
+    dl_count = struct.unpack_from('<i', nb, pos)[0]; pos += 4
+    for _ in range(dl_count):
+        pos += 12 + 12 + 4 + 25  # 3 int32 + FVector + float + FBox
+        arr12 = struct.unpack_from('<i', nb, pos)[0]; pos += 4
+        pos += arr12 * 12
+        arr32 = struct.unpack_from('<i', nb, pos)[0]; pos += 4
+        pos += arr32 * 4
+        pos += 25 + 4  # FBox + int32
+
+    # Now at the mesh lookup table
+    mesh_count = struct.unpack_from('<i', nb, pos)[0]; pos += 4
+    if mesh_count < 0 or mesh_count > 500:
+        return {}
+
+    mapping = {}
+    for i in range(mesh_count):
+        pos += 4  # float at offset 0
+        obj_ref, pos = _read_compact_index(nb, pos)  # UObject* at offset +4
+
+        if obj_ref < 0:
+            name = import_names.get(obj_ref, f"import_{obj_ref}")
+        elif obj_ref > 0:
+            name = f"export_{obj_ref}"
+        else:
+            name = "None"
+
+        # Skip remaining fields of the 0x68-byte element:
+        # TArray<36B>
+        sub_count = struct.unpack_from('<i', nb, pos)[0]; pos += 4
+        pos += sub_count * 36
+        # int32
+        pos += 4
+        # TArray<int16> + int32
+        i16_count = struct.unpack_from('<i', nb, pos)[0]; pos += 4
+        pos += i16_count * 2
+        # 2x int32
+        pos += 8
+
+        mapping[i] = name
+
+    return mapping
+
+
+def extract_decoinstances(vgr_path, by_name, by_base):
+    """Extract DecoInstance tree/vegetation placements from TerrainInfo native binary.
+
+    Vanguard pre-bakes vegetation placement as DecoInstance structs (22 bytes each)
+    in TerrainInfo's native data. See ARCHEOLOGY.md Section 9.
+
+    DecoInstance struct (22 bytes, Ghidra-verified via FUN_008a19e0):
+        INT16   MeshIndex   - indexes into mesh lookup table at this+0x658 (offset 0, 2 bytes)
+        FVector Position    - 12 bytes: world XYZ (offset 2)
+        BYTE    Flag1       - usually 1 (offset 14)
+        BYTE    Flag2       - various values (offset 15)
+        BYTE    Yaw         - rotation (offset 16)
+        BYTE    Flag3       - (offset 17)
+        FLOAT   Scale       - uniform scale (offset 18, 4 bytes)
+
+    Returns list of object dicts compatible with generate_objects_gltf.
+    """
+    from ue2.package import UE2Package
+
+    try:
+        pkg = UE2Package(vgr_path)
+    except Exception as e:
+        print(f"  Warning: Could not parse {vgr_path}: {e}")
+        return []
+
+    # Find TerrainInfo export
+    ti_export = None
+    for exp in pkg.exports:
+        if exp.get("class_name") == "TerrainInfo":
+            ti_export = exp
+            break
+    if not ti_export:
+        return []
+
+    ti_data = pkg.get_export_data(ti_export)
+
+    total = len(ti_data)
+
+    # Build import name lookup (by compact index value)
+    import_names = {}
+    for imp in pkg.imports:
+        idx = imp['index']  # negative compact index
+        import_names[idx] = imp.get('object_name', '')
+
+    # Parse the mesh lookup table from native body.
+    # MeshIndex does NOT directly index the import table.  It indexes an array
+    # of 0x68-byte structs (at this+0x658) that each contain a UObject* compact
+    # index reference to the actual StaticMesh.  This table is serialized in the
+    # native body AFTER DecoLayers and BEFORE DecoInstances.
+    mesh_mapping = _parse_mesh_lookup_table(ti_data, import_names)
+
+    # Fallback: build direct import list if lookup table parsing fails
+    mesh_imports = []
+    for i, imp in enumerate(pkg.imports):
+        if imp.get("class_name") == "StaticMesh":
+            mesh_imports.append((i, imp.get("object_name", "")))
+
+    if not mesh_imports and not mesh_mapping:
+        return []
+
+    # n_mesh for validation: prefer lookup table count
+    n_mesh = len(mesh_mapping) if mesh_mapping else len(mesh_imports)
+    # produces valid data with bounded types, positions, and scales.
+    # Scan every 2 bytes because the native body uses compact indices that
+    # can cause int32 fields to fall at non-4-byte-aligned offsets.
+    best = None
+    n_mesh = len(mesh_imports)
+    for off in range(0, total - 26, 2):
+        count = struct.unpack_from("<i", ti_data, off)[0]
+        if count < 50 or count > 30000:
+            continue
+
+        array_start = off + 4
+        array_end = array_start + count * 22
+        if array_end > total:
+            continue
+
+        # Quick pre-check: validate first and last few instances
+        sample_ok = 0
+        sample_total = 0
+        for ci in list(range(min(5, count))) + list(range(max(0, count - 5), count)):
+            ioff = array_start + ci * 22
+            mesh_idx = struct.unpack_from("<h", ti_data, ioff)[0]
+            scale = struct.unpack_from("<f", ti_data, ioff + 18)[0]
+            sample_total += 1
+            if 0 <= mesh_idx < n_mesh and 0.0 <= scale < 50:
+                sample_ok += 1
+        if sample_total == 0 or sample_ok / sample_total < 0.8:
+            continue
+
+        # Full validation on promising candidates
+        max_type = 0
+        valid = 0
+        for ci in range(count):
+            ioff = array_start + ci * 22
+            if ioff + 22 > total:
+                break
+            mesh_idx = struct.unpack_from("<h", ti_data, ioff)[0]
+            px, py, pz = struct.unpack_from("<3f", ti_data, ioff + 2)
+            scale = struct.unpack_from("<f", ti_data, ioff + 18)[0]
+            max_type = max(max_type, mesh_idx)
+
+            # Null entries (all zeros) count as valid — they're just empty slots
+            if px == 0 and py == 0 and pz == 0 and scale == 0:
+                valid += 1
+                continue
+
+            if (
+                abs(px) < 200000
+                and abs(py) < 200000
+                and abs(pz) < 200000
+                and 0.0 <= scale < 50
+                and 0 <= mesh_idx < n_mesh
+            ):
+                valid += 1
+
+        ratio = valid / count if count > 0 else 0
+        if ratio >= 0.95 and max_type < n_mesh:
+            if (
+                best is None
+                or ratio > best[3]
+                or (ratio == best[3] and count > best[1])
+            ):
+                best = (array_start, count, max_type, ratio)
+
+    if not best:
+        return []
+
+    array_start, count, max_type, _ratio = best
+
+    # Parse all instances and resolve mesh references
+    objects = []
+    resolved = 0
+    for ci in range(count):
+        ioff = array_start + ci * 22
+        mesh_idx = struct.unpack_from("<h", ti_data, ioff)[0]
+        px, py, pz = struct.unpack_from("<3f", ti_data, ioff + 2)
+        yaw_byte = ti_data[ioff + 16]
+        scale = struct.unpack_from("<f", ti_data, ioff + 18)[0]
+
+        # Skip null entries (pos=0,0,0 and scale=0)
+        if px == 0 and py == 0 and pz == 0 and scale == 0:
+            continue
+
+        # Map mesh index to StaticMesh import name via lookup table
+        if mesh_mapping and mesh_idx in mesh_mapping:
+            mesh_import_name = mesh_mapping[mesh_idx]
+        elif mesh_idx < len(mesh_imports):
+            mesh_import_name = mesh_imports[mesh_idx][1]  # fallback
+        else:
+            continue  # Unknown type, skip
+
+        # Resolve mesh file path
+        name_lower = mesh_import_name.lower()
+        mesh_path = None
+        if name_lower in by_name:
+            mesh_path = by_name[name_lower]
+        else:
+            for lod in ["_l0", "_l1", "_l2"]:
+                if name_lower + lod in by_name:
+                    mesh_path = by_name[name_lower + lod]
+                    break
+            if not mesh_path and name_lower in by_base:
+                mesh_path = by_base[name_lower][0]
+
+        # Convert yaw byte to UE2 rotation units (0-65535)
+        yaw_ue2 = yaw_byte * 256
+
+        obj = {
+            "name": f"TREE_{mesh_import_name}_{ci}",
+            "class": "DecoInstance",
+            "location": (px, py, pz),
+            "prefab_name": mesh_import_name,
+            "mesh_import_name": mesh_import_name,
+            "mesh_path": mesh_path,
+            "deco_scale": scale,
+            "deco_yaw": yaw_ue2,
+        }
+        if mesh_path:
+            resolved += 1
+        objects.append(obj)
+
+    print(
+        f"  DecoInstance: {len(objects)} placements ({resolved} resolved, {max_type + 1} types, {len(mesh_imports)} mesh imports)"
+    )
+    return objects
+
+
+def parse_objects_txt(txt_path):
+    """Parse objects.txt map reference data into a list of object dicts."""
+    objects = []
+    current = None
+
+    with open(txt_path) as f:
+        for line in f:
+            line = line.strip()
+
+            # Start of object block
+            m = re.match(r'begin object name="(\w+)" class=Engine\.(\w+)', line)
+            if m:
+                current = {
+                    "name": m.group(1),
+                    "class": m.group(2),
+                }
+                continue
+
+            # End of object block
+            if line == "end object" and current:
+                # Keep all CompoundObjects with Location (including sector objects)
+                # Sector objects (e.g. chunk_-25_26_Sector_6_7_ag) contain cliff,
+                # boulder, river, and road meshes via SGO prefab components.
+                if current.get("class") == "CompoundObject" and "location" in current:
+                    objects.append(current)
+                current = None
+                continue
+
+            # Property lines
+            if current and "=" in line:
+                key, _, val = line.partition("=")
+                key = key.strip()
+                val = val.strip()
+
+                if key == "Location":
+                    lm = re.match(r"\(X=([-\d.]+),Y=([-\d.]+),Z=([-\d.]+)\)", val)
+                    if lm:
+                        current["location"] = (
+                            float(lm.group(1)),
+                            float(lm.group(2)),
+                            float(lm.group(3)),
+                        )
+                elif key == "Rotation":
+                    rm = re.match(r"\(Pitch=([-\d]+),Yaw=([-\d]+),Roll=([-\d]+)\)", val)
+                    if rm:
+                        current["rotation"] = (
+                            int(rm.group(1)),
+                            int(rm.group(2)),
+                            int(rm.group(3)),
+                        )
+                elif key == "PrefabName":
+                    current["prefab_name"] = val.strip('"')
+                elif key == "PrefabPackageName":
+                    current["prefab_package"] = val.strip('"')
+                elif key == "DrawScale":
+                    try:
+                        current["draw_scale"] = float(val)
+                    except ValueError:
+                        pass
+                elif key == "DrawScale3D":
+                    sm = re.match(r"\(X=([-\d.]+),Y=([-\d.]+),Z=([-\d.]+)\)", val)
+                    if sm:
+                        current["draw_scale_3d"] = (
+                            float(sm.group(1)),
+                            float(sm.group(2)),
+                            float(sm.group(3)),
+                        )
+                elif key == "m_CompoundObjectType":
+                    current["m_CompoundObjectType"] = val
+                elif key == "CullDistance":
+                    try:
+                        current["cull_distance"] = float(val)
+                    except ValueError:
+                        pass
+
+    return objects
+
+
+def ue2_rotation_to_quaternion(pitch, yaw, roll):
+    """Convert UE2 rotation units to glTF quaternion.
+
+    UE2 FRotationMatrix row-vector decomposition: M = M_pitch * M_yaw * M_roll
+    Column-vector equivalent: R = R_X(-roll) * R_Z(yaw) * R_Y(-pitch)
+    Conjugated by position swizzle W (glTF_X=-UE_Y, glTF_Y=UE_Z, glTF_Z=UE_X):
+      R_gltf = R_Y(-yaw) * R_X(-pitch) * R_Z(roll)  →  YXZ Euler order
+    """
+    scale = 2.0 * math.pi / 65536.0
+
+    rx = -pitch * scale  # -Pitch
+    ry = -yaw * scale    # -Yaw
+    rz = roll * scale    # +Roll (no negation)
+
+    # YXZ Euler order to quaternion
+    cx = math.cos(rx * 0.5)
+    sx = math.sin(rx * 0.5)
+    cy = math.cos(ry * 0.5)
+    sy = math.sin(ry * 0.5)
+    cz = math.cos(rz * 0.5)
+    sz = math.sin(rz * 0.5)
+
+    # YXZ rotation order quaternion
+    qw = cx * cy * cz + sx * sy * sz
+    qx = sx * cy * cz + cx * sy * sz
+    qy = cx * sy * cz - sx * cy * sz
+    qz = cx * cy * sz - sx * sy * cz
+
+    return [float(qx), float(qy), float(qz), float(qw)]
+
+
+def build_mesh_lookups(mesh_manifest):
+    """Build fast lookup dicts from the mesh manifest."""
+    by_name = {}  # exact lowercase name → path
+    by_base = {}  # name with LOD suffix stripped → [paths]
+    by_tail = (
+        {}
+    )  # last component (e.g. "bench001") → [paths] for cross-package matching
+
+    for mp in mesh_manifest:
+        fname = os.path.basename(mp).replace(".gltf", "").lower()
+        by_name[fname] = mp
+        # Strip LOD suffix (_L0, _L1, etc.)
+        base = re.sub(r"_l\d+$", "", fname)
+        by_base.setdefault(base, []).append(mp)
+        # Extract tail name: last component with digits (e.g. "bench001", "pillarlight002")
+        tail_match = re.search(r"_([a-z]+\d{3})(?:_l\d+)?$", fname)
+        if tail_match:
+            by_tail.setdefault(tail_match.group(1), []).append(mp)
+
+    return by_name, by_base, by_tail
+
+
+def resolve_mesh_ref(prefab_name, by_name, by_base, by_tail):
+    """Try to find a mesh file for a given prefab name.
+
+    Matching strategy (in priority order):
+    1. Direct match on exact name
+    2. Direct match with LOD suffixes (_L0, _L1, etc.)
+    3. Strip variant suffixes (_curve01, _sunlit01, _bSunlit1, etc.) and match base
+    4. Strip two layers of variant suffixes
+    5. Regex extract base mesh name (up to first 3-digit number) and match
+    6. Substring search in full manifest
+    7. Cross-package tail-name matching (e.g. "bench001" across all packages)
+    """
+    if not prefab_name:
+        return None, []
+
+    name_lower = prefab_name.lower()
+
+    # 1. Direct match
+    if name_lower in by_name:
+        return by_name[name_lower], [by_name[name_lower]]
+
+    # 2. Direct + LOD suffixes
+    for lod in ["_l0", "_l1", "_l2", "_l3"]:
+        if name_lower + lod in by_name:
+            return by_name[name_lower + lod], [by_name[name_lower + lod]]
+
+    # 3. Strip variant suffixes and try base lookup
+    # Covers: _curve01, _sunlit01, _skinset02, _ver01, _v02, _bSunlit1, _standIn01, _quest01
+    stripped = re.sub(
+        r"_(curve|straight|corner|end|circle|sunlit|bsunlit|skinset|ver|v|standin|quest|root)\d*$",
+        "",
+        name_lower,
+    )
+    if stripped != name_lower:
+        if stripped in by_base:
+            return by_base[stripped][0], by_base[stripped][:3]
+        if stripped in by_name:
+            return by_name[stripped], [by_name[stripped]]
+        for lod in ["_l0", "_l1", "_l2"]:
+            if stripped + lod in by_name:
+                return by_name[stripped + lod], [by_name[stripped + lod]]
+
+    # 4. Strip ALL variant-like suffixes (e.g. _standIn01_bSunlit1, _v02_sunlit1)
+    stripped2 = re.sub(
+        r"_(curve|straight|corner|end|circle|sunlit|bsunlit|skinset|ver|v|standin|quest|root)\d*",
+        "",
+        name_lower,
+    )
+    if stripped2 != stripped and stripped2 != name_lower:
+        if stripped2 in by_base:
+            return by_base[stripped2][0], by_base[stripped2][:3]
+        for lod in ["_l0", "_l1", "_l2"]:
+            if stripped2 + lod in by_name:
+                return by_name[stripped2 + lod], [by_name[stripped2 + lod]]
+
+    # 5. Regex: extract base mesh name up to first 3-digit number
+    base_match = re.match(r"(.+?\d{3})", name_lower)
+    if base_match:
+        base_name = base_match.group(1)
+        if base_name in by_base:
+            return by_base[base_name][0], by_base[base_name][:3]
+        for lod in ["_l0", "_l1", "_l2"]:
+            if base_name + lod in by_name:
+                return by_name[base_name + lod], [by_name[base_name + lod]]
+
+    # 6. Substring match (prefab name contained in mesh name)
+    matches = [mp for fn, mp in by_name.items() if name_lower in fn]
+    if matches:
+        matches.sort(key=len)
+        return matches[0], matches[:3]
+
+    # 7. Cross-package tail-name matching (same region only)
+    # Extract the mesh-like tail from prefab name (e.g. "bench001" from "Ra3_P1_C1_Decor_bench001")
+    tail_match = re.search(r"_([a-z]+\d{3})", name_lower)
+    if tail_match:
+        tail = tail_match.group(1)
+        if tail in by_tail:
+            # Only match within the same region to avoid wrong-model substitutions
+            region_match = re.match(r"(ra\d+_p\d+_c\d+)", name_lower)
+            if region_match:
+                region = region_match.group(1)
+                same_region = [p for p in by_tail[tail] if region in p.lower()]
+                if same_region:
+                    same_region.sort(key=len)
+                    return same_region[0], same_region[:3]
+
+    return None, []
+
+
+def load_mesh_manifest():
+    """Load the mesh manifest to resolve prefab→mesh mappings."""
+    manifest_path = os.path.join(MESH_BUILDINGS_DIR, "manifest.json")
+    if os.path.exists(manifest_path):
+        with open(manifest_path) as f:
+            data = json.load(f)
+        return data.get("meshes", [])
+    return []
+
+
+# Singleton SGO prefab data (loaded once from JSON)
+_sgo_prefabs = None
+
+
+def get_sgo_prefabs():
+    """Load pre-parsed SGO prefab data from JSON."""
+    global _sgo_prefabs
+    if _sgo_prefabs is None:
+        if os.path.exists(SGO_PREFABS_JSON):
+            with open(SGO_PREFABS_JSON) as f:
+                _sgo_prefabs = json.load(f)
+            print(f"Loaded SGO prefabs: {len(_sgo_prefabs)} entries")
+        else:
+            print(f"Warning: SGO prefabs JSON not found: {SGO_PREFABS_JSON}")
+            _sgo_prefabs = {}
+    return _sgo_prefabs
+
+
+def _get_prefab_actors(prefab_name):
+    """Return the flat actor list for a prefab, regardless of whether
+    sgo_prefabs.json is in the old list form or the new
+    ``{"actors": [...], "extras": {...}}`` form.
+    """
+    prefabs = get_sgo_prefabs()
+    entry = prefabs.get(prefab_name)
+    if entry is None:
+        return []
+    if isinstance(entry, dict):
+        return entry.get("actors", [])
+    return entry
+
+
+def _get_prefab_extras(prefab_name):
+    """Return the folded non-mesh actor categories for a prefab."""
+    prefabs = get_sgo_prefabs()
+    entry = prefabs.get(prefab_name)
+    if not isinstance(entry, dict):
+        return {}
+    extras = entry.get("extras", {})
+    if isinstance(extras, dict):
+        return extras
+    return {}
+
+
+def _vector_to_list(value):
+    if isinstance(value, dict) and all(axis in value for axis in ("x", "y", "z")):
+        return [value["x"], value["y"], value["z"]]
+    return value
+
+
+def _rotator_to_list(value):
+    if isinstance(value, dict) and all(axis in value for axis in ("pitch", "yaw", "roll")):
+        return [value["pitch"], value["yaw"], value["roll"]]
+    return value
+
+
+SPATIAL_EXTRA_CATEGORIES = ("triggers", "movers", "portals", "physics")
+
+
+def resolve_sgo_spatial_extras(prefab_name):
+    """Extract prefab-local trigger and volume metadata from folded SGO extras.
+
+    The chunk sidecar is used as a prefab template cache, so these records stay
+    in local prefab space. World-space positions come from joining them against
+    the chunk placement transform for each object instance.
+    """
+    prefab_extras = _get_prefab_extras(prefab_name)
+    if not prefab_extras:
+        return {}
+
+    resolved = {}
+    scalar_fields = {
+        "CollisionRadius": "collision_radius",
+        "CollisionHeight": "collision_height",
+        "TargetKeyframe": "target_keyframe",
+        "MoveTime": "move_time",
+        "StayOpenTime": "stay_open_time",
+        "OpeningSound": "opening_sound",
+        "ClosingSound": "closing_sound",
+        "ClosedSound": "closed_sound",
+        "DrawType": "draw_type",
+        "StaticMesh": "static_mesh",
+    }
+
+    for category in SPATIAL_EXTRA_CATEGORIES:
+        actors = prefab_extras.get(category)
+        if not actors:
+            continue
+
+        normalized = []
+        for actor in actors:
+            props = actor.get("props", {})
+            record = {
+                "class": actor.get("class"),
+                "name": actor.get("name"),
+            }
+
+            if props.get("Region") is not None:
+                record["region"] = props["Region"]
+            if props.get("Tag") is not None:
+                record["tag"] = props["Tag"]
+            if props.get("Event") is not None:
+                record["event"] = props["Event"]
+            if props.get("Location") is not None:
+                record["location"] = _vector_to_list(props["Location"])
+            if props.get("ColLocation") is not None:
+                record["col_location"] = _vector_to_list(props["ColLocation"])
+            if props.get("BasePos") is not None:
+                record["base_pos"] = _vector_to_list(props["BasePos"])
+            if props.get("SavedPos") is not None:
+                record["saved_pos"] = _vector_to_list(props["SavedPos"])
+            if props.get("Rotation") is not None:
+                record["rotation"] = _rotator_to_list(props["Rotation"])
+            if props.get("SavedRot") is not None:
+                record["saved_rot"] = _rotator_to_list(props["SavedRot"])
+            if props.get("KeyRot") is not None:
+                record["key_rot"] = [_rotator_to_list(item) for item in props["KeyRot"]]
+
+            for source, target in scalar_fields.items():
+                if props.get(source) is not None:
+                    record[target] = props[source]
+
+            normalized.append(record)
+
+        if normalized:
+            resolved[category] = normalized
+
+    return resolved
+
+
+def resolve_sgo_components(prefab_name, by_name, by_base):
+    """Look up a prefab in sgo_prefabs.json and resolve component meshes.
+
+    Returns list of dicts: [{mesh_path, location, rotation}, ...]
+    where location is the LOCAL offset (Vanguard coords) of each component.
+    Returns empty list if prefab not found or no meshes resolve.
+    """
+    components = _get_prefab_actors(prefab_name)
+    if not components:
+        return []
+
+    resolved = []
+    for comp in components:
+        # Skip light components — handled by resolve_sgo_lights()
+        if comp.get("type") == "light":
+            continue
+        mesh_name = comp.get("mesh", "")
+        if not mesh_name or not isinstance(mesh_name, str):
+            continue
+        mesh_lower = mesh_name.lower()
+
+        # Find mesh file
+        mesh_path = None
+        if mesh_lower in by_name:
+            mesh_path = by_name[mesh_lower]
+        else:
+            for lod in ["_l0", "_l1", "_l2"]:
+                if mesh_lower + lod in by_name:
+                    mesh_path = by_name[mesh_lower + lod]
+                    break
+            if not mesh_path and mesh_lower in by_base:
+                mesh_path = by_base[mesh_lower][0]
+
+        entry = {
+            "mesh_name": mesh_name,
+            "mesh_path": mesh_path,
+            "location": comp.get("location", [0, 0, 0]),
+            "rotation": comp.get("rotation", [0, 0, 0]),
+        }
+        if "draw_scale_3d" in comp:
+            entry["draw_scale_3d"] = comp["draw_scale_3d"]
+        if "draw_scale" in comp:
+            entry["draw_scale"] = comp["draw_scale"]
+        resolved.append(entry)
+
+    return resolved
+
+
+import re as _re
+
+# Patterns for prefabs that should have a synthetic light if none exists.
+# Tuples of (regex, brightness, radius, color_rgb, z_offset).
+_SYNTHETIC_LIGHT_RULES = [
+    # Lamps / street lights — warm white, moderate radius, light near top
+    (_re.compile(r'(lamp|streetlamp|pillarlight|lantern)', _re.I),
+     50.0, 35.0, [90, 105, 135], 250.0),
+    # Wall sconces — warm, smaller radius
+    (_re.compile(r'sconce', _re.I),
+     60.0, 30.0, [85, 100, 140], 150.0),
+    # Torches — orange-warm, medium radius
+    (_re.compile(r'torch', _re.I),
+     65.0, 30.0, [70, 95, 145], 200.0),
+    # Braziers — bright orange
+    (_re.compile(r'brazier', _re.I),
+     80.0, 40.0, [75, 100, 150], 150.0),
+    # Fireplaces / fire pits / campfires — warm orange, wide
+    (_re.compile(r'(fire|campfire)', _re.I),
+     90.0, 50.0, [80, 110, 160], 80.0),
+    # Candles — dim, small radius
+    (_re.compile(r'candle', _re.I),
+     30.0, 15.0, [90, 105, 140], 50.0),
+]
+
+
+def resolve_sgo_lights(prefab_name):
+    """Extract light components from a prefab in sgo_prefabs.json.
+
+    Returns list of dicts with light properties (location, color, brightness, radius).
+    If the prefab has no light components but its name matches a known light-fixture
+    pattern (lamp, torch, fire, etc.), a synthetic light is generated.
+    """
+    components = _get_prefab_actors(prefab_name)
+    if not components:
+        return []
+
+    lights = []
+    for comp in components:
+        if comp.get("type") != "light":
+            continue
+        light = {"location": comp.get("location", [0, 0, 0])}
+        if "brightness" in comp:
+            light["brightness"] = comp["brightness"]
+        if "radius" in comp:
+            light["radius"] = comp["radius"]
+        if "color" in comp:
+            light["color"] = comp["color"]
+        if "hue" in comp:
+            light["hue"] = comp["hue"]
+        if "saturation" in comp:
+            light["saturation"] = comp["saturation"]
+        if "light_type" in comp:
+            light["light_type"] = comp["light_type"]
+        if "light_effect" in comp:
+            light["light_effect"] = comp["light_effect"]
+        if comp.get("dynamic"):
+            light["dynamic"] = True
+        lights.append(light)
+
+    # Generate synthetic light for known fixture prefabs that lack light data
+    if not lights:
+        for pattern, brightness, radius, color, z_off in _SYNTHETIC_LIGHT_RULES:
+            if pattern.search(prefab_name):
+                lights.append({
+                    "location": [0, 0, z_off],
+                    "brightness": brightness,
+                    "radius": radius,
+                    "color": list(color),
+                    "synthetic": True,
+                })
+                break
+
+    return lights
+
+
+def generate_objects_gltf(objects, output_path, chunk_name):
+    """Generate a glTF with correctly-positioned object nodes."""
+
+    # Load mesh manifest for resolving prefab→mesh
+    mesh_manifest = load_mesh_manifest()
+    by_name, by_base, by_tail = build_mesh_lookups(mesh_manifest)
+
+    # Marker cube geometry (small green cube for unresolved objects)
+    s = 100.0
+    cube_verts = np.array(
+        [
+            [-s, -s, -s],
+            [s, -s, -s],
+            [s, s, -s],
+            [-s, s, -s],
+            [-s, -s, s],
+            [s, -s, s],
+            [s, s, s],
+            [-s, s, s],
+        ],
+        dtype=np.float32,
+    )
+    cube_indices = np.array(
+        [
+            0,
+            1,
+            2,
+            0,
+            2,
+            3,
+            4,
+            6,
+            5,
+            4,
+            7,
+            6,
+            0,
+            4,
+            5,
+            0,
+            5,
+            1,
+            2,
+            6,
+            7,
+            2,
+            7,
+            3,
+            0,
+            3,
+            7,
+            0,
+            7,
+            4,
+            1,
+            5,
+            6,
+            1,
+            6,
+            2,
+        ],
+        dtype=np.uint32,
+    )
+    buffer_data = cube_verts.tobytes() + cube_indices.tobytes()
+
+    # Root node
+    nodes = [{"name": f"Root_{chunk_name}", "children": []}]
+
+    resolved_count = 0
+    unresolved_prefabs = set()
+
+    # SGO sidecar: prefab_name -> {components, lights, extras}. Written alongside the
+    # chunk glTF so placement (glTF) and prefab templates (sidecar) stay
+    # decoupled — regenerating sgo_prefabs.json only requires rebuilding the
+    # sidecar, not every chunk glTF.
+    sgo_manifest = {}
+
+    for obj in objects:
+        vx, vy, vz = obj["location"]
+
+        # Coordinate transform: Vanguard → glTF
+        # The terrain mesh uses column-major reshape (order='F') which transposes X/Y:
+        #   Terrain glTF X = Vanguard world_Y
+        #   Terrain glTF Y = height
+        #   Terrain glTF Z = Vanguard world_X
+        # Objects must use the same mapping to sit on the terrain correctly.
+        # Empirically verified: swapped lookup matches terrain height within 6 units.
+        gx = -vy  # Vanguard Y → glTF X (negated for left->right handedness)
+        gy = vz  # Vanguard Z (height) → glTF Y (up)
+        gz = vx  # Vanguard X → glTF Z
+
+        node = {
+            "name": f"OBJ_{obj.get('prefab_name', obj['name'])}",
+            "translation": [float(gx), float(gy), float(gz)],
+        }
+
+        # Store original Vanguard coordinates for debugging in the viewer
+        vang_location = [float(vx), float(vy), float(vz)]
+
+        # DecoInstance objects (trees/vegetation from TerrainInfo native data)
+        if obj.get("class") == "DecoInstance":
+            deco_yaw = obj.get("deco_yaw", 0)
+            if deco_yaw != 0:
+                node["rotation"] = ue2_rotation_to_quaternion(0, deco_yaw, 0)
+            deco_scale = obj.get("deco_scale", 1.0)
+            if deco_scale != 1.0:
+                node["scale"] = [
+                    float(deco_scale),
+                    float(deco_scale),
+                    float(deco_scale),
+                ]
+            mesh_path = obj.get("mesh_path")
+            mesh_ref = (
+                os.path.basename(mesh_path).replace(".gltf", "")
+                if mesh_path
+                else obj.get("mesh_import_name", "")
+            )
+            extras = {
+                "class": "DecoInstance",
+                "mesh_ref": mesh_ref,
+                "is_prefab": False,
+                "vang_location": vang_location,
+            }
+            if mesh_path:
+                extras["mesh_path"] = mesh_path
+                resolved_count += 1
+            else:
+                node["mesh"] = 0
+            node["extras"] = extras
+            idx = len(nodes)
+            nodes.append(node)
+            nodes[0]["children"].append(idx)
+            continue
+
+        # Rotation
+        if "rotation" in obj:
+            pitch, yaw, roll = obj["rotation"]
+            if pitch != 0 or yaw != 0 or roll != 0:
+                node["rotation"] = ue2_rotation_to_quaternion(pitch, yaw, roll)
+
+        # Scale
+        if "draw_scale_3d" in obj:
+            sx, sy, sz = obj["draw_scale_3d"]
+            # Swizzle scale axes same as position: VangY→glTF_X, VangZ→glTF_Y, VangX→glTF_Z
+            node["scale"] = [float(sy), float(sz), float(sx)]
+        elif "draw_scale" in obj:
+            ds = obj["draw_scale"]
+            node["scale"] = [float(ds), float(ds), float(ds)]
+
+        # Resolve mesh reference
+        prefab_name = obj.get("prefab_name", "")
+
+        # Try SGO component resolution FIRST — if the prefab exists in
+        # sgo_prefabs.json it's a compound prefab with sub-meshes, and we
+        # should use those rather than a fuzzy single-mesh match.
+        sgo_components = []
+        mesh_path = None
+        all_paths = []
+        if prefab_name:
+            sgo_components = resolve_sgo_components(prefab_name, by_name, by_base)
+            if sgo_components:
+                # Use first resolved mesh as the primary
+                for sc in sgo_components:
+                    if sc.get("mesh_path"):
+                        mesh_path = sc["mesh_path"]
+                        all_paths = [
+                            c["mesh_path"] for c in sgo_components if c.get("mesh_path")
+                        ]
+                        break
+
+        # Fall back to direct mesh lookup if no SGO components
+        if not mesh_path:
+            mesh_path, all_paths = resolve_mesh_ref(
+                prefab_name, by_name, by_base, by_tail
+            )
+
+        # Skip empty sector objects that have no mesh or SGO components
+        if not mesh_path and not sgo_components:
+            if re.match(r"chunk_-?\d+_\d+_Sector_\d+_\d+_ag", prefab_name):
+                continue
+
+        # Build extras metadata
+        extras = {
+            "class": obj["class"],
+            "prefab_name": prefab_name,
+            "prefab_package": obj.get("prefab_package", ""),
+            "compound_type": int(obj.get("m_CompoundObjectType", 0)),
+            "vang_location": vang_location,
+        }
+
+        if mesh_path:
+            mesh_ref = os.path.basename(mesh_path).replace(".gltf", "")
+            extras["mesh_ref"] = mesh_ref
+            extras["mesh_path"] = mesh_path
+            extras["mesh_count"] = len(all_paths) if all_paths else 1
+            extras["is_prefab"] = True
+            resolved_count += 1
+
+            # If SGO resolved multi-component prefab, record the template in
+            # the sidecar manifest (deduplicated by prefab_name). The glTF
+            # node only carries prefab_name; the viewer fetches the sidecar
+            # and joins them.
+            if sgo_components and prefab_name and prefab_name not in sgo_manifest:
+                comp_data = []
+                for sc in sgo_components:
+                    cd = {"mesh_name": sc["mesh_name"]}
+                    if sc.get("mesh_path"):
+                        cd["mesh_path"] = sc["mesh_path"]
+                    loc = sc.get("location", [0, 0, 0])
+                    if isinstance(loc, list) and any(v != 0 for v in loc):
+                        cd["location"] = loc
+                    rot = sc.get("rotation", [0, 0, 0])
+                    if isinstance(rot, list) and any(v != 0 for v in rot):
+                        cd["rotation"] = rot
+                    if sc.get("draw_scale_3d"):
+                        cd["draw_scale_3d"] = sc["draw_scale_3d"]
+                    if sc.get("draw_scale"):
+                        cd["draw_scale"] = sc["draw_scale"]
+                    comp_data.append(cd)
+                sgo_manifest.setdefault(prefab_name, {})["components"] = comp_data
+
+            # Attach light components if any (also deduplicated in sidecar)
+            if prefab_name and prefab_name not in sgo_manifest.get(prefab_name, {}).get("_lights_done", ""):
+                sgo_lights = resolve_sgo_lights(prefab_name)
+                if sgo_lights:
+                    sgo_manifest.setdefault(prefab_name, {})["lights"] = sgo_lights
+
+            if prefab_name:
+                sgo_spatial_extras = resolve_sgo_spatial_extras(prefab_name)
+                if sgo_spatial_extras:
+                    sgo_manifest.setdefault(prefab_name, {})["extras"] = sgo_spatial_extras
+        else:
+            extras["mesh_ref"] = prefab_name  # Fallback for viewer search
+            extras["is_prefab"] = False
+            # Check if this is a light-only prefab
+            if prefab_name:
+                sgo_lights = resolve_sgo_lights(prefab_name)
+                if sgo_lights:
+                    sgo_manifest.setdefault(prefab_name, {})["lights"] = sgo_lights
+                    extras["has_sgo_lights"] = True
+                else:
+                    node["mesh"] = 0  # Show marker cube only for unresolved non-light
+
+                sgo_spatial_extras = resolve_sgo_spatial_extras(prefab_name)
+                if sgo_spatial_extras:
+                    sgo_manifest.setdefault(prefab_name, {})["extras"] = sgo_spatial_extras
+            else:
+                node["mesh"] = 0
+            if prefab_name and not sgo_manifest.get(prefab_name, {}).get("lights"):
+                unresolved_prefabs.add(prefab_name)
+
+        node["extras"] = extras
+
+        idx = len(nodes)
+        nodes.append(node)
+        nodes[0]["children"].append(idx)
+
+    # Build glTF
+    gltf = {
+        "asset": {"version": "2.0", "generator": "generate_objects_from_txt.py"},
+        "scene": 0,
+        "scenes": [{"nodes": [0]}],
+        "nodes": nodes,
+        "meshes": [
+            {
+                "name": "MarkerCube",
+                "primitives": [
+                    {
+                        "attributes": {"POSITION": 0},
+                        "indices": 1,
+                        "material": 0,
+                        "mode": 4,
+                    }
+                ],
+            }
+        ],
+        "materials": [
+            {
+                "name": "MarkerMaterial",
+                "pbrMetallicRoughness": {
+                    "baseColorFactor": [0.0, 1.0, 0.0, 0.3],
+                    "metallicFactor": 0.0,
+                    "roughnessFactor": 1.0,
+                },
+                "alphaMode": "BLEND",
+            }
+        ],
+        "accessors": [
+            {
+                "bufferView": 0,
+                "componentType": 5126,
+                "count": 8,
+                "type": "VEC3",
+                "min": cube_verts.min(axis=0).tolist(),
+                "max": cube_verts.max(axis=0).tolist(),
+            },
+            {"bufferView": 1, "componentType": 5125, "count": 36, "type": "SCALAR"},
+        ],
+        "bufferViews": [
+            {
+                "buffer": 0,
+                "byteOffset": 0,
+                "byteLength": cube_verts.nbytes,
+                "target": 34962,
+            },
+            {
+                "buffer": 0,
+                "byteOffset": cube_verts.nbytes,
+                "byteLength": cube_indices.nbytes,
+                "target": 34963,
+            },
+        ],
+        "buffers": [
+            {
+                "uri": f"data:application/octet-stream;base64,{base64.b64encode(buffer_data).decode()}",
+                "byteLength": len(buffer_data),
+            }
+        ],
+    }
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, "w") as f:
+        json.dump(gltf, f)
+
+    # Write SGO prefab-template sidecar:
+    # {prefab_name: {components, lights, extras}}.
+    # The glTF stores only placement (location/rotation/scale + prefab_name);
+    # the sidecar carries the shared per-prefab component/light templates.
+    # Viewer fetches both and joins by prefab_name at scene load.
+    sidecar_path = output_path.replace("_objects.gltf", "_sgo.json")
+    with open(sidecar_path, "w") as f:
+        json.dump(sgo_manifest, f, separators=(",", ":"))
+
+    return len(objects), resolved_count, unresolved_prefabs
+
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Generate objects.gltf from map reference objects.txt"
+    )
+    parser.add_argument("chunk", nargs="?", default="chunk_n25_26", help="Chunk name")
+    parser.add_argument("--all", action="store_true", help="Process all chunks")
+    args = parser.parse_args()
+
+    if args.all:
+        chunks = sorted(
+            [
+                d.name
+                for d in Path(REFERENCE_MAPS_DIR).iterdir()
+                if d.is_dir() and d.name.startswith("chunk_")
+            ]
+        )
+    else:
+        chunks = [args.chunk]
+
+    # Pre-load mesh manifest for DecoInstance resolution
+    mesh_manifest = load_mesh_manifest()
+    by_name, by_base, _by_tail = build_mesh_lookups(mesh_manifest)
+
+    total_objects = 0
+    for chunk_name in chunks:
+        txt_path = os.path.join(REFERENCE_MAPS_DIR, chunk_name, "objects.txt")
+        if not os.path.exists(txt_path):
+            print(f"{chunk_name}: No objects.txt")
+            continue
+
+        objects = parse_objects_txt(txt_path)
+
+        # Extract DecoInstance tree/vegetation placements from .vgr binary
+        vgr_path = os.path.join(MAPS_DIR, f"{chunk_name}.vgr")
+        if os.path.exists(vgr_path):
+            deco_objects = extract_decoinstances(vgr_path, by_name, by_base)
+            if deco_objects:
+                objects.extend(deco_objects)
+
+        if not objects:
+            print(f"{chunk_name}: No placeable objects found")
+            continue
+
+        output_path = os.path.join(OUTPUT_DIR, f"{chunk_name}_objects.gltf")
+        count, resolved, unresolved = generate_objects_gltf(
+            objects, output_path, chunk_name
+        )
+
+        print(
+            f"{chunk_name}: {count} objects ({resolved} resolved, {count-resolved} unresolved)"
+        )
+        if unresolved:
+            for p in sorted(unresolved)[:5]:
+                print(f"  ? {p}")
+            if len(unresolved) > 5:
+                print(f"  ... and {len(unresolved)-5} more")
+
+        total_objects += count
+
+    print(f"\nTotal: {total_objects} objects across {len(chunks)} chunks")
+
+
+if __name__ == "__main__":
+    main()
