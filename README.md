@@ -100,7 +100,6 @@ python3 vanguard.py export-meshes
 python3 vanguard.py export-characters
 python3 vanguard.py export-animations
 python3 vanguard.py export-facial-controls
-python3 vanguard.py export-npc-snapshot
 python3 vanguard.py export-npc-assembly
 python3 vanguard.py extract-audio
 python3 vanguard.py extract-world
@@ -108,19 +107,17 @@ python3 vanguard.py extract-world
 
 The NPC assembly sidecars use committed client lookup tables under
 `client_tables/` for race visual mappings. Spawn-level race, model,
-appearance, and attachment data comes from a compact JSON snapshot. If you have
-a local VGO Emulator `vgo_world` MySQL database, export that snapshot once:
+appearance, and attachment data comes from the committed compact JSON snapshot
+at `client_tables/vgo_world_npc_snapshot.json`:
 
 ```bash
-python3 vanguard.py export-npc-snapshot
+python3 vanguard.py extract-all --include-npc-assembly
 ```
 
-This writes `output/data/vgo_world_npc_snapshot.json`, which is generated
-output and ignored by git. The NPC assembly pipeline can then consume that
-snapshot without a live MySQL connection:
+To test a different snapshot, pass it explicitly:
 
 ```bash
-python3 vanguard.py extract-all --include-npc-assembly --npc-snapshot output/data/vgo_world_npc_snapshot.json
+python3 vanguard.py extract-all --include-npc-assembly --npc-snapshot /path/to/vgo_world_npc_snapshot.json
 ```
 
 Python's closest equivalent to npm scripts is a console entry point. This repo includes one, so after an editable install you can run the shorter command form:

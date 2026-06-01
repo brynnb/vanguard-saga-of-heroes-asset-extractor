@@ -39,10 +39,7 @@ sys.path.insert(0, ROOT_DIR)
 sys.path.insert(0, os.path.join(ROOT_DIR, "scripts", "lib"))
 
 from vgo_world_npc_snapshot import (  # noqa: E402
-    DEFAULT_DB_CONFIG,
     DEFAULT_SNAPSHOT_PATH,
-    db_config_from_args,
-    fetch_snapshot,
     group_snapshot,
     load_snapshot,
 )
@@ -96,8 +93,6 @@ OBJECT_STATIC_MESH_OVERRIDES = {
         "Ra8001_Foliage_Meshes/Ra8001_Foliage_smallFlowers005.gltf",
     ],
 }
-
-DB_CONFIG = dict(DEFAULT_DB_CONFIG)
 
 # ---------------------------------------------------------------------------
 # Race clothing acceptance groups.
@@ -943,14 +938,10 @@ def parse_args(argv=None):
         "--npc-snapshot",
         type=Path,
         default=DEFAULT_SNAPSHOT_PATH,
-        help="VGO world NPC snapshot JSON; falls back to MySQL if missing",
+        help="Committed VGO world NPC snapshot JSON",
     )
     parser.add_argument("--static-mesh-manifest", default=STATIC_MESH_MANIFEST_PATH, help="Static mesh manifest JSON")
     parser.add_argument("--object-race-mesh-map", default=OBJECT_RACE_MESH_MAP_PATH, help="Object race static mesh map JSON")
-    parser.add_argument("--db-host", default=DB_CONFIG["host"], help="VGO world MySQL host")
-    parser.add_argument("--db-user", default=DB_CONFIG["user"], help="VGO world MySQL user")
-    parser.add_argument("--db-password", default=DB_CONFIG["password"], help="VGO world MySQL password")
-    parser.add_argument("--db-name", default=DB_CONFIG["database"], help="VGO world MySQL database")
     return parser.parse_args(argv)
 
 
@@ -976,15 +967,11 @@ def configure_paths(args):
 
 def load_npc_source(args):
     snapshot_path = Path(args.npc_snapshot).expanduser()
-    if snapshot_path.exists():
-        snapshot = load_snapshot(snapshot_path)
-        print(f"Loaded NPC source snapshot: {snapshot_path}")
-    else:
-        snapshot = fetch_snapshot(db_config_from_args(args))
-        print(
-            "Loaded NPC source rows from vgo_world MySQL; "
-            "run export-npc-snapshot to cache this as JSON."
-        )
+    if not snapshot_path.exists():
+        raise SystemExit(f"NPC snapshot not found: {snapshot_path}")
+
+    snapshot = load_snapshot(snapshot_path)
+    print(f"Loaded NPC source snapshot: {snapshot_path}")
 
     grouped = group_snapshot(snapshot)
     races = grouped["races"]

@@ -221,7 +221,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Include NPC assembly sidecars in an all-sections run",
     )
-    parser.add_argument("--npc-snapshot", help="VGO world NPC snapshot JSON for NPC assembly stages")
+    parser.add_argument("--npc-snapshot", help="Override committed NPC snapshot JSON for NPC assembly stages")
     parser.add_argument("--dry-run", action="store_true", help="Print planned commands without running child stages")
     parser.add_argument("--keep-going", action="store_true", help="Continue past non-critical section failures")
     parser.set_defaults(reset=True)

@@ -29,10 +29,7 @@ ROOT_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 sys.path.insert(0, SCRIPT_DIR)
 
 from vgo_world_npc_snapshot import (  # noqa: E402
-    DEFAULT_DB_CONFIG,
     DEFAULT_SNAPSHOT_PATH,
-    db_config_from_args,
-    fetch_snapshot,
     load_snapshot,
     race_spawn_counts,
 )
@@ -50,8 +47,6 @@ ASSETS = os.environ.get(
     os.environ.get("VANGUARD_ASSETS_PATH", os.path.expanduser("~/Downloads/Vanguard EMU/Assets")),
 )
 MESH_DIR = os.path.join(ASSETS, "Characters", "Meshes")
-
-DB_CONFIG = dict(DEFAULT_DB_CONFIG)
 
 # ---------------------------------------------------------------------------
 # Name transforms: race name → UEM prefix for non-obvious mappings that are
@@ -252,14 +247,10 @@ def parse_args(argv=None):
         "--npc-snapshot",
         type=Path,
         default=DEFAULT_SNAPSHOT_PATH,
-        help="VGO world NPC snapshot JSON; falls back to MySQL if missing",
+        help="Committed VGO world NPC snapshot JSON",
     )
     parser.add_argument("--actor-race-visual-map", default=ACTOR_RACE_VISUAL_MAP_PATH)
     parser.add_argument("--character-manifest", default=CHARACTER_MANIFEST_PATH)
-    parser.add_argument("--db-host", default=DB_CONFIG["host"], help="VGO world MySQL host")
-    parser.add_argument("--db-user", default=DB_CONFIG["user"], help="VGO world MySQL user")
-    parser.add_argument("--db-password", default=DB_CONFIG["password"], help="VGO world MySQL password")
-    parser.add_argument("--db-name", default=DB_CONFIG["database"], help="VGO world MySQL database")
     return parser.parse_args(argv)
 
 
@@ -269,32 +260,21 @@ def configure_paths(args):
     global OUTPUT_PATH
     global ACTOR_RACE_VISUAL_MAP_PATH
     global CHARACTER_MANIFEST_PATH
-    global DB_CONFIG
 
     ASSETS = os.path.abspath(os.path.expanduser(args.assets))
     MESH_DIR = os.path.join(ASSETS, "Characters", "Meshes")
     OUTPUT_PATH = os.path.abspath(os.path.expanduser(args.out))
     ACTOR_RACE_VISUAL_MAP_PATH = os.path.abspath(os.path.expanduser(args.actor_race_visual_map))
     CHARACTER_MANIFEST_PATH = os.path.abspath(os.path.expanduser(args.character_manifest))
-    DB_CONFIG = {
-        "host": args.db_host,
-        "user": args.db_user,
-        "password": args.db_password,
-        "database": args.db_name,
-    }
 
 
 def load_race_source(args):
     snapshot_path = Path(args.npc_snapshot).expanduser()
-    if snapshot_path.exists():
-        snapshot = load_snapshot(snapshot_path)
-        print(f"Loaded race source from NPC snapshot: {snapshot_path}")
-    else:
-        snapshot = fetch_snapshot(db_config_from_args(args))
-        print(
-            "Loaded race source from vgo_world MySQL; "
-            "run export-npc-snapshot to cache this as JSON."
-        )
+    if not snapshot_path.exists():
+        raise SystemExit(f"NPC snapshot not found: {snapshot_path}")
+
+    snapshot = load_snapshot(snapshot_path)
+    print(f"Loaded race source from NPC snapshot: {snapshot_path}")
 
     tables = snapshot.get("tables", {})
     races = sorted(tables.get("races", []), key=lambda row: int(row["id"]))
