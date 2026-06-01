@@ -16,6 +16,7 @@ Each entry maps a raceID to:
   - category:    race category from DB (NPC, PLAYER, MOUNT, OBJECT, OPT)
 """
 
+import argparse
 import os
 import sys
 import glob
@@ -40,10 +41,10 @@ ASSETS = os.environ.get(
 MESH_DIR = os.path.join(ASSETS, "Characters", "Meshes")
 
 DB_CONFIG = {
-    "host": "127.0.0.1",
-    "user": "root",
-    "password": "",
-    "database": "vgo_world",
+    "host": os.environ.get("VGO_DB_HOST", "127.0.0.1"),
+    "user": os.environ.get("VGO_DB_USER", "root"),
+    "password": os.environ.get("VGO_DB_PASSWORD", ""),
+    "database": os.environ.get("VGO_DB_NAME", "vgo_world"),
 }
 
 # ---------------------------------------------------------------------------
@@ -237,7 +238,44 @@ def _load_actor_race_visual_map():
     return by_name
 
 
-def main():
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--assets", default=ASSETS, help="Path to the Vanguard EMU Assets directory")
+    parser.add_argument("--out", default=OUTPUT_PATH, help="Output race_to_mesh_prefix.json path")
+    parser.add_argument("--actor-race-visual-map", default=ACTOR_RACE_VISUAL_MAP_PATH)
+    parser.add_argument("--character-manifest", default=CHARACTER_MANIFEST_PATH)
+    parser.add_argument("--db-host", default=DB_CONFIG["host"], help="VGO world MySQL host")
+    parser.add_argument("--db-user", default=DB_CONFIG["user"], help="VGO world MySQL user")
+    parser.add_argument("--db-password", default=DB_CONFIG["password"], help="VGO world MySQL password")
+    parser.add_argument("--db-name", default=DB_CONFIG["database"], help="VGO world MySQL database")
+    return parser.parse_args(argv)
+
+
+def configure_paths(args):
+    global ASSETS
+    global MESH_DIR
+    global OUTPUT_PATH
+    global ACTOR_RACE_VISUAL_MAP_PATH
+    global CHARACTER_MANIFEST_PATH
+    global DB_CONFIG
+
+    ASSETS = os.path.abspath(os.path.expanduser(args.assets))
+    MESH_DIR = os.path.join(ASSETS, "Characters", "Meshes")
+    OUTPUT_PATH = os.path.abspath(os.path.expanduser(args.out))
+    ACTOR_RACE_VISUAL_MAP_PATH = os.path.abspath(os.path.expanduser(args.actor_race_visual_map))
+    CHARACTER_MANIFEST_PATH = os.path.abspath(os.path.expanduser(args.character_manifest))
+    DB_CONFIG = {
+        "host": args.db_host,
+        "user": args.db_user,
+        "password": args.db_password,
+        "database": args.db_name,
+    }
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    configure_paths(args)
+
     # Discover all UEM prefixes from filenames
     uem_files = [os.path.basename(f).lower()
                  for f in glob.glob(os.path.join(MESH_DIR, "*.uem"))]

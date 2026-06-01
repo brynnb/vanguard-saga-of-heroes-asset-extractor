@@ -83,6 +83,12 @@ Run a small smoke test:
 python3 vanguard.py setup --db --files
 ```
 
+Preview the full command graph without running long extraction stages:
+
+```bash
+python3 vanguard.py extract-all --dry-run
+```
+
 Run individual extraction stages:
 
 ```bash
@@ -97,6 +103,14 @@ python3 vanguard.py export-facial-controls
 python3 vanguard.py export-npc-assembly
 python3 vanguard.py extract-audio
 python3 vanguard.py extract-world
+```
+
+The DB-backed NPC assembly sidecars require a local VGO Emulator `vgo_world`
+MySQL database. Include them in a full extraction run when that database is
+available:
+
+```bash
+python3 vanguard.py extract-all --include-npc-assembly
 ```
 
 Python's closest equivalent to npm scripts is a console entry point. This repo includes one, so after an editable install you can run the shorter command form:

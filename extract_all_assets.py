@@ -15,9 +15,22 @@ sys.path.insert(0, str(ROOT))
 import config  # noqa: E402
 
 
+def validate_command(command: list[str]) -> None:
+    """Catch missing project scripts before a long extraction run starts."""
+    if len(command) < 2 or not command[1].endswith(".py"):
+        return
+    script_path = ROOT / command[1]
+    if not script_path.exists():
+        raise SystemExit(f"Pipeline script not found: {script_path}")
+
+
 def run_step(label: str, command: list[str], env: dict[str, str], allow_fail: bool = False) -> bool:
     print(f"\n==> {label}")
     print("    " + " ".join(command))
+    validate_command(command)
+    if env.get("VANGUARD_EXTRACT_DRY_RUN") == "1":
+        print("    dry-run: not executed")
+        return True
     result = subprocess.run(command, cwd=ROOT, env=env)
     if result.returncode != 0:
         message = f"{label} failed with exit code {result.returncode}"
@@ -40,6 +53,7 @@ def run_core(args: argparse.Namespace, env: dict[str, str]) -> None:
             [sys.executable, "scripts/extractors/bulk_extract_chunk_data.py"],
             env,
         )
+        env["VANGUARD_REFERENCE_MAPS_PLANNED"] = "1"
         run_step(
             "Build material manifest",
             [
@@ -92,7 +106,7 @@ def run_world(args: argparse.Namespace, env: dict[str, str]) -> None:
     run_step("Fold SGO extras into prefabs", [sys.executable, "scripts/extractors/fold_actors_into_prefabs.py"], env)
 
     reference_maps = Path(config.REFERENCE_MAPS_DIR)
-    if reference_maps.exists():
+    if reference_maps.exists() or env.get("VANGUARD_REFERENCE_MAPS_PLANNED") == "1":
         run_step(
             "Generate chunk object placement glTF files",
             [sys.executable, "scripts/generators/generate_objects_from_txt.py", "--all"],
@@ -128,6 +142,29 @@ def run_characters(args: argparse.Namespace, env: dict[str, str]) -> None:
 def run_animations(env: dict[str, str]) -> None:
     run_step("Export EMotion FX animations", [sys.executable, "scripts/exporters/export_emfx_animations.py"], env)
     run_step("Export UE2 skeletal animations", [sys.executable, "scripts/exporters/export_animations.py"], env)
+
+
+def run_npc_assembly(env: dict[str, str]) -> None:
+    run_step(
+        "Export actor race visual map",
+        [sys.executable, "scripts/exporters/export_actor_race_visual_map.py"],
+        env,
+    )
+    run_step(
+        "Export object race mesh map",
+        [sys.executable, "scripts/exporters/export_object_race_mesh_map.py"],
+        env,
+    )
+    run_step(
+        "Build race prefix map",
+        [sys.executable, "scripts/exporters/build_race_prefix_map.py"],
+        env,
+    )
+    run_step(
+        "Export NPC assembly data",
+        [sys.executable, "scripts/exporters/export_npc_assembly.py"],
+        env,
+    )
 
 
 def run_audio(args: argparse.Namespace, env: dict[str, str]) -> None:
@@ -168,12 +205,18 @@ def parse_args() -> argparse.Namespace:
         "--sections",
         nargs="+",
         default=["all"],
-        choices=["all", "core", "world", "characters", "animations", "audio"],
+        choices=["all", "core", "world", "characters", "animations", "audio", "npc"],
         help="Pipeline sections to run",
     )
     parser.add_argument("--no-reset", dest="reset", action="store_false", help="Do not delete/rebuild the SQLite DB")
     parser.add_argument("--limit-meshes", type=int, default=0, help="Limit static mesh packages during testing")
     parser.add_argument("--skip-unreal-library", action="store_true", help="Skip steps that require Unreal-Library")
+    parser.add_argument(
+        "--include-npc-assembly",
+        action="store_true",
+        help="Include DB-backed NPC assembly sidecars in an all-sections run",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="Print planned commands without running child stages")
     parser.add_argument("--keep-going", action="store_true", help="Continue past non-critical section failures")
     parser.set_defaults(reset=True)
     return parser.parse_args()
@@ -192,10 +235,14 @@ def main() -> int:
     env["VANGUARD_ASSETS"] = str(assets)
     env["VANGUARD_EMU_PATH"] = str(emu_root)
     env.setdefault("UNREAL_LIBRARY_DLL", config.UNREAL_LIBRARY_DLL)
+    if args.dry_run:
+        env["VANGUARD_EXTRACT_DRY_RUN"] = "1"
 
     sections = set(args.sections)
     if "all" in sections:
         sections = {"core", "world", "characters", "animations", "audio"}
+        if args.include_npc_assembly:
+            sections.add("npc")
 
     if "core" in sections:
         run_core(args, env)
@@ -205,10 +252,15 @@ def main() -> int:
         run_characters(args, env)
     if "animations" in sections:
         run_animations(env)
+    if "npc" in sections:
+        run_npc_assembly(env)
     if "audio" in sections:
         run_audio(args, env)
 
-    print("\nExtraction complete. Outputs are under ./output.")
+    if args.dry_run:
+        print("\nDry run complete. No child extraction stages were executed.")
+    else:
+        print("\nExtraction complete. Outputs are under ./output.")
     return 0
 
 

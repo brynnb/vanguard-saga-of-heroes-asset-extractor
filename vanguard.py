@@ -104,6 +104,10 @@ def cmd_extract_all(args: argparse.Namespace) -> None:
         command.extend(["--limit-meshes", str(args.limit_meshes)])
     if args.skip_unreal_library:
         command.append("--skip-unreal-library")
+    if args.include_npc_assembly:
+        command.append("--include-npc-assembly")
+    if args.dry_run:
+        command.append("--dry-run")
     if args.keep_going:
         command.append("--keep-going")
     run("Run extraction pipeline", command, env)
@@ -351,12 +355,18 @@ def build_parser() -> argparse.ArgumentParser:
     extract_all.add_argument(
         "--sections",
         nargs="+",
-        choices=["all", "core", "world", "characters", "animations", "audio"],
+        choices=["all", "core", "world", "characters", "animations", "audio", "npc"],
         help="Pipeline sections to run",
     )
     extract_all.add_argument("--no-reset", action="store_true", help="Do not delete/rebuild the SQLite DB")
     extract_all.add_argument("--limit-meshes", type=int, default=0, help="Limit static mesh packages during testing")
     extract_all.add_argument("--skip-unreal-library", action="store_true", help="Skip Unreal-Library-dependent steps")
+    extract_all.add_argument(
+        "--include-npc-assembly",
+        action="store_true",
+        help="Include DB-backed NPC assembly sidecars in an all-sections run",
+    )
+    extract_all.add_argument("--dry-run", action="store_true", help="Print planned commands without running child stages")
     extract_all.add_argument("--keep-going", action="store_true", help="Continue past non-critical failures")
     extract_all.set_defaults(func=cmd_extract_all)
 
