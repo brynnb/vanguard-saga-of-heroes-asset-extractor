@@ -22,10 +22,21 @@ import sys
 import glob
 import re
 import json
-import mysql.connector
+from pathlib import Path
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
+sys.path.insert(0, SCRIPT_DIR)
+
+from vgo_world_npc_snapshot import (  # noqa: E402
+    DEFAULT_DB_CONFIG,
+    DEFAULT_SNAPSHOT_PATH,
+    db_config_from_args,
+    fetch_snapshot,
+    load_snapshot,
+    race_spawn_counts,
+)
+
 OUTPUT_PATH = os.path.join(ROOT_DIR, "output", "data", "race_to_mesh_prefix.json")
 ACTOR_RACE_VISUAL_MAP_PATH = os.path.join(
     ROOT_DIR, "output", "data", "actor_race_visual_map.json"
@@ -40,12 +51,7 @@ ASSETS = os.environ.get(
 )
 MESH_DIR = os.path.join(ASSETS, "Characters", "Meshes")
 
-DB_CONFIG = {
-    "host": os.environ.get("VGO_DB_HOST", "127.0.0.1"),
-    "user": os.environ.get("VGO_DB_USER", "root"),
-    "password": os.environ.get("VGO_DB_PASSWORD", ""),
-    "database": os.environ.get("VGO_DB_NAME", "vgo_world"),
-}
+DB_CONFIG = dict(DEFAULT_DB_CONFIG)
 
 # ---------------------------------------------------------------------------
 # Name transforms: race name → UEM prefix for non-obvious mappings that are
@@ -242,6 +248,12 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--assets", default=ASSETS, help="Path to the Vanguard EMU Assets directory")
     parser.add_argument("--out", default=OUTPUT_PATH, help="Output race_to_mesh_prefix.json path")
+    parser.add_argument(
+        "--npc-snapshot",
+        type=Path,
+        default=DEFAULT_SNAPSHOT_PATH,
+        help="VGO world NPC snapshot JSON; falls back to MySQL if missing",
+    )
     parser.add_argument("--actor-race-visual-map", default=ACTOR_RACE_VISUAL_MAP_PATH)
     parser.add_argument("--character-manifest", default=CHARACTER_MANIFEST_PATH)
     parser.add_argument("--db-host", default=DB_CONFIG["host"], help="VGO world MySQL host")
@@ -272,6 +284,23 @@ def configure_paths(args):
     }
 
 
+def load_race_source(args):
+    snapshot_path = Path(args.npc_snapshot).expanduser()
+    if snapshot_path.exists():
+        snapshot = load_snapshot(snapshot_path)
+        print(f"Loaded race source from NPC snapshot: {snapshot_path}")
+    else:
+        snapshot = fetch_snapshot(db_config_from_args(args))
+        print(
+            "Loaded race source from vgo_world MySQL; "
+            "run export-npc-snapshot to cache this as JSON."
+        )
+
+    tables = snapshot.get("tables", {})
+    races = sorted(tables.get("races", []), key=lambda row: int(row["id"]))
+    return races, race_spawn_counts(snapshot)
+
+
 def main(argv=None):
     args = parse_args(argv)
     configure_paths(args)
@@ -288,11 +317,7 @@ def main(argv=None):
         print(f"Discovered {len(exported_prefix_set)} exported character prefixes")
     actor_visual_map = _load_actor_race_visual_map()
 
-    # Load races from DB
-    conn = mysql.connector.connect(**DB_CONFIG)
-    cur = conn.cursor(dictionary=True)
-    cur.execute("SELECT id, name, category FROM races ORDER BY id")
-    races = cur.fetchall()
+    races, spawn_counts = load_race_source(args)
 
     mapping = {}
 
@@ -409,8 +434,7 @@ def main(argv=None):
             continue
 
         # Check spawns for unmapped non-object races
-        cur.execute("SELECT COUNT(*) as cnt FROM unreal_pawn WHERE raceID = %s", (rid,))
-        cnt = cur.fetchone()['cnt']
+        cnt = spawn_counts.get(rid, 0)
         if cnt > 0 and cat not in ('OBJECT',):
             entry['prefix'] = None
             entry['source'] = 'unmatched'
@@ -443,25 +467,22 @@ def main(argv=None):
         print(f"  {s}: {c}")
 
     # Spawn coverage
-    cur.execute("SELECT raceID, COUNT(*) as cnt FROM unreal_pawn GROUP BY raceID")
     total_spawns = 0
     covered_spawns = 0
-    for row in cur.fetchall():
-        total_spawns += row['cnt']
-        if row['raceID'] in mapping:
-            e = mapping[row['raceID']]
+    for race_id, count in spawn_counts.items():
+        total_spawns += count
+        if race_id in mapping:
+            e = mapping[race_id]
             if e.get('prefix') or e.get('body_prefix'):
-                covered_spawns += row['cnt']
-    print(f"Spawn coverage: {covered_spawns}/{total_spawns} ({100*covered_spawns/total_spawns:.1f}%)")
+                covered_spawns += count
+    pct = 100 * covered_spawns / total_spawns if total_spawns else 0
+    print(f"Spawn coverage: {covered_spawns}/{total_spawns} ({pct:.1f}%)")
 
     # Save
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
     with open(OUTPUT_PATH, 'w') as f:
         json.dump(mapping, f, indent=2, default=str)
     print(f"Saved {len(mapping)} entries to {OUTPUT_PATH}")
-
-    cur.close()
-    conn.close()
 
 
 if __name__ == "__main__":

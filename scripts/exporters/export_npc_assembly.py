@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export legacy browser NPC assembly data from vgo_world MySQL database.
+"""Export legacy browser NPC assembly data from a VGO world snapshot.
 
 Produces:
   output/data/npc_assembly.json          — all server pawns
@@ -30,11 +30,22 @@ import json
 import os
 import sys
 import re
+from pathlib import Path
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
+sys.path.insert(0, SCRIPT_DIR)
 sys.path.insert(0, ROOT_DIR)
 sys.path.insert(0, os.path.join(ROOT_DIR, "scripts", "lib"))
+
+from vgo_world_npc_snapshot import (  # noqa: E402
+    DEFAULT_DB_CONFIG,
+    DEFAULT_SNAPSHOT_PATH,
+    db_config_from_args,
+    fetch_snapshot,
+    group_snapshot,
+    load_snapshot,
+)
 
 OUTPUT_DIR = os.path.join(ROOT_DIR, "output", "data")
 MANIFEST_PATH = os.path.join(
@@ -86,12 +97,7 @@ OBJECT_STATIC_MESH_OVERRIDES = {
     ],
 }
 
-DB_CONFIG = {
-    "host": os.environ.get("VGO_DB_HOST", "127.0.0.1"),
-    "user": os.environ.get("VGO_DB_USER", "root"),
-    "password": os.environ.get("VGO_DB_PASSWORD", ""),
-    "database": os.environ.get("VGO_DB_NAME", "vgo_world"),
-}
+DB_CONFIG = dict(DEFAULT_DB_CONFIG)
 
 # ---------------------------------------------------------------------------
 # Race clothing acceptance groups.
@@ -933,6 +939,12 @@ def parse_args(argv=None):
     parser.add_argument("--manifest", default=MANIFEST_PATH, help="Character mesh manifest JSON")
     parser.add_argument("--attachment-clth", default=ATT_CLTH_PATH, help="Decoded item attachment mesh map JSON")
     parser.add_argument("--race-prefix", default=RACE_PREFIX_PATH, help="Race to mesh prefix JSON")
+    parser.add_argument(
+        "--npc-snapshot",
+        type=Path,
+        default=DEFAULT_SNAPSHOT_PATH,
+        help="VGO world NPC snapshot JSON; falls back to MySQL if missing",
+    )
     parser.add_argument("--static-mesh-manifest", default=STATIC_MESH_MANIFEST_PATH, help="Static mesh manifest JSON")
     parser.add_argument("--object-race-mesh-map", default=OBJECT_RACE_MESH_MAP_PATH, help="Object race static mesh map JSON")
     parser.add_argument("--db-host", default=DB_CONFIG["host"], help="VGO world MySQL host")
@@ -962,11 +974,33 @@ def configure_paths(args):
     UEM_DIR = os.path.join(ASSETS_DIR, "Characters", "Meshes")
 
 
+def load_npc_source(args):
+    snapshot_path = Path(args.npc_snapshot).expanduser()
+    if snapshot_path.exists():
+        snapshot = load_snapshot(snapshot_path)
+        print(f"Loaded NPC source snapshot: {snapshot_path}")
+    else:
+        snapshot = fetch_snapshot(db_config_from_args(args))
+        print(
+            "Loaded NPC source rows from vgo_world MySQL; "
+            "run export-npc-snapshot to cache this as JSON."
+        )
+
+    grouped = group_snapshot(snapshot)
+    races = grouped["races"]
+    pawns = grouped["pawns"]
+    actor_scales = grouped["actor_scales"]
+    att_groups = grouped["att_groups"]
+    att_sets = grouped["att_sets"]
+    appearances = grouped["appearances"]
+    print(f"Loaded {len(pawns)} pawns")
+    print(f"Loaded {len(actor_scales)} pawn draw-scale rows")
+    return races, pawns, actor_scales, att_groups, att_sets, appearances
+
+
 def main(argv=None):
     args = parse_args(argv)
     configure_paths(args)
-
-    import mysql.connector
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     manifest_by_pkg = load_manifest()
@@ -980,65 +1014,7 @@ def main(argv=None):
         for e in entries:
             manifest_by_export[e["export"]] = e
 
-    conn = mysql.connector.connect(
-        host=args.db_host,
-        user=args.db_user,
-        password=args.db_password,
-        database=args.db_name,
-    )
-    cur = conn.cursor(dictionary=True)
-
-    # Load races
-    cur.execute("SELECT id, category, name, maleMeshID, femaleMeshID FROM races")
-    races = {r["id"]: r for r in cur.fetchall()}
-
-    # Load NPCs
-    cur.execute(
-        "SELECT spawn_id_fk, gender, raceID, modelNum, "
-        "playerDisplayName, iMount, wieldPreference "
-        "FROM unreal_pawn"
-    )
-    pawns = {r["spawn_id_fk"]: r for r in cur.fetchall()}
-    print(f"Loaded {len(pawns)} pawns")
-
-    cur.execute(
-        "SELECT spawn_id, spawn_name, drawScale_low, drawScale_high "
-        "FROM unreal_actor "
-        "WHERE unreal_type = 'SGONPCPawn'"
-    )
-    actor_scales = {r["spawn_id"]: r for r in cur.fetchall()}
-    print(f"Loaded {len(actor_scales)} pawn draw-scale rows")
-
-    # Load attachment groups + sets
-    cur.execute(
-        "SELECT spawn_id_fk, set_id_fk "
-        "FROM unreal_pawn_attachment_groups"
-    )
-    att_groups = {}
-    for r in cur.fetchall():
-        att_groups.setdefault(r["spawn_id_fk"], []).append(r["set_id_fk"])
-
-    cur.execute(
-        "SELECT set_id, attachment_slot, attachment_index, "
-        "package_index, inventory_slot "
-        "FROM unreal_pawn_attachment_sets"
-    )
-    att_sets = {}
-    for r in cur.fetchall():
-        att_sets.setdefault(r["set_id"], []).append(r)
-
-    # Load appearances
-    cur.execute(
-        "SELECT spawn_id_fk, appearance_id, "
-        "appearance_value_low, appearance_value_high "
-        "FROM unreal_pawn_appearances"
-    )
-    appearances = {}
-    for r in cur.fetchall():
-        appearances.setdefault(r["spawn_id_fk"], []).append(r)
-
-    cur.close()
-    conn.close()
+    races, pawns, actor_scales, att_groups, att_sets, appearances = load_npc_source(args)
 
     # Load authoritative race→prefix mapping
     race_prefix_map, race_body_map = load_race_prefix_map()

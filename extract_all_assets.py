@@ -144,7 +144,7 @@ def run_animations(env: dict[str, str]) -> None:
     run_step("Export UE2 skeletal animations", [sys.executable, "scripts/exporters/export_animations.py"], env)
 
 
-def run_npc_assembly(env: dict[str, str]) -> None:
+def run_npc_assembly(args: argparse.Namespace, env: dict[str, str]) -> None:
     run_step(
         "Export actor race visual map",
         [sys.executable, "scripts/exporters/export_actor_race_visual_map.py"],
@@ -155,14 +155,19 @@ def run_npc_assembly(env: dict[str, str]) -> None:
         [sys.executable, "scripts/exporters/export_object_race_mesh_map.py"],
         env,
     )
+    race_prefix_cmd = [sys.executable, "scripts/exporters/build_race_prefix_map.py"]
+    assembly_cmd = [sys.executable, "scripts/exporters/export_npc_assembly.py"]
+    if args.npc_snapshot:
+        race_prefix_cmd.extend(["--npc-snapshot", args.npc_snapshot])
+        assembly_cmd.extend(["--npc-snapshot", args.npc_snapshot])
     run_step(
         "Build race prefix map",
-        [sys.executable, "scripts/exporters/build_race_prefix_map.py"],
+        race_prefix_cmd,
         env,
     )
     run_step(
         "Export NPC assembly data",
-        [sys.executable, "scripts/exporters/export_npc_assembly.py"],
+        assembly_cmd,
         env,
     )
 
@@ -214,8 +219,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--include-npc-assembly",
         action="store_true",
-        help="Include DB-backed NPC assembly sidecars in an all-sections run",
+        help="Include NPC assembly sidecars in an all-sections run",
     )
+    parser.add_argument("--npc-snapshot", help="VGO world NPC snapshot JSON for NPC assembly stages")
     parser.add_argument("--dry-run", action="store_true", help="Print planned commands without running child stages")
     parser.add_argument("--keep-going", action="store_true", help="Continue past non-critical section failures")
     parser.set_defaults(reset=True)
@@ -253,7 +259,7 @@ def main() -> int:
     if "animations" in sections:
         run_animations(env)
     if "npc" in sections:
-        run_npc_assembly(env)
+        run_npc_assembly(args, env)
     if "audio" in sections:
         run_audio(args, env)
 

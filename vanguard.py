@@ -42,6 +42,13 @@ def add_path_options(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_db_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--db-host", default=os.environ.get("VGO_DB_HOST", "127.0.0.1"), help="VGO world MySQL host")
+    parser.add_argument("--db-user", default=os.environ.get("VGO_DB_USER", "root"), help="VGO world MySQL user")
+    parser.add_argument("--db-password", default=os.environ.get("VGO_DB_PASSWORD", ""), help="VGO world MySQL password")
+    parser.add_argument("--db-name", default=os.environ.get("VGO_DB_NAME", "vgo_world"), help="VGO world MySQL database")
+
+
 def build_env(args: argparse.Namespace) -> dict[str, str]:
     assets = Path(args.assets).expanduser().resolve()
     emu_root = Path(args.emu_root).expanduser().resolve()
@@ -106,6 +113,8 @@ def cmd_extract_all(args: argparse.Namespace) -> None:
         command.append("--skip-unreal-library")
     if args.include_npc_assembly:
         command.append("--include-npc-assembly")
+    if args.npc_snapshot:
+        command.extend(["--npc-snapshot", args.npc_snapshot])
     if args.dry_run:
         command.append("--dry-run")
     if args.keep_going:
@@ -226,16 +235,32 @@ def cmd_export_npc_assembly(args: argparse.Namespace) -> None:
         [sys.executable, "scripts/exporters/export_object_race_mesh_map.py"],
         env,
     )
-    run(
-        "Build race prefix map",
-        [sys.executable, "scripts/exporters/build_race_prefix_map.py"],
-        env,
-    )
-    run(
-        "Export NPC assembly data",
-        [sys.executable, "scripts/exporters/export_npc_assembly.py"],
-        env,
-    )
+    race_prefix_cmd = [sys.executable, "scripts/exporters/build_race_prefix_map.py"]
+    assembly_cmd = [sys.executable, "scripts/exporters/export_npc_assembly.py"]
+    if args.npc_snapshot:
+        race_prefix_cmd.extend(["--npc-snapshot", args.npc_snapshot])
+        assembly_cmd.extend(["--npc-snapshot", args.npc_snapshot])
+    run("Build race prefix map", race_prefix_cmd, env)
+    run("Export NPC assembly data", assembly_cmd, env)
+
+
+def cmd_export_npc_snapshot(args: argparse.Namespace) -> None:
+    env = os.environ.copy()
+    command = [
+        sys.executable,
+        "scripts/exporters/vgo_world_npc_snapshot.py",
+        "--out",
+        args.out,
+        "--db-host",
+        args.db_host,
+        "--db-user",
+        args.db_user,
+        "--db-password",
+        args.db_password,
+        "--db-name",
+        args.db_name,
+    ]
+    run("Export VGO world NPC snapshot", command, env)
 
 
 def cmd_extract_audio(args: argparse.Namespace) -> None:
@@ -364,8 +389,9 @@ def build_parser() -> argparse.ArgumentParser:
     extract_all.add_argument(
         "--include-npc-assembly",
         action="store_true",
-        help="Include DB-backed NPC assembly sidecars in an all-sections run",
+        help="Include NPC assembly sidecars in an all-sections run",
     )
+    extract_all.add_argument("--npc-snapshot", help="VGO world NPC snapshot JSON for NPC assembly stages")
     extract_all.add_argument("--dry-run", action="store_true", help="Print planned commands without running child stages")
     extract_all.add_argument("--keep-going", action="store_true", help="Continue past non-critical failures")
     extract_all.set_defaults(func=cmd_extract_all)
@@ -411,7 +437,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Export legacy NPC assembly/race visual lookup sidecars",
     )
     add_path_options(npc_assembly)
+    npc_assembly.add_argument("--npc-snapshot", help="VGO world NPC snapshot JSON; falls back to MySQL if missing")
     npc_assembly.set_defaults(func=cmd_export_npc_assembly)
+
+    npc_snapshot = subparsers.add_parser(
+        "export-npc-snapshot",
+        help="Export the small vgo_world subset consumed by NPC assembly",
+    )
+    npc_snapshot.add_argument(
+        "--out",
+        default=str(ROOT / "output" / "data" / "vgo_world_npc_snapshot.json"),
+        help="Output snapshot JSON path",
+    )
+    add_db_options(npc_snapshot)
+    npc_snapshot.set_defaults(func=cmd_export_npc_snapshot)
 
     audio = subparsers.add_parser("extract-audio", help="Extract UAX, ISB, and ICB audio data")
     add_path_options(audio)
