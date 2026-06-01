@@ -8,6 +8,7 @@ import sqlite3
 import struct
 import os
 import sys
+import json
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 import time
@@ -22,11 +23,99 @@ try:
     MAPS_DIR = os.path.join(config.ASSETS_PATH, "Maps")
 except ImportError:
     DB_PATH = os.path.join(PROJECT_ROOT, "output", "data", "vanguard_data.db")
-    MAPS_DIR = os.path.expanduser("~/Downloads/Vanguard EMU/Assets/Maps")
+    MAPS_DIR = os.path.join(PROJECT_ROOT, "Vanguard EMU", "Assets", "Maps")
+
+from ue2.properties import find_property_start, parse_properties
+
+
+NAVIGATION_POINT_CLASSES = {
+    "NavigationPoint",
+    "PathNode",
+    "PlayerStart",
+    "SmallNavigationPoint",
+}
+PATH_NODE_CLASSES = {"PathNode"}
+
+
+NAVIGATION_POINT_COLUMNS = {
+    "nav_type": "TEXT NOT NULL DEFAULT 'NavigationPoint'",
+    "rotation_pitch": "REAL",
+    "rotation_yaw": "REAL",
+    "rotation_roll": "REAL",
+    "is_path_node": "INTEGER DEFAULT 0",
+    "is_player_start": "INTEGER DEFAULT 0",
+    "next_navigation_point_ref": "INTEGER",
+    "path_list_json": "TEXT",
+    "forced_paths_json": "TEXT",
+    "proscribed_paths_json": "TEXT",
+    "property_count": "INTEGER",
+    "property_start": "INTEGER",
+    "properties_json": "TEXT",
+}
+
+
+def ensure_navigation_point_columns(cursor):
+    """Add newer navigation point columns when upgrading an existing database."""
+    existing = {
+        row[1]
+        for row in cursor.execute("PRAGMA table_info(navigation_points)").fetchall()
+    }
+    for column, definition in NAVIGATION_POINT_COLUMNS.items():
+        if column not in existing:
+            cursor.execute(
+                f"ALTER TABLE navigation_points ADD COLUMN {column} {definition}"
+            )
+
+
+def ensure_path_nodes_view(cursor):
+    """Keep path_nodes as a filtered compatibility view over navigation_points."""
+    row = cursor.execute(
+        """
+        SELECT type FROM sqlite_master
+        WHERE name = 'path_nodes' AND type IN ('table', 'view')
+        """
+    ).fetchone()
+
+    if row and row[0] == "table":
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO navigation_points (
+                chunk_id, export_id, export_index, object_name, class_name,
+                nav_type, tag, location_x, location_y, location_z, level_ref,
+                region_text, region_hex, b_paths_changed, b_light_changed,
+                is_path_node, is_player_start, serial_offset, serial_size
+            )
+            SELECT
+                chunk_id, export_id, export_index, object_name, class_name,
+                class_name, tag, location_x, location_y, location_z, level_ref,
+                region_text, region_hex, b_paths_changed, b_light_changed,
+                1, 0, serial_offset, serial_size
+            FROM path_nodes
+            """
+        )
+        cursor.execute("DROP TABLE path_nodes")
+    elif row and row[0] == "view":
+        cursor.execute("DROP VIEW path_nodes")
+
+    cursor.execute(
+        """
+        CREATE VIEW path_nodes AS
+        SELECT
+            id, chunk_id, export_id, export_index, object_name, class_name,
+            nav_type, tag, location_x, location_y, location_z,
+            rotation_pitch, rotation_yaw, rotation_roll, level_ref,
+            region_text, region_hex, b_paths_changed, b_light_changed,
+            next_navigation_point_ref, path_list_json, forced_paths_json,
+            proscribed_paths_json, property_count, property_start,
+            properties_json, serial_offset, serial_size
+        FROM navigation_points
+        WHERE is_path_node = 1
+        """
+    )
 
 
 def create_tables(conn):
-    """Create the chunks and exports tables if they don't exist."""
+    """Create the chunks, exports, and navigation point tables if needed."""
     cursor = conn.cursor()
     
     # Chunks table - one row per VGR file
@@ -69,6 +158,58 @@ def create_tables(conn):
             UNIQUE(chunk_id, export_index)
         )
     """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS navigation_points (
+            id INTEGER PRIMARY KEY,
+            chunk_id INTEGER NOT NULL,
+            export_id INTEGER NOT NULL,
+            export_index INTEGER NOT NULL,
+            object_name TEXT NOT NULL,
+            class_name TEXT NOT NULL,
+            nav_type TEXT NOT NULL DEFAULT 'NavigationPoint',
+            tag TEXT,
+            location_x REAL,
+            location_y REAL,
+            location_z REAL,
+            rotation_pitch REAL,
+            rotation_yaw REAL,
+            rotation_roll REAL,
+            level_ref INTEGER,
+            region_text TEXT,
+            region_hex TEXT,
+            b_paths_changed INTEGER,
+            b_light_changed INTEGER,
+            is_path_node INTEGER DEFAULT 0,
+            is_player_start INTEGER DEFAULT 0,
+            next_navigation_point_ref INTEGER,
+            path_list_json TEXT,
+            forced_paths_json TEXT,
+            proscribed_paths_json TEXT,
+            property_count INTEGER,
+            property_start INTEGER,
+            properties_json TEXT,
+            serial_offset INTEGER,
+            serial_size INTEGER,
+            FOREIGN KEY (chunk_id) REFERENCES chunks(id),
+            FOREIGN KEY (export_id) REFERENCES exports(id),
+            UNIQUE(chunk_id, export_index)
+        )
+    """)
+    ensure_navigation_point_columns(cursor)
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_navigation_points_chunk "
+        "ON navigation_points(chunk_id)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_navigation_points_class "
+        "ON navigation_points(class_name)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_navigation_points_location "
+        "ON navigation_points(location_x, location_y, location_z)"
+    )
+    ensure_path_nodes_view(cursor)
     
     conn.commit()
     print("Database tables created/verified")
@@ -162,6 +303,239 @@ def extract_position_from_data(obj_data: bytes) -> Optional[Tuple[float, float, 
     return None
 
 
+def is_path_node_class(class_name: str) -> bool:
+    """Return true for concrete PathNode-style navigation anchors."""
+    return bool(class_name) and (
+        class_name in PATH_NODE_CLASSES or class_name.endswith("PathNode")
+    )
+
+
+def is_player_start_class(class_name: str) -> bool:
+    """Return true for PlayerStart navigation anchors."""
+    return bool(class_name) and (
+        class_name == "PlayerStart" or class_name.endswith("PlayerStart")
+    )
+
+
+def is_navigation_point_class(class_name: str) -> bool:
+    """Return true for UE2 NavigationPoint subclasses identifiable by class name."""
+    if not class_name:
+        return False
+    return (
+        class_name in NAVIGATION_POINT_CLASSES
+        or class_name.endswith("NavigationPoint")
+        or class_name.endswith("PathNode")
+        or class_name.endswith("PlayerStart")
+    )
+
+
+def json_vector_to_tuple(value) -> Optional[Tuple[float, float, float]]:
+    """Convert a parsed UE2 vector JSON string/dict into an xyz tuple."""
+    if value is None:
+        return None
+
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+
+    if not isinstance(value, dict):
+        return None
+
+    try:
+        x = float(value["x"])
+        y = float(value["y"])
+        z = float(value["z"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+    if any(v != v or abs(v) > 500000 for v in (x, y, z)):
+        return None
+    return (x, y, z)
+
+
+def json_rotator_to_tuple(value) -> Optional[Tuple[int, int, int]]:
+    """Convert a parsed UE2 rotator JSON string/dict into a pitch/yaw/roll tuple."""
+    if value is None:
+        return None
+
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+
+    if not isinstance(value, dict):
+        return None
+
+    try:
+        pitch = int(value["pitch"])
+        yaw = int(value["yaw"])
+        roll = int(value["roll"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+    return (pitch, yaw, roll)
+
+
+def property_size_from_info(data: bytes, pos: int, size_type: int) -> Tuple[Optional[int], int]:
+    """Read the UE2 property size field for direct tag scans."""
+    if size_type == 0:
+        return 1, pos
+    if size_type == 1:
+        return 2, pos
+    if size_type == 2:
+        return 4, pos
+    if size_type == 3:
+        return 12, pos
+    if size_type == 4:
+        return 16, pos
+    if size_type == 5:
+        if pos >= len(data):
+            return None, pos
+        return data[pos], pos + 1
+    if size_type == 6:
+        if pos + 2 > len(data):
+            return None, pos
+        return struct.unpack("<H", data[pos:pos + 2])[0], pos + 2
+    if size_type == 7:
+        if pos + 4 > len(data):
+            return None, pos
+        return struct.unpack("<I", data[pos:pos + 4])[0], pos + 4
+    return None, pos
+
+
+def scan_struct_property(
+    obj_data: bytes,
+    names: List[str],
+    prop_name: str,
+    struct_name: str,
+) -> Optional[Tuple]:
+    """Find a fixed-size struct property by tag when the chain parser desyncs."""
+    for pos in range(max(0, len(obj_data) - 1)):
+        try:
+            name_idx, offset = read_compact_index(obj_data, pos)
+        except (IndexError, TypeError):
+            continue
+        if name_idx < 0 or name_idx >= len(names) or names[name_idx] != prop_name:
+            continue
+        if offset >= len(obj_data):
+            continue
+
+        info_byte = obj_data[offset]
+        offset += 1
+        prop_type = info_byte & 0x0F
+        size_type = (info_byte >> 4) & 0x07
+        array_flag = (info_byte >> 7) & 0x01
+        if prop_type != 10 or array_flag:
+            continue
+
+        prop_size, offset = property_size_from_info(obj_data, offset, size_type)
+        if prop_size != 12:
+            continue
+
+        try:
+            struct_idx, offset = read_compact_index(obj_data, offset)
+        except (IndexError, TypeError):
+            continue
+        if struct_idx < 0 or struct_idx >= len(names) or names[struct_idx] != struct_name:
+            continue
+        if offset + prop_size > len(obj_data):
+            continue
+
+        raw = obj_data[offset:offset + prop_size]
+        if struct_name == "Vector":
+            value = struct.unpack("<fff", raw)
+            if all(v == v and abs(v) <= 500000 for v in value):
+                return value
+        elif struct_name == "Rotator":
+            return struct.unpack("<iii", raw)
+
+    return None
+
+
+def bool_to_int(value) -> Optional[int]:
+    """Convert parsed UE2 bools to SQLite-friendly values without hiding nulls."""
+    if value is None:
+        return None
+    return int(bool(value))
+
+
+def property_value_as_text(prop: Optional[Dict]) -> Optional[str]:
+    """Return a compact text/JSON representation for optional nav fields."""
+    if not prop:
+        return None
+
+    value = prop.get("value")
+    if value is None:
+        return prop.get("value_hex")
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, sort_keys=True)
+
+
+def navigation_properties_json(props: List[Dict]) -> str:
+    """Serialize parsed nav properties so unexpected fields remain inspectable."""
+    compact = []
+    for prop in props:
+        compact.append(
+            {
+                "name": prop.get("name"),
+                "type": prop.get("type"),
+                "struct_name": prop.get("struct_name"),
+                "array_index": prop.get("array_index"),
+                "list_index": prop.get("list_index"),
+                "value": prop.get("value"),
+                "value_hex": prop.get("value_hex"),
+            }
+        )
+    return json.dumps(compact, sort_keys=True)
+
+
+def extract_navigation_point_from_data(
+    obj_data: bytes, names: List[str], max_search: int = 80
+) -> Optional[Dict]:
+    """Extract fields from a NavigationPoint/PathNode/PlayerStart export."""
+    start_offset = find_property_start(obj_data, names, max_search=max_search)
+    if start_offset < 0:
+        return None
+
+    props = parse_properties(obj_data, names, start_offset)
+    by_name = {prop["name"]: prop for prop in props}
+
+    location = json_vector_to_tuple(by_name.get("Location", {}).get("value"))
+    used_direct_scan = False
+    if location is None:
+        location = scan_struct_property(obj_data, names, "Location", "Vector")
+        used_direct_scan = location is not None
+    if location is None:
+        return None
+
+    rotation = json_rotator_to_tuple(by_name.get("Rotation", {}).get("value"))
+    if rotation is None:
+        rotation = scan_struct_property(obj_data, names, "Rotation", "Rotator")
+    region = by_name.get("Region")
+    return {
+        "tag": by_name.get("Tag", {}).get("value"),
+        "location": location,
+        "rotation": rotation,
+        "level_ref": by_name.get("Level", {}).get("value"),
+        "region_text": region.get("value") if region else None,
+        "region_hex": region.get("value_hex") if region else None,
+        "b_paths_changed": by_name.get("bPathsChanged", {}).get("value"),
+        "b_light_changed": by_name.get("bLightChanged", {}).get("value"),
+        "next_navigation_point_ref": by_name.get("nextNavigationPoint", {}).get("value"),
+        "path_list_json": property_value_as_text(by_name.get("PathList")),
+        "forced_paths_json": property_value_as_text(by_name.get("ForcedPaths")),
+        "proscribed_paths_json": property_value_as_text(by_name.get("ProscribedPaths")),
+        "property_count": len(props),
+        "property_start": start_offset,
+        "properties_json": navigation_properties_json(props),
+        "used_direct_scan": used_direct_scan,
+    }
+
+
 def parse_vgr_file(filepath: str) -> Dict:
     """Parse a VGR chunk file and extract all exports."""
     with open(filepath, 'rb') as f:
@@ -226,19 +600,27 @@ def parse_vgr_file(filepath: str) -> Dict:
         
         obj_name = names[object_name] if 0 <= object_name < len(names) else ''
         
+        obj_data = data[serial_offset:serial_offset + serial_size]
+
         # Extract position for placeable objects
         position = None
+        navigation_point = None
         if class_name in ('CompoundObject', 'Actor', 'StaticMeshActor', 'Prefab'):
-            obj_data = data[serial_offset:serial_offset + serial_size]
             position = extract_position_from_data(obj_data)
+        elif is_navigation_point_class(class_name):
+            navigation_point = extract_navigation_point_from_data(obj_data, names)
+            if navigation_point:
+                position = navigation_point["location"]
         
         exports.append({
-            'index': idx,
+            'index': idx + 1,
             'object_name': obj_name,
             'class_name': class_name,
             'serial_offset': serial_offset,
             'serial_size': serial_size,
             'position': position,
+            'rotation': navigation_point.get("rotation") if navigation_point else None,
+            'navigation_point': navigation_point,
         })
     
     return {
@@ -265,46 +647,125 @@ def process_chunk_file(conn, filepath: str, silent=False):
     
     cursor = conn.cursor()
     
-    # Insert or update chunk
+    # Insert or update chunk without changing its primary key. SQLite REPLACE
+    # deletes the old row, which would orphan exports/properties for reruns.
     cursor.execute("""
-        INSERT OR REPLACE INTO chunks 
+        INSERT INTO chunks
         (filename, filepath, chunk_x, chunk_y, name_count, export_count, import_count)
         VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(filename) DO UPDATE SET
+            filepath = excluded.filepath,
+            chunk_x = excluded.chunk_x,
+            chunk_y = excluded.chunk_y,
+            name_count = excluded.name_count,
+            export_count = excluded.export_count,
+            import_count = excluded.import_count
     """, (
         filename, filepath, chunk_x, chunk_y,
         parsed['name_count'], parsed['export_count'], parsed['import_count']
     ))
     
-    chunk_id = cursor.lastrowid or cursor.execute(
+    chunk_id = cursor.execute(
         "SELECT id FROM chunks WHERE filename = ?", (filename,)
     ).fetchone()[0]
     
-    # Clear old exports for this chunk
+    # Clear old dependent rows and exports for this chunk.
+    if cursor.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'properties'"
+    ).fetchone():
+        cursor.execute(
+            """
+            DELETE FROM properties
+            WHERE export_id IN (SELECT id FROM exports WHERE chunk_id = ?)
+            """,
+            (chunk_id,),
+        )
+    cursor.execute("DELETE FROM navigation_points WHERE chunk_id = ?", (chunk_id,))
     cursor.execute("DELETE FROM exports WHERE chunk_id = ?", (chunk_id,))
     
-    # Insert exports with positions
+    # Insert exports with positions and navigation point metadata.
     placed_count = 0
+    navigation_point_count = 0
     for exp in parsed['exports']:
         pos = exp.get('position')
+        rot = exp.get('rotation')
         cursor.execute("""
             INSERT INTO exports
             (chunk_id, export_index, object_name, class_name, 
              position_x, position_y, position_z,
+             rotation_pitch, rotation_yaw, rotation_roll,
              serial_offset, serial_size)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             chunk_id, exp['index'], exp['object_name'], exp['class_name'],
             pos[0] if pos else None,
             pos[1] if pos else None,
             pos[2] if pos else None,
+            rot[0] if rot else None,
+            rot[1] if rot else None,
+            rot[2] if rot else None,
             exp['serial_offset'], exp['serial_size']
         ))
+        export_id = cursor.lastrowid
         if pos:
             placed_count += 1
+
+        navigation_point = exp.get("navigation_point")
+        if navigation_point:
+            cursor.execute("""
+                INSERT INTO navigation_points (
+                    chunk_id, export_id, export_index, object_name, class_name,
+                    nav_type, tag, location_x, location_y, location_z,
+                    rotation_pitch, rotation_yaw, rotation_roll, level_ref,
+                    region_text, region_hex, b_paths_changed, b_light_changed,
+                    is_path_node, is_player_start, next_navigation_point_ref,
+                    path_list_json, forced_paths_json, proscribed_paths_json,
+                    property_count, property_start, properties_json,
+                    serial_offset, serial_size
+                )
+                VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
+            """, (
+                chunk_id,
+                export_id,
+                exp['index'],
+                exp['object_name'],
+                exp['class_name'],
+                exp['class_name'],
+                navigation_point.get("tag"),
+                navigation_point["location"][0],
+                navigation_point["location"][1],
+                navigation_point["location"][2],
+                rot[0] if rot else None,
+                rot[1] if rot else None,
+                rot[2] if rot else None,
+                navigation_point.get("level_ref"),
+                navigation_point.get("region_text"),
+                navigation_point.get("region_hex"),
+                bool_to_int(navigation_point.get("b_paths_changed")),
+                bool_to_int(navigation_point.get("b_light_changed")),
+                bool_to_int(is_path_node_class(exp['class_name'])),
+                bool_to_int(is_player_start_class(exp['class_name'])),
+                navigation_point.get("next_navigation_point_ref"),
+                navigation_point.get("path_list_json"),
+                navigation_point.get("forced_paths_json"),
+                navigation_point.get("proscribed_paths_json"),
+                navigation_point.get("property_count"),
+                navigation_point.get("property_start"),
+                navigation_point.get("properties_json"),
+                exp['serial_offset'],
+                exp['serial_size'],
+            ))
+            navigation_point_count += 1
     
     conn.commit()
     if not silent:
-        print(f"OK ({parsed['export_count']} exports, {placed_count} with positions)")
+        print(
+            f"OK ({parsed['export_count']} exports, {placed_count} with positions, "
+            f"{navigation_point_count} navigation points)"
+        )
     return placed_count
 
 
@@ -361,6 +822,10 @@ def main():
         placed_count = cursor.execute(
             "SELECT COUNT(*) FROM exports WHERE position_x IS NOT NULL"
         ).fetchone()[0]
+        navigation_point_count = cursor.execute(
+            "SELECT COUNT(*) FROM navigation_points"
+        ).fetchone()[0]
+        path_node_count = cursor.execute("SELECT COUNT(*) FROM path_nodes").fetchone()[0]
         
         print()
         print("=" * 60)
@@ -369,6 +834,8 @@ def main():
         print(f"Chunks in database: {chunk_count}")
         print(f"Total exports: {export_count}")
         print(f"Exports with positions: {placed_count}")
+        print(f"Navigation points: {navigation_point_count}")
+        print(f"Path nodes: {path_node_count}")
     
     conn.close()
 

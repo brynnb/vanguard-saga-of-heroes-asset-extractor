@@ -62,7 +62,7 @@ def build_gltf(card_data: dict) -> dict:
     encoded_buffer = base64.b64encode(buffer).decode("ascii")
 
     return {
-        "asset": {"version": "2.0", "generator": "export_reconstructed_leaf_cards_gltf.py"},
+        "asset": {"version": "2.0", "generator": "export_reconstructed_spt2fbx_leaf_cards_gltf.py"},
         "scene": 0,
         "scenes": [{"nodes": [0]}],
         "nodes": [{"mesh": 0, "name": "ReconstructedLeafCards"}],
@@ -115,7 +115,7 @@ def build_gltf(card_data: dict) -> dict:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Export reconstructed SpeedTree leaf cards as a standalone glTF.")
+    parser = argparse.ArgumentParser(description="Export reconstructed Spt2Fbx leaf cards as a standalone glTF.")
     parser.add_argument("card_json", type=Path)
     parser.add_argument("output_gltf", type=Path)
     args = parser.parse_args()

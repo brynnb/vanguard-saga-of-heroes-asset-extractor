@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-Bulk map reference dumper for Vanguard: Saga of Heroes
+Bulk Chunk Data Extractor for Vanguard: Saga of Heroes
 
-Uses the Unreal-Library CLI to dump decompiled text for TerrainInfo and
-placed actor properties from every .vgr chunk file. The later asset
-conversion steps are handled by this repo's native Python parsers.
+Uses Unreal-Library to extract terrain layer/blending data and object
+placement data from every .vgr chunk file.
 
 For each chunk, extracts:
   - TerrainInfo: Layers[], pBuildingTileLayerData[], TerrainMap reference
@@ -12,9 +11,9 @@ For each chunk, extracts:
   - Other placed actors: PlayerStart, Sunlight, WaterVolume, etc.
 
 Usage:
-    python3 scripts/extractors/bulk_extract_chunk_data.py
+    python3 bulk_extract_chunk_data.py
 
-Output goes to: output/reference/Maps/<chunk_name>/ by default.
+Output goes to: output/reference/Maps/<chunk_name>/ by default
   - terrain_info.txt     (full TerrainInfo decompile with layers and tile data)
   - objects.txt          (all CompoundObject and actor placements)
   - object_list.txt      (index of all objects in the chunk)
@@ -26,19 +25,19 @@ import re
 import sys
 import json
 
-# Force unbuffered output
-sys.stdout.reconfigure(line_buffering=True)
-
-# Paths
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PROJECT_ROOT = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+)
 sys.path.insert(0, PROJECT_ROOT)
 
 import config  # noqa: E402
 
-DOTNET_PATH = getattr(config, "DOTNET", os.environ.get("DOTNET", "dotnet"))
-LIB_PATH = os.path.expanduser(
-    os.environ.get("UNREAL_LIBRARY_DLL", getattr(config, "UNREAL_LIBRARY_DLL", ""))
-)
+# Force unbuffered output
+sys.stdout.reconfigure(line_buffering=True)
+
+# Paths
+DOTNET_PATH = config.DOTNET
+LIB_PATH = config.UNREAL_LIBRARY_DLL
 VANGUARD_MAPS_DIR = config.MAPS_DIR
 OUTPUT_BASE = config.REFERENCE_MAPS_DIR
 
@@ -115,7 +114,8 @@ def process_chunk(vgr_path):
     compound_objects = [(c, p) for c, p in objects if c == "CompoundObject"]
     actors = [(c, p) for c, p in objects
               if c in ("PlayerStart", "Sunlight", "WaterVolume", "ZoneInfo",
-                       "LevelInfo", "DefaultPhysicsVolume", "Brush")]
+                       "LevelInfo", "DefaultPhysicsVolume", "Brush",
+                       "NavigationPoint", "PathNode", "SmallNavigationPoint")]
 
     stats = {
         "chunk": chunk_name,

@@ -39,7 +39,7 @@ def _default_sgo() -> str:
             return p
     except ImportError:
         pass
-    return os.path.expanduser("~/Downloads/Vanguard EMU/Assets/Archives/binaryprefabs.sgo")
+    return os.path.join(PROJ, "Vanguard EMU", "Assets", "Archives", "binaryprefabs.sgo")
 
 
 def main() -> int:

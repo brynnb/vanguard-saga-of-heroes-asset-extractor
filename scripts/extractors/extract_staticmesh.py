@@ -2,8 +2,8 @@
 """
 Native Python StaticMesh extractor for Vanguard: Saga of Heroes.
 
-Informed by UE Viewer source code (UnMesh2.cpp/UnMesh2.h/UnObject.cpp) for
-Vanguard-specific StaticMesh serialization format.
+Based on UEViewer source code (UnMesh2.cpp/UnMesh2.h/UnObject.cpp) for Vanguard-specific
+StaticMesh serialization format.
 
 Key discoveries for Vanguard (Version 129/35):
 - BoundingBox is 24 bytes (no IsValid flag)

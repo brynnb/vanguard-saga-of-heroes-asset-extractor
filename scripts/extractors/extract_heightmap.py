@@ -248,7 +248,7 @@ def heightmap_to_gltf(
             if texture_path.lower().endswith('.png'):
                 mime_type = "image/png"
             elif texture_path.lower().endswith('.tga'):
-                # TGA paths can contain PNG payloads from earlier export workflows.
+                # TGA files - check if it's actually PNG (umodel sometimes mislabels)
                 if texture_data[:8] == b'\x89PNG\r\n\x1a\n':
                     mime_type = "image/png"
                 else:

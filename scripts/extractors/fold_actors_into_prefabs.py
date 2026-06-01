@@ -37,10 +37,29 @@ from collections import defaultdict
 
 PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PREFABS_DEFAULT = os.path.join(PROJ, "output/data/sgo_prefabs.json")
+PREFAB_INDEX_DEFAULT = os.path.join(PROJ, "output/data/sgo_prefab_index.json")
 BY_CLASS_DIR = os.path.join(PROJ, "output/data/sgo_by_class")
 
 # Lights skipped on purpose — already in the main actors list.
-FOLD_CATEGORIES = ("portals", "movers", "triggers", "emitters", "physics")
+FOLD_CATEGORIES = ("portals", "movers", "triggers", "emitters", "physics", "misc")
+
+
+def _write_prefab_index(prefabs: dict, out_path: str) -> int:
+    index = {}
+    for name, entry in prefabs.items():
+        actors = entry.get("actors", []) if isinstance(entry, dict) else entry
+        index[name] = sum(
+            1
+            for actor in actors
+            if isinstance(actor, dict) and "mesh" in actor
+        )
+
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    tmp_path = out_path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as fh:
+        json.dump(index, fh, separators=(",", ":"))
+    os.replace(tmp_path, out_path)
+    return len(index)
 
 
 def load_category(name: str) -> dict:
@@ -87,19 +106,38 @@ def main() -> int:
         print(f"  adding {len(missing)} prefabs that only have non-mesh actors"
               f" (first few: {missing[:3]})")
         for name in missing:
-            prefabs[name] = []
+            prefabs[name] = {"actors": []}
 
     # Transform sgo_prefabs.json: wrap existing actor list as ``actors`` and
     # attach ``extras``.
     merged: dict[str, dict] = {}
     prefabs_with_extras = 0
-    for name, actors in prefabs.items():
+    for name, prefab_entry in prefabs.items():
+        if isinstance(prefab_entry, dict):
+            actors = prefab_entry.get("actors", [])
+            merged_entry = {
+                k: v
+                for k, v in prefab_entry.items()
+                if k not in ("actors", "extras")
+            }
+            existing_extras = prefab_entry.get("extras", {})
+        else:
+            actors = prefab_entry
+            merged_entry = {}
+            existing_extras = {}
+
         extras = extras_by_prefab.get(name, {c: [] for c in FOLD_CATEGORIES})
+        if isinstance(existing_extras, dict):
+            for cat, existing_actors in existing_extras.items():
+                if existing_actors and not extras.get(cat):
+                    extras[cat] = existing_actors
         # Strip empty categories for compactness.
         extras_clean = {k: v for k, v in extras.items() if v}
         if extras_clean:
             prefabs_with_extras += 1
-        merged[name] = {"actors": actors, "extras": extras_clean}
+        merged_entry["actors"] = actors
+        merged_entry["extras"] = extras_clean
+        merged[name] = merged_entry
 
     out_path = args.out or args.prefabs
     # Write atomically: tmp + rename so a crash can't corrupt the file.
@@ -108,9 +146,17 @@ def main() -> int:
         json.dump(merged, fh, ensure_ascii=False, separators=(",", ":"))
     os.replace(tmp_path, out_path)
 
+    index_path = (
+        PREFAB_INDEX_DEFAULT
+        if os.path.abspath(out_path) == os.path.abspath(PREFABS_DEFAULT)
+        else out_path + ".index.json"
+    )
+    index_count = _write_prefab_index(merged, index_path)
+
     size_mb = os.path.getsize(out_path) / (1024 * 1024)
     print()
     print(f"wrote {out_path}  ({size_mb:.1f} MB)")
+    print(f"wrote {index_path}  ({index_count:,} prefabs)")
     print(f"  prefabs total:        {len(merged):,}")
     print(f"  prefabs with extras:  {prefabs_with_extras:,}")
     print(f"  categories folded in: {', '.join(FOLD_CATEGORIES)}")

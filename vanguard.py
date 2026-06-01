@@ -22,6 +22,8 @@ DEFAULT_UNREAL_LIBRARY_DIR = ROOT / "external" / "Unreal-Library"
 def run(label: str, command: list[str], env: dict[str, str]) -> None:
     print(f"\n==> {label}")
     print("    " + " ".join(command))
+    sys.stdout.flush()
+    sys.stderr.flush()
     result = subprocess.run(command, cwd=ROOT, env=env)
     if result.returncode != 0:
         raise SystemExit(f"{label} failed with exit code {result.returncode}")
@@ -58,8 +60,28 @@ def build_env(args: argparse.Namespace) -> dict[str, str]:
 def cmd_setup(args: argparse.Namespace) -> None:
     env = build_env(args)
     command = [sys.executable, "scripts/setup_assets.py"]
-    if args.reset:
-        command.append("--reset")
+    for attr, flag in [
+        ("reset", "--reset"),
+        ("full", "--full"),
+        ("skip_core", "--skip-core"),
+        ("db", "--db"),
+        ("files", "--files"),
+        ("chunks", "--chunks"),
+        ("mesh_index", "--mesh-index"),
+        ("textures", "--textures"),
+        ("properties", "--properties"),
+        ("shader_map", "--shader-map"),
+        ("terrain", "--terrain"),
+        ("meshes", "--meshes"),
+        ("sgo", "--sgo"),
+        ("objects", "--objects"),
+    ]:
+        if getattr(args, attr, False):
+            command.append(flag)
+    if args.chunk:
+        command.extend(["--chunk", args.chunk])
+    if args.limit:
+        command.extend(["--limit", str(args.limit)])
     run("Set up database and indexes", command, env)
 
 
@@ -89,8 +111,27 @@ def cmd_extract_all(args: argparse.Namespace) -> None:
 
 def cmd_build_shaders(args: argparse.Namespace) -> None:
     env = build_env(args)
-    command = [sys.executable, "scripts/extractors/build_shader_texture_map.py", "--resume"]
-    run("Build shader texture map", command, env)
+    run(
+        "Build material manifest",
+        [
+            sys.executable,
+            "scripts/extractors/build_material_manifest.py",
+            "--progress-every",
+            "500",
+            "--flush-every",
+            "100",
+        ],
+        env,
+    )
+    run(
+        "Build shader texture map",
+        [
+            sys.executable,
+            "scripts/extractors/build_shader_texture_map.py",
+            "--from-material-manifest",
+        ],
+        env,
+    )
 
 
 def cmd_extract_terrain(args: argparse.Namespace) -> None:
@@ -144,14 +185,53 @@ def cmd_export_characters(args: argparse.Namespace) -> None:
             ],
             env,
         )
+        run(
+            "Export playable facial controls",
+            [sys.executable, "scripts/exporters/export_playable_facial_controls.py"],
+            env,
+        )
     else:
         print(f"    Skipping customization data; missing {customization_file}")
+        print("    Skipping playable facial controls; customization data is required")
 
 
 def cmd_export_animations(args: argparse.Namespace) -> None:
     env = build_env(args)
     run("Export EMotion FX animations", [sys.executable, "scripts/exporters/export_emfx_animations.py"], env)
     run("Export UE2 skeletal animations", [sys.executable, "scripts/exporters/export_animations.py"], env)
+
+
+def cmd_export_facial_controls(args: argparse.Namespace) -> None:
+    env = build_env(args)
+    run(
+        "Export playable facial controls",
+        [sys.executable, "scripts/exporters/export_playable_facial_controls.py"],
+        env,
+    )
+
+
+def cmd_export_npc_assembly(args: argparse.Namespace) -> None:
+    env = build_env(args)
+    run(
+        "Export actor race visual map",
+        [sys.executable, "scripts/exporters/export_actor_race_visual_map.py"],
+        env,
+    )
+    run(
+        "Export object race mesh map",
+        [sys.executable, "scripts/exporters/export_object_race_mesh_map.py"],
+        env,
+    )
+    run(
+        "Build race prefix map",
+        [sys.executable, "scripts/exporters/build_race_prefix_map.py"],
+        env,
+    )
+    run(
+        "Export NPC assembly data",
+        [sys.executable, "scripts/exporters/export_npc_assembly.py"],
+        env,
+    )
 
 
 def cmd_extract_audio(args: argparse.Namespace) -> None:
@@ -249,6 +329,21 @@ def build_parser() -> argparse.ArgumentParser:
     setup = subparsers.add_parser("setup", help="Initialize the database and asset indexes")
     add_path_options(setup)
     setup.add_argument("--reset", action="store_true", help="Delete and rebuild the SQLite database")
+    setup.add_argument("--full", action="store_true", help="Run full world extraction stages")
+    setup.add_argument("--skip-core", action="store_true", help="Skip core setup stages when a DB already exists")
+    setup.add_argument("--db", action="store_true", help="Initialize the SQLite database")
+    setup.add_argument("--files", action="store_true", help="Index client asset files")
+    setup.add_argument("--chunks", action="store_true", help="Export chunk/package metadata")
+    setup.add_argument("--mesh-index", action="store_true", help="Index StaticMesh exports")
+    setup.add_argument("--textures", action="store_true", help="Build texture database")
+    setup.add_argument("--properties", action="store_true", help="Extract UObject properties")
+    setup.add_argument("--shader-map", action="store_true", help="Build material and shader texture maps")
+    setup.add_argument("--terrain", action="store_true", help="Extract terrain data")
+    setup.add_argument("--meshes", action="store_true", help="Export static meshes")
+    setup.add_argument("--sgo", action="store_true", help="Rebuild SGO prefab sidecars")
+    setup.add_argument("--objects", action="store_true", help="Generate object placement sidecars")
+    setup.add_argument("--chunk", help="Limit chunk-scoped setup stages to one chunk")
+    setup.add_argument("--limit", type=int, default=0, help="Limit StaticMesh package count")
     setup.set_defaults(func=cmd_setup)
 
     extract_all = subparsers.add_parser("extract-all", help="Run the full extraction pipeline")
@@ -293,6 +388,20 @@ def build_parser() -> argparse.ArgumentParser:
     animations = subparsers.add_parser("export-animations", help="Export EMotion FX and UE2 skeletal animations")
     add_path_options(animations)
     animations.set_defaults(func=cmd_export_animations)
+
+    facial_controls = subparsers.add_parser(
+        "export-facial-controls",
+        help="Export playable facial-control sidecars from extracted character data",
+    )
+    add_path_options(facial_controls)
+    facial_controls.set_defaults(func=cmd_export_facial_controls)
+
+    npc_assembly = subparsers.add_parser(
+        "export-npc-assembly",
+        help="Export legacy NPC assembly/race visual lookup sidecars",
+    )
+    add_path_options(npc_assembly)
+    npc_assembly.set_defaults(func=cmd_export_npc_assembly)
 
     audio = subparsers.add_parser("extract-audio", help="Extract UAX, ISB, and ICB audio data")
     add_path_options(audio)

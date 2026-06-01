@@ -51,6 +51,15 @@ class Texture:
         if start_off < 0:
             return
 
+        # Texture exports in Vanguard's chunk packages normally begin their
+        # property stream at byte 0. A few Format 17 terrain weight tiles happen
+        # to score better from byte 1 because the packed nibble payload contains
+        # long runs of bytes that look like valid compact property tags. Prefer
+        # byte 0 when it yields the core Texture properties.
+        zero_props = parse_properties(self.data, self.names, 0)
+        if self._looks_like_texture_properties(zero_props):
+            start_off = 0
+
         self.reader.seek(start_off)
         parsed_props = parse_properties(self.data, self.names, start_off)
         for p in parsed_props:
@@ -123,8 +132,9 @@ class Texture:
             # where the footer doesn't match u_size/v_size exactly)
             if data_pos == -1:
                 for m in reversed(markers):
-                    data_pos = m
-                    break
+                    if m + 4 + expected_size <= len(self.data):
+                        data_pos = m
+                        break
 
             # FALLBACK: Tail-Guided Anchor (for single-mip textures like heightmaps)
             if data_pos == -1:
@@ -135,6 +145,31 @@ class Texture:
                     )[0]
                     if marker_val == expected_size:
                         data_pos = true_pos
+
+        if data_pos == -1:
+            # Some Vanguard textures advertise a larger USize/VSize than the
+            # first stored mip. Find the first block whose footer dimensions
+            # are valid and whose byte count matches the texture format.
+            search_end = min(len(self.data) - 14, 4096)
+            for off in range(max(0, self.properties_end), search_end):
+                try:
+                    candidate_size = struct.unpack(
+                        "<I", self.data[off : off + 4]
+                    )[0]
+                except Exception:
+                    continue
+                footer_start = off + 4 + candidate_size
+                if candidate_size <= 0 or footer_start + 10 > len(self.data):
+                    continue
+                width, height = struct.unpack(
+                    "<II", self.data[footer_start : footer_start + 8]
+                )
+                if not (1 <= width <= self.u_size and 1 <= height <= self.v_size):
+                    continue
+                if candidate_size != self._expected_mip_size(width, height):
+                    continue
+                data_pos = off
+                break
 
         if data_pos == -1:
             # Fallback for standard UE2 archives
@@ -181,6 +216,10 @@ class Texture:
                 self.mips.append(Mipmap(w, h, mip_data, self.format_id))
             except:
                 break
+
+    def _looks_like_texture_properties(self, props: List[Dict]) -> bool:
+        found = {p["name"] for p in props}
+        return {"Format", "USize", "VSize", "UClamp", "VClamp"}.issubset(found)
 
     def _find_none_terminator(self, start_pos: int) -> int:
         """Sequential property mapper to find the exact end of property list."""
@@ -254,6 +293,24 @@ class Texture:
             pos += size
 
         return pos
+
+    def _expected_mip_size(self, width: int, height: int) -> int:
+        if self.format_id == 0:  # TEXF_P8
+            return width * height
+        if self.format_id == 7:  # DXT3
+            return max(1, (width + 3) // 4) * max(1, (height + 3) // 4) * 16
+        if self.format_id == 8:  # DXT5
+            return max(1, (width + 3) // 4) * max(1, (height + 3) // 4) * 16
+        if self.format_id == 3:  # DXT1
+            return max(1, (width + 3) // 4) * max(1, (height + 3) // 4) * 8
+        if self.format_id == 5:  # BGRA8
+            return width * height * 4
+        if self.format_id == 9:  # TEXF_L8
+            return width * height
+        if self.format_id in (10, 17):  # G16
+            pixel_width = width // 2 if self.format_id == 17 else width
+            return pixel_width * height * 2
+        return 0
 
     def get_raw_g16(self, mip_index: int = 0) -> Optional[bytes]:
         """Get raw 16-bit grayscale data for G16 format textures (formats 10, 17).

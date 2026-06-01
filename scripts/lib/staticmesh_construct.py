@@ -722,9 +722,10 @@ def parse_staticmesh(data: bytes, names: list, serial_offset: int) -> dict:
 if __name__ == "__main__":
     import sys
 
-    sys.path.insert(0, "..")
-    from ue2 import UE2Package
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    sys.path.insert(0, project_root)
     import config
+    from ue2 import UE2Package
 
     test_files = [
         os.path.join(config.ASSETS_PATH, "Meshes", "P0001_Sun_Meshes.usx"),

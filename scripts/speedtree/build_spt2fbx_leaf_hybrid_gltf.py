@@ -166,7 +166,7 @@ def build_hybrid(our_gltf_path: Path, leaf_gltf_path: Path) -> dict:
 
     encoded = base64.b64encode(buffer).decode("ascii")
     hybrid = {
-        "asset": {"version": "2.0", "generator": "build_leaf_hybrid_gltf.py"},
+        "asset": {"version": "2.0", "generator": "build_spt2fbx_leaf_hybrid_gltf.py"},
         "scene": our_data.get("scene", 0),
         "scenes": our_data.get("scenes", [{"nodes": [0]}]),
         "nodes": our_data.get("nodes", [{"mesh": 0}]),

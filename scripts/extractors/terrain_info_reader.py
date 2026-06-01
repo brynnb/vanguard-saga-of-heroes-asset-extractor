@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Terrain Info Reader - parses terrain_info.txt files dumped by
-scripts/extractors/bulk_extract_chunk_data.py using the Unreal-Library CLI.
+Terrain Info Reader — parses terrain_info.txt files extracted by Unreal-Library.
 
-This is an optional helper for terrain layer and tile mapping data; the
-terrain extractor can still fall back to binary scanning.
+Replaces the brittle binary-scanning _parse_terrain_info() with clean text parsing
+of the pre-extracted terrain layer and tile mapping data.
 
 Each terrain_info.txt contains:
   - Layers[N]=(Texture=Shader'PackageName.ShaderName', AlphaMap=..., LayerWeightMap=...)
   - pBuildingTileLayerData[N]=<int>  (sequential layer index per tile slot, -1 = unused)
+  - GrassData=(GrassMaterial=Shader'Package.Shaders.MaterialName', GrassTypeScales=...)
 
 Usage:
     from extractors.terrain_info_reader import parse_terrain_info_file
@@ -16,6 +16,9 @@ Usage:
     layers, tile_data = parse_terrain_info_file("path/to/terrain_info.txt")
     # layers: dict {int_index: {"shader_full_path": str, "shader_name": str, "alpha_map": str|None}}
     # tile_data: dict {int_index: int_layer_index}
+
+    grass_data = parse_grass_data_file("path/to/terrain_info.txt")
+    # grass_data: dict {"grass_material": str, "grass_material_name": str, "grass_type_scales": str|None}
 """
 
 import re
@@ -27,6 +30,9 @@ _LAYER_RE = re.compile(
     r"Layers\[(\d+)\]=\(Texture=Shader'([^']+)'(?:,AlphaMap=([^,\)]+))?(?:,LayerWeightMap=([^,\)]+))?\)"
 )
 _TILE_RE = re.compile(r"pBuildingTileLayerData\[(\d+)\]=(-?\d+)")
+_GRASS_DATA_RE = re.compile(
+    r"GrassData=\(GrassMaterial=Shader'([^']+)',GrassTypeScales=(.*?)\)\s*$"
+)
 
 
 def parse_terrain_info_file(terrain_info_path):
@@ -84,6 +90,43 @@ def parse_terrain_info_file(terrain_info_path):
                 continue
     
     return layers, tile_layer_data
+
+
+def parse_grass_data_file(terrain_info_path):
+    """Parse the terrain grass material metadata from a terrain_info.txt file.
+
+    Args:
+        terrain_info_path: Path to terrain_info.txt
+
+    Returns:
+        dict with keys:
+            "grass_material": full shader path, e.g. "P0001_SpeedTrees_shaders.Shaders.GrassTest"
+            "grass_material_name": final material component, e.g. "GrassTest"
+            "grass_type_scales": raw GrassTypeScales value, or None for "none"
+        Returns {} when the file is missing or has no GrassData line.
+    """
+    if not os.path.exists(terrain_info_path):
+        return {}
+
+    with open(terrain_info_path, "r") as f:
+        for line in f:
+            line = line.strip()
+            m = _GRASS_DATA_RE.search(line)
+            if not m:
+                continue
+
+            grass_material = m.group(1)
+            grass_type_scales = m.group(2).strip()
+            if grass_type_scales.lower() == "none":
+                grass_type_scales = None
+
+            return {
+                "grass_material": grass_material,
+                "grass_material_name": grass_material.split(".")[-1],
+                "grass_type_scales": grass_type_scales,
+            }
+
+    return {}
 
 
 def get_shader_names_for_chunk(terrain_info_path):
@@ -148,6 +191,16 @@ if __name__ == "__main__":
             print(f"       alpha: {l['alpha_map']}")
     
     print(f"\nTile mapping entries: {len(tile_data)}")
+
+    grass_data = parse_grass_data_file(path)
+    if grass_data:
+        print(
+            "\nGrass: {grass_material_name}  (full: {grass_material})".format(
+                **grass_data
+            )
+        )
+        if grass_data["grass_type_scales"]:
+            print(f"       scales: {grass_data['grass_type_scales']}")
     
     # Show tile grid summary
     tile_layers, _ = get_tile_layer_mapping(path)

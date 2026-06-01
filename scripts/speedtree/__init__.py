@@ -1,1 +1,1 @@
-"""SpeedTree-specific conversion helpers."""
+"""SpeedTree-specific tooling and analysis scripts."""

@@ -299,6 +299,71 @@ def get_animated_submotions(anim):
     ]
 
 
+def get_static_pose_submotions(anim):
+    """Return submotions that carry a static MOTION_PART pose and no keys.
+
+    Vanguard playable face pose clips such as UEA_human_M_pose store their useful
+    facial data in MOTION_PART pose/bind-pose transforms. They have no
+    ANIM_KEYFRAME payload, so keyframe-only exporters must handle them
+    separately instead of treating them as empty animations.
+    """
+    return [
+        sm for sm in anim.submotions
+        if not sm.rot_keys and not sm.pos_keys
+    ]
+
+
+def submotion_pose_transform(sm, use_bind_pose=True):
+    """Return a serializable local TRS tuple from an FXM submotion.
+
+    The observed Vanguard face-pose clips have identical pose and bind-pose
+    fields for the authored static pose. The bind-pose fields are the ones used
+    by the animation export pipeline for FXM rest correction, so they remain the
+    default here.
+    """
+    if use_bind_pose:
+        return {
+            "position": list(sm.bind_pose_pos),
+            "rotation": list(sm.bind_pose_rot),
+            "scale": list(sm.bind_pose_scale),
+        }
+    return {
+        "position": list(sm.pose_pos),
+        "rotation": list(sm.pose_rot),
+        "scale": list(sm.pose_scale),
+    }
+
+
+def submotion_rest_delta(sm, rest_node, use_bind_pose=True):
+    """Return local TRS plus rest-relative deltas against an FXA node."""
+    pose = submotion_pose_transform(sm, use_bind_pose=use_bind_pose)
+    rest_pos = rest_node.position
+    rest_rot = rest_node.rotation
+    rest_scale = rest_node.scale
+    pose_pos = tuple(pose["position"])
+    pose_rot = tuple(pose["rotation"])
+    pose_scale = tuple(pose["scale"])
+    return {
+        "position": list(pose_pos),
+        "rotation": list(pose_rot),
+        "scale": list(pose_scale),
+        "rest_position": list(rest_pos),
+        "rest_rotation": list(rest_rot),
+        "rest_scale": list(rest_scale),
+        "position_delta": [
+            pose_pos[0] - rest_pos[0],
+            pose_pos[1] - rest_pos[1],
+            pose_pos[2] - rest_pos[2],
+        ],
+        "rotation_delta": list(_quat_mul(_quat_inv(rest_rot), pose_rot)),
+        "scale_delta": [
+            pose_scale[0] / rest_scale[0] if rest_scale[0] else pose_scale[0],
+            pose_scale[1] / rest_scale[1] if rest_scale[1] else pose_scale[1],
+            pose_scale[2] / rest_scale[2] if rest_scale[2] else pose_scale[2],
+        ],
+    }
+
+
 def _compute_fxm_bind_ibms(anim, mesh_nodes, bone_name_to_node):
     """Compute inverse bind matrices from FXM animation bind pose.
 
@@ -441,15 +506,10 @@ def export_emfxanim_gltf(anim, clip_name, output_path, mesh_bind_rotations=None,
     import struct as _struct
     import array as _array
 
-    animated_submotions = get_animated_submotions(anim)
-    if not animated_submotions:
+    if not anim.submotions:
         return None
 
-    # Only animated submotions need tracks.
-    # Non-animated bones are handled by FXM-bind IBMs (when mesh_nodes provided),
-    # which make the rest pose = FXM bind pose instead of mesh T-pose.
-    submotions = animated_submotions if mesh_nodes else anim.submotions
-    animated_names = {sm.name for sm in animated_submotions}
+    submotions = anim.submotions
 
     # Build skeleton nodes from ALL submotions (needed for IBM computation).
     # Node rest pose = FXM animation bind pose (when mesh_nodes provided).
@@ -475,6 +535,7 @@ def export_emfxanim_gltf(anim, clip_name, output_path, mesh_bind_rotations=None,
             # their natural resting position without needing keyframe tracks.
             px, py, pz = sm.bind_pose_pos
             qx, qy, qz, qw = sm.bind_pose_rot
+            sx, sy, sz = sm.bind_pose_scale
         else:
             # Legacy: mesh bind pose as rest
             if mesh_bind_positions and sm.name in mesh_bind_positions:
@@ -485,10 +546,13 @@ def export_emfxanim_gltf(anim, clip_name, output_path, mesh_bind_rotations=None,
                 qx, qy, qz, qw = mesh_bind_rotations[sm.name]
             else:
                 qx, qy, qz, qw = sm.bind_pose_rot
+            sx, sy, sz = sm.bind_pose_scale
         if px != 0.0 or py != 0.0 or pz != 0.0:
             node["translation"] = [px, py, pz]
         if qx != 0.0 or qy != 0.0 or qz != 0.0 or qw != 1.0:
             node["rotation"] = [qx, qy, qz, qw]
+        if sx != 1.0 or sy != 1.0 or sz != 1.0:
+            node["scale"] = [sx, sy, sz]
         gltf_nodes.append(node)
         bone_name_to_node[sm.name] = si
 
@@ -504,6 +568,65 @@ def export_emfxanim_gltf(anim, clip_name, output_path, mesh_bind_rotations=None,
     anim_samplers = []
     current_offset = 0
 
+    def add_track(node_idx, path, time_values, value_values, value_type):
+        nonlocal current_offset
+        if not time_values:
+            return
+
+        time_arr = _array.array("f", time_values)
+        value_arr = _array.array("f", value_values)
+        time_bytes = time_arr.tobytes()
+        value_bytes = value_arr.tobytes()
+        time_min = float(min(time_arr))
+        time_max = float(max(time_arr))
+
+        bv_time = len(buffer_views)
+        buffer_views.append({
+            "buffer": 0,
+            "byteOffset": current_offset,
+            "byteLength": len(time_bytes),
+        })
+        buffer_parts.append(time_bytes)
+        current_offset += len(time_bytes)
+        acc_time = len(accessors)
+        accessors.append({
+            "bufferView": bv_time,
+            "componentType": 5126,
+            "count": len(time_values),
+            "type": "SCALAR",
+            "min": [time_min],
+            "max": [time_max],
+        })
+
+        bv_value = len(buffer_views)
+        buffer_views.append({
+            "buffer": 0,
+            "byteOffset": current_offset,
+            "byteLength": len(value_bytes),
+        })
+        buffer_parts.append(value_bytes)
+        current_offset += len(value_bytes)
+        acc_value = len(accessors)
+        accessors.append({
+            "bufferView": bv_value,
+            "componentType": 5126,
+            "count": len(time_values),
+            "type": value_type,
+        })
+
+        s_idx = len(anim_samplers)
+        anim_samplers.append({
+            "input": acc_time,
+            "output": acc_value,
+            "interpolation": "LINEAR",
+        })
+        anim_channels.append({"sampler": s_idx, "target": {"node": node_idx, "path": path}})
+
+    def static_times():
+        if anim.duration > 0.0:
+            return [0.0, float(anim.duration)]
+        return [0.0]
+
     for sm in submotions:
         node_idx = bone_name_to_node.get(sm.name)
         if node_idx is None:
@@ -511,11 +634,10 @@ def export_emfxanim_gltf(anim, clip_name, output_path, mesh_bind_rotations=None,
 
         # Rotation keys
         if sm.rot_keys:
-            n_keys = len(sm.rot_keys)
             correction = bone_corrections.get(sm.name)
 
-            time_arr = _array.array("f", [k[0] for k in sm.rot_keys])
-            rot_arr = _array.array("f")
+            time_values = [k[0] for k in sm.rot_keys]
+            rot_values = []
             prev = None
             for _, qx, qy, qz, qw in sm.rot_keys:
                 if correction:
@@ -527,36 +649,18 @@ def export_emfxanim_gltf(anim, clip_name, output_path, mesh_bind_rotations=None,
                     if dot < 0:
                         qx, qy, qz, qw = -qx, -qy, -qz, -qw
                 prev = (qx, qy, qz, qw)
-                rot_arr.extend([qx, qy, qz, qw])
-
-            time_bytes = time_arr.tobytes()
-            rot_bytes = rot_arr.tobytes()
-            time_min = float(min(time_arr))
-            time_max = float(max(time_arr))
-
-            # Time accessor
-            bv_time = len(buffer_views)
-            buffer_views.append({"buffer": 0, "byteOffset": current_offset, "byteLength": len(time_bytes)})
-            buffer_parts.append(time_bytes)
-            current_offset += len(time_bytes)
-            acc_time = len(accessors)
-            accessors.append({"bufferView": bv_time, "componentType": 5126, "count": n_keys, "type": "SCALAR", "min": [time_min], "max": [time_max]})
-
-            # Rotation accessor
-            bv_rot = len(buffer_views)
-            buffer_views.append({"buffer": 0, "byteOffset": current_offset, "byteLength": len(rot_bytes)})
-            buffer_parts.append(rot_bytes)
-            current_offset += len(rot_bytes)
-            acc_rot = len(accessors)
-            accessors.append({"bufferView": bv_rot, "componentType": 5126, "count": n_keys, "type": "VEC4"})
-
-            s_idx = len(anim_samplers)
-            anim_samplers.append({"input": acc_time, "output": acc_rot, "interpolation": "LINEAR"})
-            anim_channels.append({"sampler": s_idx, "target": {"node": node_idx, "path": "rotation"}})
+                rot_values.extend([qx, qy, qz, qw])
+            add_track(node_idx, "rotation", time_values, rot_values, "VEC4")
+        else:
+            qx, qy, qz, qw = sm.bind_pose_rot
+            time_values = static_times()
+            rot_values = []
+            for _ in time_values:
+                rot_values.extend([qx, qy, qz, qw])
+            add_track(node_idx, "rotation", time_values, rot_values, "VEC4")
 
         # Position keys
         if sm.pos_keys:
-            n_keys = len(sm.pos_keys)
             pos_offset = bone_pos_offsets.get(sm.name)
 
             # Root motion extraction (O3DE style): for root bones like
@@ -569,10 +673,10 @@ def export_emfxanim_gltf(anim, clip_name, output_path, mesh_bind_rotations=None,
             # near the skeleton root (parent is skeleton/ground).
             is_root_motion_bone = sm.name in ("body_root", "ground")
 
-            time_arr = _array.array("f", [k[0] for k in sm.pos_keys])
-            pos_arr = _array.array("f")
+            time_values = [k[0] for k in sm.pos_keys]
+            pos_values = []
 
-            if is_root_motion_bone and n_keys > 1:
+            if is_root_motion_bone and len(sm.pos_keys) > 1:
                 # Use first key as reference; strip X/Z delta, keep Y
                 ref_x, ref_y, ref_z = sm.pos_keys[0][1], sm.pos_keys[0][2], sm.pos_keys[0][3]
                 for _, x, y, z in sm.pos_keys:
@@ -583,37 +687,35 @@ def export_emfxanim_gltf(anim, clip_name, output_path, mesh_bind_rotations=None,
                         x += pos_offset[0]
                         y += pos_offset[1]
                         z += pos_offset[2]
-                    pos_arr.extend([x, y, z])
+                    pos_values.extend([x, y, z])
             else:
                 for _, x, y, z in sm.pos_keys:
                     if pos_offset:
                         x += pos_offset[0]
                         y += pos_offset[1]
                         z += pos_offset[2]
-                    pos_arr.extend([x, y, z])
+                    pos_values.extend([x, y, z])
+            add_track(node_idx, "translation", time_values, pos_values, "VEC3")
+        else:
+            x, y, z = sm.bind_pose_pos
+            pos_offset = bone_pos_offsets.get(sm.name)
+            if pos_offset:
+                x += pos_offset[0]
+                y += pos_offset[1]
+                z += pos_offset[2]
+            time_values = static_times()
+            pos_values = []
+            for _ in time_values:
+                pos_values.extend([x, y, z])
+            add_track(node_idx, "translation", time_values, pos_values, "VEC3")
 
-            time_bytes = time_arr.tobytes()
-            pos_bytes = pos_arr.tobytes()
-            time_min = float(min(time_arr))
-            time_max = float(max(time_arr))
-
-            bv_time = len(buffer_views)
-            buffer_views.append({"buffer": 0, "byteOffset": current_offset, "byteLength": len(time_bytes)})
-            buffer_parts.append(time_bytes)
-            current_offset += len(time_bytes)
-            acc_time = len(accessors)
-            accessors.append({"bufferView": bv_time, "componentType": 5126, "count": n_keys, "type": "SCALAR", "min": [time_min], "max": [time_max]})
-
-            bv_pos = len(buffer_views)
-            buffer_views.append({"buffer": 0, "byteOffset": current_offset, "byteLength": len(pos_bytes)})
-            buffer_parts.append(pos_bytes)
-            current_offset += len(pos_bytes)
-            acc_pos = len(accessors)
-            accessors.append({"bufferView": bv_pos, "componentType": 5126, "count": n_keys, "type": "VEC3"})
-
-            s_idx = len(anim_samplers)
-            anim_samplers.append({"input": acc_time, "output": acc_pos, "interpolation": "LINEAR"})
-            anim_channels.append({"sampler": s_idx, "target": {"node": node_idx, "path": "translation"}})
+        sx, sy, sz = sm.bind_pose_scale
+        if sx != 1.0 or sy != 1.0 or sz != 1.0:
+            time_values = static_times()
+            scale_values = []
+            for _ in time_values:
+                scale_values.extend([sx, sy, sz])
+            add_track(node_idx, "scale", time_values, scale_values, "VEC3")
 
     if not anim_channels:
         return None

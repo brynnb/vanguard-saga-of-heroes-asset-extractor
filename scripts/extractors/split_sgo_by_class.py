@@ -85,22 +85,23 @@ def extract_prefab_name(names: list[str], trailer_entry: dict | None) -> str:
 def props_to_dict(props: list[dict]) -> dict:
     """Collapse the ordered prop list into a flat dict name -> value.
 
-    If a property appears multiple times (rare — occurs across override
-    blocks) the first non-None value wins; others are preserved under
-    ``<name>__extra``.
+    If a property appears multiple times across override/default blocks, the
+    first non-None value wins for compatibility and every additional occurrence
+    is preserved under ``<name>__extra``.
     """
     out: dict = {}
     extras: dict = defaultdict(list)
     for p in props:
         name = p["name"]
         val = p["value"]
-        if name not in out or (out[name] is None and val is not None):
+        if name not in out:
+            out[name] = val
+        elif out[name] is None and val is not None:
             if name in out:
                 extras[name].append(out[name])
             out[name] = val
         else:
-            if val != out[name] and val is not None:
-                extras[name].append(val)
+            extras[name].append(val)
     for k, v in extras.items():
         out[f"{k}__extra"] = v
     return out

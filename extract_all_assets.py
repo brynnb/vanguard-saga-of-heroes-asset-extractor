@@ -41,8 +41,20 @@ def run_core(args: argparse.Namespace, env: dict[str, str]) -> None:
             env,
         )
         run_step(
+            "Build material manifest",
+            [
+                sys.executable,
+                "scripts/extractors/build_material_manifest.py",
+                "--progress-every",
+                "500",
+                "--flush-every",
+                "100",
+            ],
+            env,
+        )
+        run_step(
             "Build shader-to-texture map and extract PNG textures",
-            [sys.executable, "scripts/extractors/build_shader_texture_map.py", "--resume"],
+            [sys.executable, "scripts/extractors/build_shader_texture_map.py", "--from-material-manifest"],
             env,
         )
     else:
@@ -104,8 +116,14 @@ def run_characters(args: argparse.Namespace, env: dict[str, str]) -> None:
             [sys.executable, "scripts/generators/generate_customization_data.py", "--emu-root", str(emu_root)],
             env,
         )
+        run_step(
+            "Export playable facial controls",
+            [sys.executable, "scripts/exporters/export_playable_facial_controls.py"],
+            env,
+        )
     else:
         print(f"    Skipping customization data; missing {customization_file}")
+        print("    Skipping playable facial controls; customization data is required")
 
 def run_animations(env: dict[str, str]) -> None:
     run_step("Export EMotion FX animations", [sys.executable, "scripts/exporters/export_emfx_animations.py"], env)

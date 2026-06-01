@@ -1,8 +1,8 @@
 """
-Python adaptation of UE Viewer's UE2 FPropertyTag serialization.
+Exact port of UEViewer's UE2 FPropertyTag serialization.
 
 Source: UEViewer/Unreal/UnObject.cpp lines 571-627
-This reads the UE2 property-tag layout used by Vanguard packages.
+This reads UE2 property tags byte-for-byte identically to UEViewer.
 """
 import struct
 
@@ -26,7 +26,7 @@ NAME_FixedArrayProperty = 15
 
 
 class BinaryReader:
-    """Minimal binary reader for UE2 FArchive-style read patterns."""
+    """Minimal binary reader matching UEViewer's FArchive read patterns."""
 
     def __init__(self, data, offset=0):
         self.data = data
@@ -58,7 +58,7 @@ class BinaryReader:
         return v
 
     def read_compact_index(self):
-        """Read FArchive::SerializeCompactIndex / FCompactIndex encoding."""
+        """Exact port of FArchive::SerializeCompactIndex / FCompactIndex."""
         b0 = self.data[self.pos]; self.pos += 1
         neg = b0 & 0x80
         val = b0 & 0x3F
@@ -88,7 +88,7 @@ class BinaryReader:
 
 def skip_ue2_properties(reader, names):
     """
-    Adaptation of CTypeInfo::SerializeUnrealProps + FPropertyTag::operator<< for UE2.
+    Exact port of CTypeInfo::SerializeUnrealProps + FPropertyTag::operator<< for UE2.
 
     Reads and skips all UE2 properties until the None terminator.
     After return, reader.pos is immediately past the None name index.

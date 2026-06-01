@@ -14,7 +14,7 @@ Each playable_races entry describes:
   - skin_tones: {materialName: [url_tone0, url_tone1, ...]} for texture swapping
 
 Usage:
-    python scripts/generators/generate_playable_races.py
+    python3 scripts/generators/generate_playable_races.py
 
 Requirements:
     output/textures/   must be populated (run scripts/exporters/export_character_meshes.py first)
@@ -30,6 +30,10 @@ ROOT_DIR   = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 CHARS_DIR  = os.path.join(ROOT_DIR, "output", "meshes", "characters")
 TEX_DIR    = os.path.join(ROOT_DIR, "output", "textures")
 OUT_DIR    = os.path.join(ROOT_DIR, "output", "data")
+MATERIAL_MANIFEST_PATH = os.path.join(OUT_DIR, "material_manifest.json")
+_MATERIAL_MANIFEST: dict | None = None
+_MANIFEST_BY_TEXTURE_NAME: dict[str, dict] | None = None
+_MANIFEST_BY_MATERIAL_NAME: dict[str, dict] | None = None
 
 # ---------------------------------------------------------------------------
 # Race -> char package prefix mapping
@@ -52,8 +56,8 @@ CHAR_PKG_MAP = {
     "Raki":           "raki",
     "Vulmane":        "vulmane",
     "KojanBarbarian": "human",
-    "Varanthari":     "vulmane",
-    "Varanjar":       "halfGiant",
+    "Varanthari":     "barbarian",
+    "Varanjar":       "barbarian",
     "Kurashasa":      "kura",
 }
 
@@ -91,6 +95,72 @@ PLAYER_RACES = [
     "Thestran", "Mordebi", "Orc", "Raki", "Vulmane", "KojanBarbarian",
     "Varanthari", "Varanjar", "Kurashasa",
 ]
+
+HEAD_STYLE_INDEX = {
+    # The client maps these sub-races to a shared package plus a fixed head/ear
+    # style inside that package.
+    "DarkElf": 1,
+    "WoodElf": 2,
+    "Varanthari": 1,
+}
+
+FACE_COUNT = {
+    "Kojani": 4,
+    "Qaliathari": 4,
+    "Thestran": 4,
+    "Mordebi": 4,
+    "KojanBarbarian": 4,
+    "Vulmane": 2,
+}
+
+STYLE_INDEX_OVERRIDES = {
+    # VGClient's race init strings place the shared human/barbarian variants in
+    # T/Q/K/Mordebi order:
+    #   Human_*_T_ASounds -> OPTThestran
+    #   Human_*_Q_ASounds -> OPTQaliathari
+    #   Human_*_K_ASounds -> OPTKojanHuman
+    #   Mordebi_*_ASounds -> OPTMordebi
+    #   Barbarian_*_T_ASounds -> OPTVaranjar
+    #   Barbarian_*_Q_ASounds -> OPTVaranthari
+    # Keep these as single default styles so Godot does not default every
+    # shared-package race to the first extracted texture.
+    ("Thestran", "M"): [0],
+    ("Thestran", "F"): [0],
+    ("Qaliathari", "M"): [1],
+    ("Qaliathari", "F"): [1],
+    ("Kojani", "M"): [2],
+    ("Kojani", "F"): [2],
+    ("Mordebi", "M"): [3],
+    ("Mordebi", "F"): [3],
+    # No local kojanBarbarian modular package has been found yet. The client
+    # does have optimizedKojanBarbarian/OPTKojanBarbarian strings, while the
+    # extracted player mapping routes the playable prefix through Kojan/human
+    # art. Treat this as the current best unresolved Kojan-style mapping and
+    # let audit output keep flagging that it is shared with Kojani.
+    ("KojanBarbarian", "M"): [2],
+    ("KojanBarbarian", "F"): [2],
+    # High Elf is style 0 inside the shared Elf package. The modular body_0
+    # texture is exported without a Shader wrapper, so it comes from direct CLR
+    # extraction rather than shader-following.
+    ("HighElf", "M"): [0],
+    ("HighElf", "F"): [0],
+    # Vulmane exposes modular body CLR exports; keep the playable view on those
+    # textures and do not use optimized full-body assets as runtime fallback.
+    ("Vulmane", "M"): [0],
+    ("Vulmane", "F"): [0],
+    # Varanthari use the Barbarian package in the client race init, and style 1
+    # is the matching human-looking texture/body tone set.
+    ("Varanjar", "M"): [0],
+    ("Varanjar", "F"): [0],
+    ("Varanthari", "M"): [1],
+    ("Varanthari", "F"): [1],
+}
+
+BODY_STYLE_INDEX_OVERRIDES = {
+    # The original UTX_vulmane_F_char Shader.vulmane_F_char_body_01_SHD points
+    # at body_10 while Shader.vulmane_F_char_head_01_SHD points at head_0.
+    ("Vulmane", "F"): [10],
+}
 
 
 # ---------------------------------------------------------------------------
@@ -143,11 +213,66 @@ def build_skin_variants(tex_dir: str) -> dict:
             continue
         mat_name = f"{prefix}_0_SHD"  # the gltf always embeds the _0 variant
         tones = sorted(variants.items())  # sort by variant index
-        urls = [f"/output/textures/{fname}" for _, fname in tones]
-        if len(urls) > 1:  # only include if there's more than one tone available
-            result[mat_name] = urls
+        records = [
+            _skin_texture_record(mat_name, f"/output/textures/{fname}")
+            for _, fname in tones
+        ]
+        if len(records) > 1:  # only include if there's more than one tone available
+            result[mat_name] = records
 
     return result
+
+
+def _load_material_manifest() -> dict:
+    global _MATERIAL_MANIFEST
+    if _MATERIAL_MANIFEST is not None:
+        return _MATERIAL_MANIFEST
+    try:
+        with open(MATERIAL_MANIFEST_PATH) as f:
+            manifest = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        manifest = {}
+    _MATERIAL_MANIFEST = manifest if isinstance(manifest, dict) else {}
+    return _MATERIAL_MANIFEST
+
+
+def _manifest_indexes() -> tuple[dict[str, dict], dict[str, dict]]:
+    global _MANIFEST_BY_TEXTURE_NAME, _MANIFEST_BY_MATERIAL_NAME
+    if _MANIFEST_BY_TEXTURE_NAME is not None and _MANIFEST_BY_MATERIAL_NAME is not None:
+        return _MANIFEST_BY_TEXTURE_NAME, _MANIFEST_BY_MATERIAL_NAME
+    by_texture: dict[str, dict] = {}
+    by_material: dict[str, dict] = {}
+    for source_ref, entry in _load_material_manifest().items():
+        source_key = str(source_ref).lower()
+        by_material.setdefault(source_key.rsplit(".", 1)[-1], entry)
+        base_color = entry.get("base_color") if isinstance(entry, dict) else None
+        if not isinstance(base_color, dict):
+            continue
+        for key in ("texture_name", "asset_name"):
+            value = base_color.get(key)
+            if value:
+                by_texture.setdefault(str(value).lower(), base_color)
+    _MANIFEST_BY_TEXTURE_NAME = by_texture
+    _MANIFEST_BY_MATERIAL_NAME = by_material
+    return by_texture, by_material
+
+
+def _skin_texture_record(material_name: str, texture_url: str) -> dict:
+    filename = os.path.basename(texture_url)
+    texture_stem = os.path.splitext(filename)[0]
+    by_texture, by_material = _manifest_indexes()
+    manifest_texture = by_texture.get(texture_stem.lower(), {})
+    manifest_material = by_material.get(material_name.lower(), {})
+    asset_path = manifest_texture.get("asset_path") or f"output/textures/{filename}"
+    return {
+        "material_name": material_name,
+        "material_ref": manifest_material.get("source_ref"),
+        "texture_name": manifest_texture.get("texture_name") or texture_stem,
+        "texture_ref": manifest_texture.get("texture_ref"),
+        "texture_package": manifest_texture.get("texture_package"),
+        "asset_path": asset_path,
+        "url": "/" + asset_path.lstrip("/"),
+    }
 
 
 def _gltf_material_names(gltf_path: str) -> list[str]:
@@ -160,17 +285,167 @@ def _gltf_material_names(gltf_path: str) -> list[str]:
         return []
 
 
-def skin_tones_for_parts(body_parts: list[dict], skin_variants: dict) -> dict:
-    """Return the skin_tones subset relevant to the gltf parts for this race entry."""
-    all_mats: set[str] = set()
-    for part in body_parts:
-        gltf_path = os.path.join(CHARS_DIR, part["path"])
-        for mat in _gltf_material_names(gltf_path):
-            if "_char_" in mat:
-                all_mats.add(mat)
+def _texture_url(stem: str, idx: int) -> str | None:
+    """Return an exact CLR texture URL for stem/index, if it exists."""
+    fname = f"{stem}_{idx}_CLR.png"
+    path = os.path.join(TEX_DIR, fname)
+    if os.path.exists(path):
+        return f"/output/textures/{fname}"
+    return None
 
-    # Intersect with known variants
-    tones = {mat: skin_variants[mat] for mat in all_mats if mat in skin_variants}
+
+def _texture_indices(stem: str) -> list[int]:
+    """Return exact primary CLR indices for a texture stem."""
+    if not os.path.isdir(TEX_DIR):
+        return []
+    pattern = re.compile(rf'^{re.escape(stem)}_(\d+)_CLR\.png$', re.IGNORECASE)
+    indices: list[int] = []
+    for fname in os.listdir(TEX_DIR):
+        m = pattern.match(fname)
+        if not m:
+            continue
+        idx = int(m.group(1))
+        if not _primary_variant(idx):
+            continue
+        indices.append(idx)
+    return sorted(set(indices))
+
+
+def _style_indices_for_entry(race: str, gender: str, pkg: str, head_idx: int) -> list[int]:
+    override = STYLE_INDEX_OVERRIDES.get((race, gender))
+    if override:
+        return list(override)
+
+    head_stem = f"{pkg}_{gender}_char_head"
+    if head_idx > 0:
+        indices = [head_idx]
+        # Elf sub-races store face/tone variants as 11/12 and 21/22.
+        for candidate in range(head_idx * 10 + 1, head_idx * 10 + 10):
+            if _texture_url(head_stem, candidate):
+                indices.append(candidate)
+        return indices
+
+    body_stem = f"{pkg}_{gender}_char_body"
+    indices = sorted(set(_texture_indices(head_stem)) | set(_texture_indices(body_stem)))
+    return indices or [0]
+
+
+def _head_urls_for_styles(pkg: str, gender: str, style_indices: list[int]) -> list[str]:
+    stem = f"{pkg}_{gender}_char_head"
+    urls: list[str] = []
+    last_url: str | None = None
+    for idx in style_indices:
+        url = _texture_url(stem, idx)
+        if url is None:
+            url = last_url or _texture_url(stem, 0)
+        if url is None:
+            continue
+        urls.append(url)
+        last_url = url
+    return urls
+
+
+def _body_url_for_style(
+    race: str,
+    gender: str,
+    pkg: str,
+    style_idx: int,
+    head_idx: int,
+) -> str | None:
+    body_override = BODY_STYLE_INDEX_OVERRIDES.get((race, gender))
+    candidate_indices: list[int] = []
+    if body_override:
+        candidate_indices.extend(body_override)
+    else:
+        candidate_indices.append(style_idx)
+        if style_idx >= 10 and head_idx > 0:
+            candidate_indices.append(head_idx)
+        candidate_indices.append(0)
+
+    stems = [f"{pkg}_{gender}_char_body"]
+    for idx in candidate_indices:
+        for stem in stems:
+            url = _texture_url(stem, idx)
+            if url:
+                return url
+    return None
+
+
+def _body_urls_for_styles(
+    race: str,
+    gender: str,
+    pkg: str,
+    style_indices: list[int],
+    head_idx: int,
+) -> list[str]:
+    urls: list[str] = []
+    for idx in style_indices:
+        url = _body_url_for_style(race, gender, pkg, idx, head_idx)
+        if url:
+            urls.append(url)
+    return urls
+
+
+def _variant_head_materials(pkg: str, gender: str, start_idx: int, face_count: int) -> set[str]:
+    mats: set[str] = set()
+    for idx in range(start_idx, start_idx + max(face_count, 1)):
+        for part_name in ["head", "ears"]:
+            export = f"{pkg}_{gender}_char_{part_name}_{idx}_C_0"
+            gltf_path = os.path.join(
+                CHARS_DIR, f"UEM_{pkg}_{gender}_char", f"{export}.gltf"
+            )
+            for mat in _gltf_material_names(gltf_path):
+                if "_char_head_" in mat:
+                    mats.add(mat)
+    return mats
+
+
+def skin_tones_for_entry(
+    race: str,
+    gender: str,
+    pkg: str,
+    body_parts: list[dict],
+    head_idx: int,
+    face_count: int,
+) -> dict | None:
+    """Build an aligned skin-tone map for body and head materials.
+
+    The body mesh is always npcHuman, so its body/neck materials must be mapped
+    to the selected race's extracted body textures when those exist.
+    """
+    style_indices = _style_indices_for_entry(race, gender, pkg, head_idx)
+    head_urls = _head_urls_for_styles(pkg, gender, style_indices)
+    body_urls = _body_urls_for_styles(race, gender, pkg, style_indices, head_idx)
+    if not head_urls or not body_urls:
+        return None
+
+    tone_count = min(len(head_urls), len(body_urls))
+    if tone_count <= 0:
+        return None
+    head_urls = head_urls[:tone_count]
+    body_urls = body_urls[:tone_count]
+
+    tones: dict[str, list[str]] = {}
+    body_material = f"human_{gender}_char_body_0_SHD"
+    hand_material = f"human_{gender}_char_head_0_SHD"
+    tones[body_material] = body_urls
+    # The shared npcHuman body mesh carries hands as a separate primitive with
+    # the legacy "head" material name. Its UVs match head/skin textures, not
+    # the torso body atlas.
+    tones[hand_material] = head_urls
+
+    for mat in _variant_head_materials(pkg, gender, head_idx, face_count):
+        tones[mat] = head_urls
+
+    # Keep only materials that can actually appear on the selected body parts or
+    # their style-swapped head/ear variants.
+    valid_mats: set[str] = {body_material, hand_material}
+    valid_mats |= _variant_head_materials(pkg, gender, head_idx, face_count)
+    tones = {
+        mat: [_skin_texture_record(mat, url) for url in urls]
+        for mat, urls in tones.items()
+        if mat in valid_mats
+    }
     return tones if tones else None
 
 
@@ -178,15 +453,17 @@ def skin_tones_for_parts(body_parts: list[dict], skin_variants: dict) -> dict:
 # Entry builder
 # ---------------------------------------------------------------------------
 
-def build_entry(race: str, gender: str, skin_variants: dict) -> dict:
+def build_entry(race: str, gender: str) -> dict:
     pkg = CHAR_PKG_MAP[race]
     g = gender
+    head_idx = HEAD_STYLE_INDEX.get(race, 0)
+    face_count = FACE_COUNT.get(race, 1)
 
     body_pkg    = f"UEM_npcHuman_{g}_char"
     body_export = f"npcHuman_{g}_char_body_0_C_0"
     head_pkg    = f"UEM_{pkg}_{g}_char"
-    head_export = f"{pkg}_{g}_char_head_0_C_0"
-    ears_export = f"{pkg}_{g}_char_ears_0_C_0"
+    head_export = f"{pkg}_{g}_char_head_{head_idx}_C_0"
+    ears_export = f"{pkg}_{g}_char_ears_{head_idx}_C_0"
 
     body_parts = [
         {"package": body_pkg, "export": body_export,
@@ -204,12 +481,34 @@ def build_entry(race: str, gender: str, skin_variants: dict) -> dict:
         "clth_package": f"UEM_human_{g}_clth",
         "scale":        RACE_SCALES[race][g],
         "body_parts":   body_parts,
-        "skin_tones":   skin_tones_for_parts(body_parts, skin_variants),
+        "skin_tones":   skin_tones_for_entry(race, g, pkg, body_parts, head_idx, face_count),
+        "face_count":   face_count,
     }
+
+
+def _load_existing_slider_defaults(path: str) -> dict[str, list]:
+    try:
+        with open(path) as f:
+            existing = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+    defaults: dict[str, list] = {}
+    if not isinstance(existing, list):
+        return defaults
+    for entry in existing:
+        if not isinstance(entry, dict):
+            continue
+        key = f"{entry.get('race', '')}_{entry.get('gender', '')}"
+        values = entry.get("slider_defaults")
+        if key != "_" and isinstance(values, list):
+            defaults[key] = values
+    return defaults
 
 
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
+    pr_path = os.path.join(OUT_DIR, "playable_races.json")
+    existing_slider_defaults = _load_existing_slider_defaults(pr_path)
 
     # ── Skin variants index ─────────────────────────────────────────────────
     skin_variants = build_skin_variants(TEX_DIR)
@@ -228,16 +527,15 @@ def main():
     entries = []
     for race in PLAYER_RACES:
         for gender in ["M", "F"]:
-            entries.append(build_entry(race, gender, skin_variants))
+            entry = build_entry(race, gender)
+            key = f"{race}_{gender}"
+            if key in existing_slider_defaults:
+                entry["slider_defaults"] = existing_slider_defaults[key]
+            entries.append(entry)
 
-    pr_path = os.path.join(OUT_DIR, "playable_races.json")
     with open(pr_path, "w") as f:
         json.dump(entries, f, indent=2)
     print(f"Wrote {len(entries)} entries to {pr_path}")
-
-
-if __name__ == "__main__":
-    main()
 
 
 if __name__ == "__main__":

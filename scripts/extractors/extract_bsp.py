@@ -5,8 +5,7 @@ Extract BSP geometry from Vanguard chunk files (.vgr).
 This script parses UE2 Model objects containing BSP data and converts them
 to triangle meshes for WebGL rendering.
 
-Background reference: the bunnytrack.net Unreal Tournament package format
-guide. The BSP extraction logic here is Vanguard-specific Python code.
+Based on UTPackage.js by bunnytrack.net - ported to Python for Vanguard.
 
 BSP Structure (UE2):
 - Model contains: vectors, points, nodes, surfaces, vertices
@@ -27,9 +26,9 @@ from dataclasses import dataclass, field
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, PROJECT_ROOT)
 
+import config
 from ue2 import Vector, Plane, UE2Package
 from ue2.reader import BinaryReader, read_compact_index_at as read_compact_index
-import config
 
 
 @dataclass

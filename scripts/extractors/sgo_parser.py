@@ -106,7 +106,7 @@ if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     import config
 
-    sgo = SGOParser(getattr(config, "SGO_PATH", os.path.join(config.ARCHIVES_DIR, "binaryprefabs.sgo")))
+    sgo = SGOParser(config.SGO_PATH)
     if len(sys.argv) > 1:
         res = sgo.find_prefab(sys.argv[1])
         for c in res:

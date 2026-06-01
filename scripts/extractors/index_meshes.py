@@ -40,6 +40,17 @@ def scan_files(silent=False):
     """Scan all mesh packages and populate mesh_index table."""
     conn = sqlite3.connect(DB_PATH, timeout=30)
     
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS mesh_index (
+            id INTEGER PRIMARY KEY,
+            object_name TEXT NOT NULL,
+            class_name TEXT,
+            package_path TEXT NOT NULL,
+            file_type TEXT,
+            UNIQUE(object_name, package_path)
+        )
+    """)
+
     # Clear existing mesh_index entries
     conn.execute("DELETE FROM mesh_index")
     
@@ -53,11 +64,13 @@ def scan_files(silent=False):
     
     total_files = len(files)
     count = 0
+    skipped = 0
     for i, file_path in enumerate(files):
         if i % 100 == 0 and i > 0:
             conn.commit()
-            
-        print_progress_bar(i + 1, total_files, prefix='   Progress:', suffix=f'({i+1}/{total_files})', length=40)
+
+        if not silent and total_files:
+            print_progress_bar(i + 1, total_files, prefix='   Progress:', suffix=f'({i+1}/{total_files})', length=40)
             
         rel_path = os.path.relpath(file_path, ASSETS_DIR)
         file_ext = file_path.suffix.lower()
@@ -71,19 +84,22 @@ def scan_files(silent=False):
                 
                 # We specifically care about things that can be mesh_refs
                 if class_name in ("StaticMesh", "Prefab", "CompoundObjectPrefab", "CompoundObject"):
-                    conn.execute(
+                    cursor = conn.execute(
                         "INSERT OR IGNORE INTO mesh_index (object_name, class_name, package_path, file_type) VALUES (?, ?, ?, ?)",
                         (obj_name, class_name, rel_path, file_ext)
                     )
-                    count += 1
+                    count += cursor.rowcount
         except Exception:
             # Skip if file can't be parsed (corrupt or non-UE2)
+            skipped += 1
             continue
             
     conn.commit()
     conn.close()
     if not silent:
         print(f"   ✓ Indexed {count} mesh objects from {len(files)} files")
+        if skipped:
+            print(f"   ⚠ Skipped {skipped} files that could not be parsed")
 
 
 if __name__ == "__main__":

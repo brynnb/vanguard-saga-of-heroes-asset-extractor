@@ -12,6 +12,11 @@ Format reference: EMFX_GUIDE.md in the project root.
 
 import struct
 import math
+import os
+
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_MANIFEST_LOOKUP_CACHE = {}
 
 
 class FXANode:
@@ -1472,17 +1477,131 @@ def export_obj(mesh_data, filepath, include_normals=True, include_uvs=True):
             vtx_base += sm.num_vertices
 
 
+def _lookup_shader_map_entry(shader_map, shader_ref):
+    if not shader_map or not shader_ref:
+        return None
+    key = str(shader_ref).lower()
+    candidates = [key]
+    if "." in key:
+        candidates.append(key.rsplit(".", 1)[-1])
+    for candidate in candidates:
+        entry = shader_map.get(candidate)
+        if entry is not None:
+            return entry
+    return None
+
+
+def _material_manifest_indexes(material_manifest):
+    if not material_manifest:
+        return {}, {}
+    cache_key = id(material_manifest)
+    cached = _MANIFEST_LOOKUP_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    by_ref = {}
+    by_name = {}
+    for source_ref, entry in material_manifest.items():
+        source_key = str(source_ref).lower()
+        by_ref[source_key] = entry
+        object_name = source_key.rsplit(".", 1)[-1]
+        by_name.setdefault(object_name, []).append(entry)
+    cached = (by_ref, by_name)
+    _MANIFEST_LOOKUP_CACHE[cache_key] = cached
+    return cached
+
+
+def _manifest_entry_for_ref(material_manifest, shader_ref):
+    if not material_manifest or not shader_ref:
+        return None
+    by_ref, by_name = _material_manifest_indexes(material_manifest)
+    key = str(shader_ref).lower()
+    entry = by_ref.get(key)
+    if entry is not None:
+        return entry
+    object_name = key.rsplit(".", 1)[-1]
+    matches = by_name.get(object_name, [])
+    return matches[0] if len(matches) == 1 else None
+
+
+def _manifest_texture_path(material_manifest, shader_ref, channel="base_color"):
+    entry = _manifest_entry_for_ref(material_manifest, shader_ref)
+    if not entry:
+        return None
+    return _manifest_channel_path_from_entry(entry, channel)
+
+
+def _manifest_channel_path_from_entry(manifest_entry, channel="base_color"):
+    if not manifest_entry:
+        return None
+    texture_record = manifest_entry.get(channel) or {}
+    asset_path = texture_record.get("asset_path")
+    if not asset_path:
+        return None
+    if os.path.isabs(asset_path):
+        path = asset_path
+    else:
+        path = os.path.join(PROJECT_ROOT, asset_path)
+    return path if os.path.exists(path) else None
+
+
+def _manifest_entry_for_material(material_manifest, material, mat_index, skins_shaders):
+    if not material_manifest or material is None:
+        return None
+    if (
+        skins_shaders
+        and mat_index < len(skins_shaders)
+        and _is_generic_material_name(material.name)
+    ):
+        entry = _manifest_entry_for_ref(material_manifest, skins_shaders[mat_index])
+        if entry is not None:
+            return entry
+    return _manifest_entry_for_ref(material_manifest, material.name)
+
+
+def _manifest_alpha_mode(material_manifest, shader_ref):
+    entry = _manifest_entry_for_ref(material_manifest, shader_ref)
+    if not entry:
+        return None
+    alpha_mode = str(entry.get("alpha_mode") or "OPAQUE").upper()
+    if alpha_mode == "BLEND":
+        return "BLEND", None
+    if alpha_mode == "MASK":
+        base_color = entry.get("base_color") or {}
+        if (
+            _is_soft_alpha_eyelash_key(shader_ref)
+            or _is_soft_alpha_eyelash_key(entry.get("source_ref"))
+            or _is_soft_alpha_eyelash_key(base_color.get("texture_ref"))
+            or _is_soft_alpha_eyelash_key(base_color.get("texture_name"))
+            or _is_soft_alpha_eyelash_key(base_color.get("asset_name"))
+        ):
+            return "BLEND", None
+        return "MASK", entry.get("alpha_cutoff", 0.01)
+    return "OPAQUE", None
+
+
+def _is_generic_material_name(material_name):
+    import re as _re
+    generic_pat = _re.compile(
+        r'^(lambert\d*|blinn\d*|phong\d*|initialShadingGroup|lambert'
+        r'|standardSurface\d*|defaultMaterial|SG\d*|.*SG\d*$)',
+        _re.IGNORECASE,
+    )
+    return bool(generic_pat.match(str(material_name or "")))
+
+
 def _find_clr_texture(material, texture_dir, shader_map=None, pkg_hint=None, mat_index=0,
-                      skins_shaders=None):
+                      skins_shaders=None, material_manifest=None):
     """Find a diffuse texture PNG for an FXAMaterial.
 
     Resolution order:
-    1. Material layer ending in ``_CLR`` or ``_CLRH`` → match against PNGs.
-    2. Any material layer name tried directly, then with ``Color`` suffix,
+    1. Package-qualified material manifest by Skins/material shader ref.
+    2. Material layer ending in ``_CLR`` or ``_CLRH`` → match against PNGs.
+    3. Any material layer name tried directly, then with ``Color`` suffix,
        then with ``_CLR`` suffix (catches bare names like ``Cow`` → ``CowColor``).
-    3. Shader-map fallback: look up *material.name* (lower-cased) in
+    4. Shader-map fallback: look up *material.name* (lower-cased) in
        *shader_map* to get a texture name, then match against PNGs.
-    4. Package-hint fallback: if *pkg_hint* is provided (e.g. ``UEM_djinn_M_char``),
+    5. Package-hint fallback: if *pkg_hint* is provided (e.g. ``UEM_djinn_M_char``),
        derive a package prefix and search shader_map for entries matching
        ``{prefix}_*_{mat_index}_shd`` or ``{prefix}_body_{mat_index}_shd`` etc.
 
@@ -1514,16 +1633,13 @@ def _find_clr_texture(material, texture_dir, shader_map=None, pkg_hint=None, mat
     #    real game-engine shader name (e.g. human_F_char_head_0_SHD), the Tier 1
     #    direct smap lookup handles it correctly.  Forcing Skins on real names
     #    breaks composite meshes where Skins order ≠ FXA submesh order.
-    import re as _re0
-    _GENERIC_PAT = _re0.compile(
-        r'^(lambert\d*|blinn\d*|phong\d*|initialShadingGroup|lambert'
-        r'|standardSurface\d*|defaultMaterial|SG\d*|.*SG\d*$)',
-        _re0.IGNORECASE,
-    )
-    _mat_name_is_generic = bool(_GENERIC_PAT.match(material.name))
-    if _mat_name_is_generic and skins_shaders and mat_index < len(skins_shaders) and shader_map:
-        skin_key = skins_shaders[mat_index].lower()
-        entry = shader_map.get(skin_key)
+    _mat_name_is_generic = _is_generic_material_name(material.name)
+    if _mat_name_is_generic and skins_shaders and mat_index < len(skins_shaders):
+        skin_key = skins_shaders[mat_index]
+        path = _manifest_texture_path(material_manifest, skin_key)
+        if path:
+            return path
+        entry = _lookup_shader_map_entry(shader_map, skin_key)
         if entry:
             tex_name = entry.get("texture") if isinstance(entry, dict) else (
                 entry if isinstance(entry, str) and not entry.startswith("color:") else None)
@@ -1531,6 +1647,10 @@ def _find_clr_texture(material, texture_dir, shader_map=None, pkg_hint=None, mat
                 path = lookup.get(tex_name.lower())
                 if path:
                     return path
+
+    manifest_path = _manifest_texture_path(material_manifest, material.name)
+    if manifest_path:
+        return manifest_path
 
     # 1. Try _CLR / _CLRH layers (primary convention)
     for layer in material.layers:
@@ -1549,11 +1669,11 @@ def _find_clr_texture(material, texture_dir, shader_map=None, pkg_hint=None, mat
     if shader_map:
         import re as _re2
         mat_key = material.name.lower()
-        entry = shader_map.get(mat_key)
+        entry = _lookup_shader_map_entry(shader_map, mat_key)
         if entry is None:
             dedup_key = _re2.sub(r'([a-z])\1+', r'\1', mat_key)
             if dedup_key != mat_key:
-                entry = shader_map.get(dedup_key)
+                entry = _lookup_shader_map_entry(shader_map, dedup_key)
         tex_name = None
         if isinstance(entry, dict):
             tex_name = entry.get("texture")
@@ -1648,8 +1768,14 @@ def _find_clr_texture(material, texture_dir, shader_map=None, pkg_hint=None, mat
     return None
 
 
+def _is_soft_alpha_eyelash_key(value):
+    lower = str(value or "").lower()
+    compact = lower.replace("_", "").replace("-", "")
+    return "eyelash" in compact
+
+
 def _find_material_alpha_mode(material, png_path, shader_map=None,
-                              skins_key=None):
+                              skins_key=None, material_manifest=None):
     """Return the glTF alphaMode for a material given its resolved texture PNG.
 
     Only use the explicit ``alpha`` key in shader_map — never infer from PNG
@@ -1668,30 +1794,53 @@ def _find_material_alpha_mode(material, png_path, shader_map=None,
     Returns a tuple ``(alpha_mode, alpha_cutoff)`` where alpha_cutoff is a
     float (0.0–1.0) used only for MASK mode, or None for BLEND/OPAQUE.
     """
-    def _alpha_from_entry(entry):
+    def _alpha_from_entry(entry, material_key=""):
+        entry_texture = ""
         if isinstance(entry, dict):
+            entry_texture = entry.get("texture", "")
             alpha = entry.get("alpha", "").lower()
             if alpha == "blend":
                 return ("BLEND", None)
             if alpha == "mask":
+                if (
+                    _is_soft_alpha_eyelash_key(material_key)
+                    or _is_soft_alpha_eyelash_key(entry_texture)
+                ):
+                    return ("BLEND", None)
                 return ("MASK", 0.01)
         return None
 
-    if shader_map:
-        # 0. Skins-derived key — used when the FXA material name is generic
-        #    (lambert3SG, file15SG, etc.) and only the Skins property reveals
-        #    the true shader identity.
-        if skins_key:
-            result = _alpha_from_entry(shader_map.get(skins_key.lower()))
-            if result:
-                return result
-
-        # 1. Direct material name lookup
-        result = _alpha_from_entry(shader_map.get(material.name.lower()))
+    # 0. Manifest-backed shader identity. This path is package-qualified and
+    # should win over shader_to_texture.json whenever present.
+    if skins_key:
+        result = _manifest_alpha_mode(material_manifest, skins_key)
         if result:
             return result
 
-        # 2. Reverse lookup by resolved texture filename.
+    material_name = material.name.lower()
+    result = _manifest_alpha_mode(material_manifest, material_name)
+    if result:
+        return result
+
+    if shader_map:
+        # 1. Skins-derived key — used when the FXA material name is generic
+        #    (lambert3SG, file15SG, etc.) and only the Skins property reveals
+        #    the true shader identity.
+        if skins_key:
+            result = _alpha_from_entry(
+                _lookup_shader_map_entry(shader_map, skins_key), skins_key
+            )
+            if result:
+                return result
+
+        # 2. Direct material name lookup
+        result = _alpha_from_entry(
+            _lookup_shader_map_entry(shader_map, material_name), material_name
+        )
+        if result:
+            return result
+
+        # 3. Reverse lookup by resolved texture filename.
         #    Only apply MASK if the smap key that references this texture
         #    belongs to a known alpha-cutout category (hair, leaf, etc.).
         #    Body/head/skin materials share the "human_f_" prefix with hair,
@@ -1700,7 +1849,7 @@ def _find_material_alpha_mode(material, png_path, shader_map=None,
             import os
             _ALPHA_HINT_WORDS = frozenset({
                 "hair", "leaf", "foliage", "vine", "feather", "fur",
-                "wing", "eyelash", "lash", "grass", "tree", "plant",
+                "wing", "eyelash", "grass", "tree", "plant",
                 "fern", "bush", "flower", "petal", "branch", "billboard",
             })
             tex_base = os.path.splitext(os.path.basename(png_path))[0].lower()
@@ -1708,7 +1857,7 @@ def _find_material_alpha_mode(material, png_path, shader_map=None,
                 if isinstance(entry, dict):
                     if entry.get("texture", "").lower() == tex_base:
                         if any(w in smap_key for w in _ALPHA_HINT_WORDS):
-                            result = _alpha_from_entry(entry)
+                            result = _alpha_from_entry(entry, smap_key)
                             if result:
                                 return result
 
@@ -1775,6 +1924,26 @@ def _dilate_alpha_edges(png_bytes, passes=4):
         result[~opaque, :3] = np.clip(filled_rgb[~opaque], 0, 255).astype(np.uint8)
         buf = _io.BytesIO()
         Image.fromarray(result, 'RGBA').save(buf, 'PNG')
+        return buf.getvalue()
+    except Exception:
+        return png_bytes
+
+
+def _make_alpha_only_texture(png_bytes):
+    """Replace RGB with white while preserving alpha for tint-driven soft alpha art."""
+    try:
+        from PIL import Image
+        import io as _io
+    except ImportError:
+        return png_bytes
+
+    try:
+        img = Image.open(_io.BytesIO(png_bytes)).convert('RGBA')
+        alpha = img.getchannel('A')
+        white = Image.new('L', img.size, 255)
+        result = Image.merge('RGBA', (white, white, white, alpha))
+        buf = _io.BytesIO()
+        result.save(buf, 'PNG')
         return buf.getvalue()
     except Exception:
         return png_bytes
@@ -2203,7 +2372,17 @@ def _compute_inverse_bind_matrices(nodes, bind_rot_overrides=None, bind_pos_over
         r = qm(qm(q, vq), qc)
         return (r[0], r[1], r[2])
 
-    for i, node in enumerate(nodes):
+    computed = [False] * n
+    visiting = [False] * n
+
+    def compute_world(i):
+        if computed[i]:
+            return
+        if visiting[i]:
+            raise ValueError(f"Cycle in skeleton hierarchy at node {nodes[i].name!r}")
+
+        visiting[i] = True
+        node = nodes[i]
         local_pos = node.position
         local_rot = node.rotation
         local_scl = node.scale
@@ -2211,23 +2390,36 @@ def _compute_inverse_bind_matrices(nodes, bind_rot_overrides=None, bind_pos_over
             local_pos = bind_pos_overrides[node.name]
         if bind_rot_overrides and node.name in bind_rot_overrides:
             local_rot = bind_rot_overrides[node.name]
-        if node.parent_index < 0:
-            world_pos[i] = local_pos
-            world_rot[i] = local_rot
-            world_scl[i] = local_scl
-        else:
-            pi = node.parent_index
-            # Apply parent scale to child's local position before rotation
-            ps = world_scl[pi]
-            scaled_pos = (local_pos[0] * ps[0], local_pos[1] * ps[1], local_pos[2] * ps[2])
-            rotated = qr(world_rot[pi], scaled_pos)
-            world_pos[i] = (
-                world_pos[pi][0] + rotated[0],
-                world_pos[pi][1] + rotated[1],
-                world_pos[pi][2] + rotated[2],
-            )
-            world_rot[i] = qm(world_rot[pi], node.rotation)
-            world_scl[i] = (ps[0] * local_scl[0], ps[1] * local_scl[1], ps[2] * local_scl[2])
+
+        try:
+            if node.parent_index < 0:
+                world_pos[i] = local_pos
+                world_rot[i] = local_rot
+                world_scl[i] = local_scl
+            elif node.parent_index >= n:
+                raise ValueError(
+                    f"Invalid parent index {node.parent_index} for skeleton node {node.name!r}"
+                )
+            else:
+                pi = node.parent_index
+                compute_world(pi)
+                # Apply parent scale to child's local position before rotation.
+                ps = world_scl[pi]
+                scaled_pos = (local_pos[0] * ps[0], local_pos[1] * ps[1], local_pos[2] * ps[2])
+                rotated = qr(world_rot[pi], scaled_pos)
+                world_pos[i] = (
+                    world_pos[pi][0] + rotated[0],
+                    world_pos[pi][1] + rotated[1],
+                    world_pos[pi][2] + rotated[2],
+                )
+                world_rot[i] = qm(world_rot[pi], local_rot)
+                world_scl[i] = (ps[0] * local_scl[0], ps[1] * local_scl[1], ps[2] * local_scl[2])
+            computed[i] = True
+        finally:
+            visiting[i] = False
+
+    for i in range(n):
+        compute_world(i)
 
     # Compute inverse bind matrix for each bone
     # IBM = inverse(world_transform) = inverse(T * R * S)
@@ -2306,6 +2498,7 @@ def extract_skins_shaders(uem_path, exp_name, pkg=None):
         if _root not in _sys.path:
             _sys.path.insert(0, _root)
         from ue2.package import UE2Package
+        from material_memory import import_full_path
         from ue2_property_reader import BinaryReader, read_ue2_properties
     except ImportError:
         return []
@@ -2375,9 +2568,10 @@ def extract_skins_shaders(uem_path, exp_name, pkg=None):
             if imp["class_name"] not in _SHADER_CLASSES:
                 continue
             obj_name = imp["object_name"]
-            if obj_name not in seen_set:
-                seen.append(obj_name)
-                seen_set.add(obj_name)
+            source_ref = import_full_path(pkg.imports, import_idx) or obj_name
+            if source_ref not in seen_set:
+                seen.append(source_ref)
+                seen_set.add(source_ref)
 
         return seen
 
@@ -2387,7 +2581,7 @@ def extract_skins_shaders(uem_path, exp_name, pkg=None):
 
 def export_gltf(mesh_data, filepath, texture_dir=None, shader_map=None,
                 bind_rot_overrides=None, bind_pos_overrides=None, pkg_name=None,
-                skins_shaders=None):
+                skins_shaders=None, material_manifest=None):
     """
     Export parsed mesh data to a standalone glTF 2.0 file with embedded buffer.
 
@@ -2409,7 +2603,9 @@ def export_gltf(mesh_data, filepath, texture_dir=None, shader_map=None,
         mesh_data: FXAMeshData instance
         filepath: output .gltf file path
         texture_dir: optional directory containing extracted texture PNGs
-        shader_map: optional dict mapping shader names to texture names (fallback)
+        shader_map: optional legacy dict mapping shader names to texture names
+            (fallback)
+        material_manifest: optional package-qualified material manifest.
         pkg_name: optional UEM package name (e.g. ``UEM_djinn_M_char``) used as
             last-resort fallback when material name is generic (e.g. ``phong2SG``)
     """
@@ -2502,17 +2698,22 @@ def export_gltf(mesh_data, filepath, texture_dir=None, shader_map=None,
 
     # --- resolve textures per submesh ---------------------------------------
     tex_images = []       # list of png_path or None, per submesh
-    tex_cache = {}        # path -> index into gltf images[]
+    sm_manifest_entries = []
     for si, sm in enumerate(mesh_data.submeshes):
         mat_idx = sm.material_index
         if mat_idx < len(mesh_data.materials):
+            manifest_entry = _manifest_entry_for_material(
+                material_manifest, mesh_data.materials[mat_idx], mat_idx, skins_shaders
+            )
             png_path = _find_clr_texture(
                 mesh_data.materials[mat_idx], texture_dir, shader_map,
                 pkg_hint=pkg_name, mat_index=mat_idx,
-                skins_shaders=skins_shaders,
+                skins_shaders=skins_shaders, material_manifest=material_manifest,
             )
         else:
+            manifest_entry = None
             png_path = None
+        sm_manifest_entries.append(manifest_entry)
         tex_images.append(png_path)
 
     # Pre-compute alpha modes so the PNG loading loop knows which textures to
@@ -2526,10 +2727,18 @@ def export_gltf(mesh_data, filepath, texture_dir=None, shader_map=None,
         mat_idx = sm.material_index
         fxa_mat = mesh_data.materials[mat_idx] if mat_idx < len(mesh_data.materials) else None
         if fxa_mat:
-            sk = (skins_shaders[mat_idx].lower()
-                  if skins_shaders and mat_idx < len(skins_shaders) else None)
+            sk = (
+                skins_shaders[mat_idx].lower()
+                if (
+                    skins_shaders
+                    and mat_idx < len(skins_shaders)
+                    and _is_generic_material_name(fxa_mat.name)
+                )
+                else None
+            )
             mode, _ = _find_material_alpha_mode(fxa_mat, png_path, shader_map,
-                                                skins_key=sk)
+                                                skins_key=sk,
+                                                material_manifest=material_manifest)
         else:
             mode = 'OPAQUE'
         _tex_alpha_mode[png_path] = mode
@@ -2545,28 +2754,63 @@ def export_gltf(mesh_data, filepath, texture_dir=None, shader_map=None,
 
     # Load texture PNGs and append to buffer
     image_entries = []     # (mime, png_bytes) for each unique image
+    image_cache = {}       # (png_path, role, alpha_mode) -> image_entries index
     sm_image_idx = []      # per-submesh: index into image_entries or -1
-    for png_path in tex_images:
+
+    def _image_index_for_png(png_path, role="texture", alpha_mode="OPAQUE"):
         if png_path is None:
-            sm_image_idx.append(-1)
-            continue
-        if png_path in tex_cache:
-            sm_image_idx.append(tex_cache[png_path])
-            continue
+            return -1
+        cache_key = (png_path, role, alpha_mode if role == "base" else "")
+        if cache_key in image_cache:
+            return image_cache[cache_key]
         try:
             with open(png_path, "rb") as f:
                 png_bytes = f.read()
             # Dilate alpha edges for MASK-mode (alpha-cutout) textures to
             # eliminate white/black fringing in transparent border pixels.
-            if _tex_alpha_mode.get(png_path) == 'MASK':
+            if role == "base" and alpha_mode == 'MASK':
                 png_bytes = _dilate_alpha_edges(png_bytes)
+            elif role == "base" and _is_soft_alpha_eyelash_key(png_path):
+                png_bytes = _make_alpha_only_texture(png_bytes)
             idx = len(image_entries)
             image_entries.append(("image/png", png_bytes))
             buffer_parts.append(png_bytes)
-            tex_cache[png_path] = idx
-            sm_image_idx.append(idx)
+            image_cache[cache_key] = idx
+            return idx
         except Exception:
-            sm_image_idx.append(-1)
+            return -1
+
+    for png_path in tex_images:
+        sm_image_idx.append(
+            _image_index_for_png(
+                png_path,
+                role="base",
+                alpha_mode=_tex_alpha_mode.get(png_path, "OPAQUE"),
+            )
+        )
+
+    sm_normal_image_idx = []
+    sm_specular_image_idx = []
+    sm_detail_image_idx = []
+    for manifest_entry in sm_manifest_entries:
+        sm_normal_image_idx.append(
+            _image_index_for_png(
+                _manifest_channel_path_from_entry(manifest_entry, "normal"),
+                role="normal",
+            )
+        )
+        sm_specular_image_idx.append(
+            _image_index_for_png(
+                _manifest_channel_path_from_entry(manifest_entry, "specular"),
+                role="specular",
+            )
+        )
+        sm_detail_image_idx.append(
+            _image_index_for_png(
+                _manifest_channel_path_from_entry(manifest_entry, "detail"),
+                role="detail",
+            )
+        )
 
     # --- LOD level data -------------------------------------------------------
     has_lods = (hasattr(mesh_data, 'post_chunk_data') and
@@ -2628,6 +2872,7 @@ def export_gltf(mesh_data, filepath, texture_dir=None, shader_map=None,
     primitives = []
     gltf_nodes = []
     skins = []
+    extensions_used = set()
 
     # Shared buffer views are NOT used for vertex data because Three.js
     # GLTFLoader ignores accessor-level byteOffset when multiple accessors
@@ -2782,18 +3027,29 @@ def export_gltf(mesh_data, filepath, texture_dir=None, shader_map=None,
 
         pbr = {"metallicFactor": 0.0, "roughnessFactor": 0.7}
         img_idx = sm_image_idx[si] if si < len(sm_image_idx) else -1
+        resolved_png = (tex_images[si] if si < len(tex_images) else None)
         if img_idx >= 0:
             pbr["baseColorTexture"] = {"index": img_idx}
+            if _is_soft_alpha_eyelash_key(resolved_png):
+                pbr["baseColorFactor"] = [0.04, 0.03, 0.02, 1.0]
         else:
             pbr["baseColorFactor"] = [0.8, 0.8, 0.8, 1.0]
 
         # Determine alphaMode from shader_map and/or PNG header
-        resolved_png = (tex_images[si] if si < len(tex_images) else None)
         mat_idx_for_alpha = sm.material_index
-        _sk = (skins_shaders[mat_idx_for_alpha].lower()
-               if skins_shaders and mat_idx_for_alpha < len(skins_shaders) else None)
+        _sk = (
+            skins_shaders[mat_idx_for_alpha].lower()
+            if (
+                fxa_mat
+                and skins_shaders
+                and mat_idx_for_alpha < len(skins_shaders)
+                and _is_generic_material_name(fxa_mat.name)
+            )
+            else None
+        )
         alpha_mode, alpha_cutoff = _find_material_alpha_mode(
-            fxa_mat, resolved_png, shader_map, skins_key=_sk
+            fxa_mat, resolved_png, shader_map, skins_key=_sk,
+            material_manifest=material_manifest
         ) if fxa_mat else ("OPAQUE", None)
 
         mat_entry = {
@@ -2801,6 +3057,71 @@ def export_gltf(mesh_data, filepath, texture_dir=None, shader_map=None,
             "pbrMetallicRoughness": pbr,
             "doubleSided": True,
         }
+        manifest_entry = (
+            sm_manifest_entries[si] if si < len(sm_manifest_entries) else None
+        )
+        if manifest_entry is not None:
+            base_color_record = manifest_entry.get("base_color") or {}
+            base_color_factor = base_color_record.get("color_factor")
+            if img_idx < 0 and base_color_factor:
+                factor = list(base_color_factor)
+                if len(factor) == 3:
+                    factor.append(1.0)
+                if len(factor) >= 4:
+                    pbr["baseColorFactor"] = factor[:4]
+            extras = {
+                "vg_source_material_ref": manifest_entry.get("source_ref"),
+                "vg_source_package": manifest_entry.get("source_package"),
+                "vg_surface_type": manifest_entry.get("surface_type"),
+                "vg_base_color_texture": base_color_record,
+            }
+            normal_record = manifest_entry.get("normal") or {}
+            normal_img_idx = (
+                sm_normal_image_idx[si] if si < len(sm_normal_image_idx) else -1
+            )
+            if normal_record.get("asset_path"):
+                extras["vg_normal_texture"] = normal_record
+            if normal_img_idx >= 0:
+                normal_def = {"index": normal_img_idx}
+                if normal_record.get("scale") is not None:
+                    normal_def["scale"] = normal_record.get("scale")
+                mat_entry["normalTexture"] = normal_def
+            specular_record = manifest_entry.get("specular") or {}
+            specular_img_idx = (
+                sm_specular_image_idx[si] if si < len(sm_specular_image_idx) else -1
+            )
+            specular_def = {}
+            if specular_record.get("factor") not in (None, 0, 0.0):
+                specular_def["specularFactor"] = specular_record.get("factor")
+            if specular_record.get("color_factor"):
+                specular_def["specularColorFactor"] = specular_record.get(
+                    "color_factor"
+                )[:3]
+            if specular_record.get("asset_path"):
+                extras["vg_specular_texture_asset"] = specular_record
+            if specular_img_idx >= 0:
+                specular_def["specularTexture"] = {"index": specular_img_idx}
+            if specular_def and (
+                specular_img_idx >= 0
+                or specular_record.get("factor") not in (None, 0, 0.0)
+                or specular_record.get("color_factor")
+            ):
+                mat_entry.setdefault("extensions", {})[
+                    "KHR_materials_specular"
+                ] = specular_def
+                extensions_used.add("KHR_materials_specular")
+            detail_record = manifest_entry.get("detail") or {}
+            detail_img_idx = (
+                sm_detail_image_idx[si] if si < len(sm_detail_image_idx) else -1
+            )
+            if detail_record.get("asset_path"):
+                extras["vg_detail_texture_asset"] = detail_record
+                extras["vg_detail_scale"] = detail_record.get("scale")
+            if detail_img_idx >= 0:
+                extras["vg_detail_texture_index"] = detail_img_idx
+            mat_entry["extras"] = {
+                key: value for key, value in extras.items() if value is not None
+            }
         if alpha_mode != "OPAQUE":
             mat_entry["alphaMode"] = alpha_mode
             if alpha_cutoff is not None:
@@ -2960,6 +3281,10 @@ def export_gltf(mesh_data, filepath, texture_dir=None, shader_map=None,
         gltf["textures"] = textures_list
     if images_list:
         gltf["images"] = images_list
+    if extensions_used:
+        existing_extensions = set(gltf.get("extensionsUsed", []))
+        existing_extensions.update(extensions_used)
+        gltf["extensionsUsed"] = sorted(existing_extensions)
 
     with open(filepath, "w") as f:
         json.dump(gltf, f)

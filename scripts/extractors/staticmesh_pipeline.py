@@ -40,9 +40,10 @@ sys.path.insert(0, SCRIPTS_DIR)
 sys.path.insert(0, PROJECT_ROOT)
 
 from ue2 import UE2Package
+from material_memory import MaterialMemoryResolver
 from vanguard_staticmesh import parse_vanguard_staticmesh
-from scripts.speedtree.build_leaf_hybrid_gltf import build_hybrid as build_runtime_leaf_hybrid
-from scripts.speedtree.export_reconstructed_leaf_cards_gltf import build_gltf as build_runtime_leaf_gltf
+from scripts.speedtree.build_spt2fbx_leaf_hybrid_gltf import build_hybrid as build_runtime_leaf_hybrid
+from scripts.speedtree.export_reconstructed_spt2fbx_leaf_cards_gltf import build_gltf as build_runtime_leaf_gltf
 
 # Configuration
 import config
@@ -50,7 +51,8 @@ import config
 CANONICAL_DB = config.DB_PATH
 MESHES_DIR = os.path.join(config.ASSETS_PATH, "Meshes")
 OUTPUT_DIR = config.MESH_BUILDINGS_DIR  # Where glTF files go
-RUNTIME_LEAF_COMPARE_DIR = os.path.join(PROJECT_ROOT, "output", "data", "runtime_leaf_cards")
+RUNTIME_LEAF_COMPARE_DIR = os.path.join(PROJECT_ROOT, "output", "data", "spt2fbx_attachment_compare")
+OUTPUT_TEXTURES_DIR = os.path.join(PROJECT_ROOT, "output", "textures")
 
 TREE_KEYWORDS = (
     "speedtree",
@@ -267,7 +269,7 @@ def extract_vertices_from_lod(vertices_raw: bytes, count: int) -> List[ParsedVer
 def parse_staticmesh_file(pkg_path: str) -> List[ParsedMesh]:
     """
     Parse all StaticMesh exports from a package file.
-    Uses the UE Viewer-informed Vanguard StaticMesh parser.
+    Uses exact port of UEViewer's SerializeVanguardMesh.
     Returns list of ParsedMesh objects.
     """
     meshes = []
@@ -586,7 +588,7 @@ def store_parsed_mesh(
 
 
 def _load_shader_texture_map():
-    """Load the shader→texture name mapping (cached)."""
+    """Load the legacy shader→texture projection for fallback-only lookups."""
     if not hasattr(_load_shader_texture_map, "_cache"):
         map_path = os.path.join(
             PROJECT_ROOT, "output", "data", "shader_to_texture.json"
@@ -599,11 +601,38 @@ def _load_shader_texture_map():
     return _load_shader_texture_map._cache
 
 
+def _load_material_memory_resolver():
+    """Load MaterialMemory resolver once, if the client cache is present."""
+    if not hasattr(_load_material_memory_resolver, "_cache"):
+        try:
+            resolver = MaterialMemoryResolver()
+        except Exception as exc:
+            print(f"WARNING: MaterialMemory resolver unavailable: {exc}", file=sys.stderr)
+            resolver = None
+        _load_material_memory_resolver._cache = (
+            resolver if resolver is not None and resolver.available else None
+        )
+    return _load_material_memory_resolver._cache
+
+
+def _shader_map_entry(shader_map, shader_ref):
+    """Find legacy shader_to_texture entries from a full or bare shader ref."""
+    if not shader_ref:
+        return None
+    keys = [str(shader_ref).lower()]
+    if "." in keys[0]:
+        keys.append(keys[0].rsplit(".", 1)[-1])
+    for key in keys:
+        if key in shader_map:
+            return shader_map[key]
+    return None
+
+
 def _load_texture_image_b64(texture_name):
     """Load a texture PNG as base64 data URI. Returns (data_uri, mime) or (None, None)."""
     import base64
 
-    tex_dir = os.path.join(PROJECT_ROOT, "output", "textures")
+    tex_dir = OUTPUT_TEXTURES_DIR
     # Try exact name, then case-insensitive
     for fname in os.listdir(tex_dir) if os.path.isdir(tex_dir) else []:
         if fname.lower() == texture_name.lower() + ".png":
@@ -745,19 +774,41 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
 
     # --- Resolve materials for each section ---
     shader_map = _load_shader_texture_map()
-    section_materials = (
-        []
-    )  # list of (shader_name, texture_name, alpha_mode, is_water, two_sided) per section
+    material_resolver = _load_material_memory_resolver()
+    section_materials = []
+    # list of (
+    #   shader_ref, texture_name, base_color_factor, alpha_mode, is_water, two_sided,
+    #   normal_texture_name, normal_scale, material_extras,
+    #   specular_texture_name, specular_factor, specular_color_factor,
+    #   detail_texture_name, detail_scale
+    # ) per section
     has_any_texture = False
 
     if mesh.sections and mesh.skins and len(mesh.skins) > 0:
         skin0 = mesh.skins[0]  # Use first skin set
         for si, sec in enumerate(mesh.sections):
             if sec.get("num_faces", 0) == 0:
-                section_materials.append((None, None, None, False, False))
+                section_materials.append(
+                    (
+                        None,
+                        None,
+                        None,
+                        None,
+                        False,
+                        False,
+                        None,
+                        None,
+                        {},
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                )
                 continue
-            shader_name = skin0[si].lower() if si < len(skin0) and skin0[si] else None
-            map_entry = shader_map.get(shader_name) if shader_name else None
+            shader_ref = skin0[si] if si < len(skin0) and skin0[si] else None
+            map_entry = _shader_map_entry(shader_map, shader_ref)
             # Handle both string and dict entries in shader map
             if isinstance(map_entry, dict):
                 texture_name = map_entry.get("texture")
@@ -772,10 +823,79 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
                 alpha_mode = None
                 is_water = False
                 two_sided = False
+
+            base_color_factor = None
+            normal_texture_name = None
+            normal_scale = None
+            specular_texture_name = None
+            specular_factor = None
+            specular_color_factor = None
+            detail_texture_name = None
+            detail_scale = None
+            material_extras = {}
+            if material_resolver is not None and shader_ref:
+                shader_info = material_resolver.resolve_shader(shader_ref)
+                if shader_info is not None:
+                    diffuse_asset = material_resolver.ensure_diffuse_asset(
+                        shader_ref, OUTPUT_TEXTURES_DIR
+                    )
+                    if diffuse_asset and diffuse_asset.get("asset_name"):
+                        texture_name = diffuse_asset["asset_name"]
+                    base_color_factor = material_resolver.base_color_factor(shader_ref)
+                    if alpha_mode is None:
+                        alpha_mode = shader_info.alpha_mode
+                    two_sided = two_sided or shader_info.two_sided
+                    material_extras = material_resolver.shader_extras(shader_ref)
+                    if diffuse_asset:
+                        material_extras["vg_base_color_texture"] = diffuse_asset
+                    if base_color_factor:
+                        material_extras["vg_base_color_factor"] = base_color_factor
+                    normal_asset, normal_scale = material_resolver.ensure_normal_asset(
+                        shader_ref, OUTPUT_TEXTURES_DIR
+                    )
+                    if normal_asset and normal_asset.get("asset_name"):
+                        normal_texture_name = normal_asset["asset_name"]
+                        material_extras["vg_normal_texture"] = normal_asset
+                    specular_asset, specular_factor, specular_color_factor = (
+                        material_resolver.ensure_specular_asset(
+                            shader_ref, OUTPUT_TEXTURES_DIR
+                        )
+                    )
+                    if specular_asset and specular_asset.get("asset_name"):
+                        specular_texture_name = specular_asset["asset_name"]
+                        material_extras["vg_specular_texture_asset"] = specular_asset
+                    detail_asset = material_resolver.ensure_detail_asset(
+                        shader_ref, OUTPUT_TEXTURES_DIR
+                    )
+                    if detail_asset and detail_asset.get("asset_name"):
+                        detail_texture_name = detail_asset["asset_name"]
+                        material_extras["vg_detail_texture_asset"] = detail_asset
+                    detail_scale = shader_info.detail_scale
+
             section_materials.append(
-                (shader_name, texture_name, alpha_mode, is_water, two_sided)
+                (
+                    shader_ref,
+                    texture_name,
+                    base_color_factor,
+                    alpha_mode,
+                    is_water,
+                    two_sided,
+                    normal_texture_name,
+                    normal_scale,
+                    material_extras,
+                    specular_texture_name,
+                    specular_factor,
+                    specular_color_factor,
+                    detail_texture_name,
+                    detail_scale,
+                )
             )
-            if texture_name:
+            if (
+                texture_name
+                or normal_texture_name
+                or specular_texture_name
+                or detail_texture_name
+            ):
                 has_any_texture = True
 
     # --- Expand collapsed SpeedTree leaf card quads ---
@@ -812,8 +932,27 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
             if not sec_vertices:
                 continue
 
-            sm = section_materials[si] if si < len(section_materials) else (None, None, None, False, False)
-            alpha_mode = sm[2]
+            sm = (
+                section_materials[si]
+                if si < len(section_materials)
+                else (
+                    None,
+                    None,
+                    None,
+                    None,
+                    False,
+                    False,
+                    None,
+                    None,
+                    {},
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+            )
+            alpha_mode = sm[3] if len(sm) > 3 else None
             if alpha_mode == "mask":
                 billboard_vertices.update(sec_vertices)
             else:
@@ -1131,19 +1270,132 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
     gltf_textures = []
     gltf_images = []
     gltf_samplers = []
-    texture_cache = {}  # texture_name -> material_index
+    material_cache = {}  # material definition key -> material_index
+    texture_index_cache = {}  # texture_name -> glTF texture index
+    extensions_used = set()
+
+    def get_or_create_texture(texture_name):
+        if not texture_name:
+            return None
+        key = str(texture_name).lower()
+        if key in texture_index_cache:
+            return texture_index_cache[key]
+
+        data_uri, mime = _load_texture_image_b64(texture_name)
+        if not data_uri:
+            texture_index_cache[key] = None
+            return None
+
+        if not gltf_samplers:
+            gltf_samplers.append(
+                {
+                    "magFilter": 9729,  # LINEAR
+                    "minFilter": 9987,  # LINEAR_MIPMAP_LINEAR
+                    "wrapS": 10497,  # REPEAT
+                    "wrapT": 10497,  # REPEAT
+                }
+            )
+
+        img_idx = len(gltf_images)
+        gltf_images.append({"uri": data_uri, "mimeType": mime})
+
+        tex_idx = len(gltf_textures)
+        gltf_textures.append({"source": img_idx, "sampler": 0})
+        texture_index_cache[key] = tex_idx
+        return tex_idx
+
+    def apply_material_metadata(
+        mat_def,
+        normal_texture_name=None,
+        normal_scale=None,
+        specular_texture_name=None,
+        specular_factor=None,
+        specular_color_factor=None,
+        detail_texture_name=None,
+        detail_scale=None,
+        is_water=False,
+        material_extras=None,
+    ):
+        if normal_texture_name:
+            normal_tex_idx = get_or_create_texture(normal_texture_name)
+            if normal_tex_idx is not None:
+                normal_def = {"index": normal_tex_idx}
+                if normal_scale is not None:
+                    normal_def["scale"] = normal_scale
+                mat_def["normalTexture"] = normal_def
+
+        specular_def = {}
+        if specular_factor is not None:
+            specular_def["specularFactor"] = specular_factor
+        if specular_color_factor:
+            specular_def["specularColorFactor"] = specular_color_factor[:3]
+        if specular_texture_name:
+            specular_tex_idx = get_or_create_texture(specular_texture_name)
+            if specular_tex_idx is not None:
+                specular_def["specularTexture"] = {"index": specular_tex_idx}
+        if specular_def:
+            mat_def.setdefault("extensions", {})["KHR_materials_specular"] = specular_def
+            extensions_used.add("KHR_materials_specular")
+
+        detail_tex_idx = None
+        if detail_texture_name:
+            detail_tex_idx = get_or_create_texture(detail_texture_name)
+
+        extras = dict(material_extras or {})
+        if is_water:
+            extras["is_water"] = True
+        if normal_texture_name:
+            extras["vg_generated_normal_texture"] = normal_texture_name
+        if specular_texture_name:
+            extras["vg_specular_texture"] = specular_texture_name
+        if detail_texture_name:
+            extras["vg_detail_texture"] = detail_texture_name
+        if detail_tex_idx is not None:
+            extras["vg_detail_texture_index"] = detail_tex_idx
+        if detail_scale is not None:
+            extras["vg_detail_scale"] = detail_scale
+        if extras:
+            mat_def.setdefault("extras", {}).update(extras)
 
     def get_or_create_material(
-        texture_name, shader_name, alpha_mode=None, is_water=False, two_sided=False
+        texture_name,
+        shader_name,
+        base_color_factor=None,
+        alpha_mode=None,
+        is_water=False,
+        two_sided=False,
+        normal_texture_name=None,
+        normal_scale=None,
+        specular_texture_name=None,
+        specular_factor=None,
+        specular_color_factor=None,
+        detail_texture_name=None,
+        detail_scale=None,
+        material_extras=None,
     ):
         """Get or create a glTF material for a texture or color. Returns material index.
         alpha_mode: "mask" if UE2 Shader has OutputBlending=OB_Masked or Opacity property.
         is_water: True if this is a WaterShaderMaterial — embeds extras for viewer-side animation.
         two_sided: Whether to render both faces (from Shader.TwoSided property; False for all water shaders).
         """
-        cache_key = (texture_name or shader_name, alpha_mode, is_water, two_sided)
-        if cache_key in texture_cache:
-            return texture_cache[cache_key]
+        extras_key = json.dumps(material_extras or {}, sort_keys=True, default=str)
+        cache_key = (
+            texture_name or shader_name,
+            tuple(base_color_factor or []),
+            alpha_mode,
+            is_water,
+            two_sided,
+            normal_texture_name,
+            normal_scale,
+            specular_texture_name,
+            specular_factor,
+            tuple(specular_color_factor or []),
+            detail_texture_name,
+            detail_scale,
+            extras_key,
+        )
+        if cache_key in material_cache:
+            return material_cache[cache_key]
 
         mat_idx = len(gltf_materials)
 
@@ -1160,32 +1412,25 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
                 },
                 "doubleSided": two_sided,
             }
-            if is_water:
-                mat_def["extras"] = {"is_water": True}
+            apply_material_metadata(
+                mat_def,
+                normal_texture_name=normal_texture_name,
+                normal_scale=normal_scale,
+                specular_texture_name=specular_texture_name,
+                specular_factor=specular_factor,
+                specular_color_factor=specular_color_factor,
+                detail_texture_name=detail_texture_name,
+                detail_scale=detail_scale,
+                is_water=is_water,
+                material_extras=material_extras,
+            )
             gltf_materials.append(mat_def)
-            texture_cache[cache_key] = mat_idx
+            material_cache[cache_key] = mat_idx
             return mat_idx
 
         if texture_name:
-            data_uri, mime = _load_texture_image_b64(texture_name)
-            if data_uri:
-                # Create sampler (once)
-                if not gltf_samplers:
-                    gltf_samplers.append(
-                        {
-                            "magFilter": 9729,  # LINEAR
-                            "minFilter": 9987,  # LINEAR_MIPMAP_LINEAR
-                            "wrapS": 10497,  # REPEAT
-                            "wrapT": 10497,  # REPEAT
-                        }
-                    )
-
-                img_idx = len(gltf_images)
-                gltf_images.append({"uri": data_uri, "mimeType": mime})
-
-                tex_idx = len(gltf_textures)
-                gltf_textures.append({"source": img_idx, "sampler": 0})
-
+            tex_idx = get_or_create_texture(texture_name)
+            if tex_idx is not None:
                 mat_def = {
                     "name": shader_name or texture_name,
                     "pbrMetallicRoughness": {
@@ -1199,22 +1444,46 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
                     mat_def["alphaMode"] = "MASK"
                     mat_def["alphaCutoff"] = 0.01
 
+                apply_material_metadata(
+                    mat_def,
+                    normal_texture_name=normal_texture_name,
+                    normal_scale=normal_scale,
+                    specular_texture_name=specular_texture_name,
+                    specular_factor=specular_factor,
+                    specular_color_factor=specular_color_factor,
+                    detail_texture_name=detail_texture_name,
+                    detail_scale=detail_scale,
+                    is_water=is_water,
+                    material_extras=material_extras,
+                )
                 gltf_materials.append(mat_def)
-                texture_cache[cache_key] = mat_idx
+                material_cache[cache_key] = mat_idx
                 return mat_idx
 
         # Fallback: untextured material
-        gltf_materials.append(
-            {
-                "name": shader_name or "default",
-                "pbrMetallicRoughness": {
-                    "baseColorFactor": [0.7, 0.7, 0.7, 1.0],
-                    "metallicFactor": 0.0,
-                    "roughnessFactor": 0.9,
-                },
-                "doubleSided": two_sided,
-            }
+        mat_def = {
+            "name": shader_name or "default",
+            "pbrMetallicRoughness": {
+                "baseColorFactor": base_color_factor or [0.7, 0.7, 0.7, 1.0],
+                "metallicFactor": 0.0,
+                "roughnessFactor": 0.9,
+            },
+            "doubleSided": two_sided,
+        }
+        apply_material_metadata(
+            mat_def,
+            normal_texture_name=normal_texture_name,
+            normal_scale=normal_scale,
+            specular_texture_name=specular_texture_name,
+            specular_factor=specular_factor,
+            specular_color_factor=specular_color_factor,
+            detail_texture_name=detail_texture_name,
+            detail_scale=detail_scale,
+            is_water=is_water,
+            material_extras=material_extras,
         )
+        gltf_materials.append(mat_def)
+        material_cache[cache_key] = mat_idx
         return mat_idx
 
     # --- Helper: detect and convert triangle strips to triangle lists ---
@@ -1321,17 +1590,54 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
             sm = (
                 section_materials[si]
                 if si < len(section_materials)
-                else (None, None, None, False, False)
+                else (
+                    None,
+                    None,
+                    None,
+                    None,
+                    False,
+                    False,
+                    None,
+                    None,
+                    {},
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
             )
-            shader_name, texture_name, alpha_mode = sm[0], sm[1], sm[2]
-            is_water = sm[3] if len(sm) > 3 else False
-            two_sided = sm[4] if len(sm) > 4 else False
+            shader_name, texture_name, base_color_factor, alpha_mode = (
+                sm[0],
+                sm[1],
+                sm[2] if len(sm) > 2 else None,
+                sm[3] if len(sm) > 3 else None,
+            )
+            is_water = sm[4] if len(sm) > 4 else False
+            two_sided = sm[5] if len(sm) > 5 else False
+            normal_texture_name = sm[6] if len(sm) > 6 else None
+            normal_scale = sm[7] if len(sm) > 7 else None
+            material_extras = sm[8] if len(sm) > 8 else {}
+            specular_texture_name = sm[9] if len(sm) > 9 else None
+            specular_factor = sm[10] if len(sm) > 10 else None
+            specular_color_factor = sm[11] if len(sm) > 11 else None
+            detail_texture_name = sm[12] if len(sm) > 12 else None
+            detail_scale = sm[13] if len(sm) > 13 else None
             mat_idx = get_or_create_material(
                 texture_name,
                 shader_name,
-                alpha_mode,
+                base_color_factor=base_color_factor,
+                alpha_mode=alpha_mode,
                 is_water=is_water,
                 two_sided=two_sided,
+                normal_texture_name=normal_texture_name,
+                normal_scale=normal_scale,
+                specular_texture_name=specular_texture_name,
+                specular_factor=specular_factor,
+                specular_color_factor=specular_color_factor,
+                detail_texture_name=detail_texture_name,
+                detail_scale=detail_scale,
+                material_extras=material_extras,
             )
 
             prim_attributes = dict(attributes)
@@ -1409,6 +1715,8 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
         gltf["images"] = gltf_images
     if gltf_samplers:
         gltf["samplers"] = gltf_samplers
+    if extensions_used:
+        gltf["extensionsUsed"] = sorted(extensions_used)
 
     # Encode buffer as base64 data URI
     b64_data = base64.b64encode(buffer_data).decode("utf-8")
@@ -1630,6 +1938,25 @@ def run_pipeline(
         print(f"Success Rate: {success_rate:.1f}%")
 
 
+def write_mesh_manifest(output_dir: str) -> int:
+    """Write the static mesh manifest consumed by chunk object generation."""
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    meshes = sorted(
+        {
+            path.relative_to(output_path).as_posix()
+            for path in output_path.rglob("*.gltf")
+        }
+    )
+    manifest_path = output_path / "manifest.json"
+    tmp_path = manifest_path.with_suffix(".json.tmp")
+    with open(tmp_path, "w", encoding="utf-8") as handle:
+        json.dump({"meshes": meshes}, handle, indent=2)
+        handle.write("\n")
+    os.replace(tmp_path, manifest_path)
+    return len(meshes)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Vanguard StaticMesh Pipeline")
     parser.add_argument(
@@ -1664,6 +1991,10 @@ def main():
         only_trees=args.trees,
         export_runtime_leaf_hybrids=args.runtime_leaf_hybrids,
     )
+
+    manifest_count = write_mesh_manifest(OUTPUT_DIR)
+    if not args.silent:
+        print(f"Wrote mesh manifest: {manifest_count} entries")
 
 
 if __name__ == "__main__":

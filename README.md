@@ -36,7 +36,7 @@ The original Vanguard client data is spread across UE2 package files, Vanguard-s
 - Terrain from `.vgr` chunk files, including heightmaps, layer masks, terrain textures, and chunk transforms.
 - Static meshes from UE2 package data, exported to glTF.
 - Character meshes, playable race metadata, customization data, and item attachment references.
-- EMotion FX and UE2 skeletal animations.
+- EMotion FX and UE2 skeletal animations, including static hand/finger pose clips and playable facial-control sidecars.
 - UAX, ISB, and ICB audio data.
 - SGO prefab and world object placement data.
 - Shader-to-texture mappings and diffuse texture PNGs when the optional Unreal-Library CLI is available.
@@ -74,27 +74,29 @@ export VANGUARD_ASSETS_PATH="$VANGUARD_EMU_PATH/Assets"
 Run everything:
 
 ```bash
-python vanguard.py extract-all
+python3 vanguard.py extract-all
 ```
 
 Run a small smoke test:
 
 ```bash
-python vanguard.py extract-all --sections core --limit-meshes 3 --skip-unreal-library
+python3 vanguard.py setup --db --files
 ```
 
 Run individual extraction stages:
 
 ```bash
-python vanguard.py setup --reset
-python vanguard.py fetch-unreal-library
-python vanguard.py build-shaders
-python vanguard.py extract-terrain
-python vanguard.py export-meshes
-python vanguard.py export-characters
-python vanguard.py export-animations
-python vanguard.py extract-audio
-python vanguard.py extract-world
+python3 vanguard.py setup --reset
+python3 vanguard.py fetch-unreal-library
+python3 vanguard.py build-shaders
+python3 vanguard.py extract-terrain
+python3 vanguard.py export-meshes
+python3 vanguard.py export-characters
+python3 vanguard.py export-animations
+python3 vanguard.py export-facial-controls
+python3 vanguard.py export-npc-assembly
+python3 vanguard.py extract-audio
+python3 vanguard.py extract-world
 ```
 
 Python's closest equivalent to npm scripts is a console entry point. This repo includes one, so after an editable install you can run the shorter command form:
@@ -115,7 +117,7 @@ Most core parsing is native Python in this repo. Unreal-Library is only used as 
 To install that helper into `external/Unreal-Library` and build the CLI:
 
 ```bash
-python vanguard.py fetch-unreal-library
+python3 vanguard.py fetch-unreal-library
 ```
 
 The all-in-one extraction command uses the helper automatically when the built CLI is present. Without Unreal-Library, use `--skip-unreal-library`.
@@ -161,7 +163,7 @@ Several commands also write JSON sidecars under `output/data/`, such as texture 
 - Exact runtime rendering logic for SpeedTree leaf billboards, mostly around the exact size and placement. Trees look very good as-is, though.
 - Playable race assembly details around mixing heads with bodies, body sizing/proportions, and body texture selection.
 - Skeleton customization logic for playable races, especially how character creation sliders drive the extra facial/body deformer bones.
-- Hand-specific animation handling, including weapon/attachment sockets and left-hand/right-hand action variants.
+- Animation usage around specific hand poses, weapon/attachment sockets, and left-hand/right-hand action variants is still being mapped for runtime use.
 - Foot placement, foot locking, and ground-contact handling. The current extractor parses EMotion FX motion parts and root-motion tracks, but I have not confirmed Vanguard's final foot placement logic.
 - Cloud rendering and global lighting effects are not fully accurate.
 - Music playback is roughly 90% recovered, but cue selection, transitions, and zone-specific behavior still need tuning.

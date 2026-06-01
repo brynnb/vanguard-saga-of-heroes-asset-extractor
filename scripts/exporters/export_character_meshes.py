@@ -33,6 +33,50 @@ UEM_DIR = os.path.join(ASSETS, "Characters", "Meshes")
 ANIM_DIR = os.path.join(ASSETS, "Characters", "Animations")
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output", "meshes", "characters")
 TEXTURE_DIR = os.path.join(PROJECT_ROOT, "output", "textures")
+MATERIAL_MANIFEST_PATH = os.path.join(PROJECT_ROOT, "output", "data", "material_manifest.json")
+
+
+def _manifest_entry_for_ref(material_manifest, shader_ref):
+    if not material_manifest or not shader_ref:
+        return None
+    key = str(shader_ref).lower()
+    for source_ref, entry in material_manifest.items():
+        if str(source_ref).lower() == key:
+            return entry
+    object_name = key.rsplit(".", 1)[-1]
+    matches = [
+        entry
+        for source_ref, entry in material_manifest.items()
+        if str(source_ref).lower().rsplit(".", 1)[-1] == object_name
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _manifest_texture_url(material_manifest, shader_ref):
+    entry = _manifest_entry_for_ref(material_manifest, shader_ref)
+    if not entry:
+        return None
+    asset_path = (entry.get("base_color") or {}).get("asset_path")
+    if not asset_path:
+        return None
+    full_path = asset_path if os.path.isabs(asset_path) else os.path.join(PROJECT_ROOT, asset_path)
+    if os.path.exists(full_path):
+        return "/" + os.path.relpath(full_path, PROJECT_ROOT).replace(os.sep, "/")
+    return None
+
+
+def _shader_map_entry(shader_map, shader_ref):
+    if not shader_map or not shader_ref:
+        return None
+    key = str(shader_ref).lower()
+    candidates = [key]
+    if "." in key:
+        candidates.append(key.rsplit(".", 1)[-1])
+    for candidate in candidates:
+        entry = shader_map.get(candidate)
+        if entry is not None:
+            return entry
+    return None
 
 
 def _load_anim_bind_poses(uem_path):
@@ -113,6 +157,12 @@ def main():
             shader_map = json.load(f)
         print(f"Loaded shader map: {len(shader_map)} entries")
 
+    material_manifest = {}
+    if os.path.exists(MATERIAL_MANIFEST_PATH):
+        with open(MATERIAL_MANIFEST_PATH) as f:
+            material_manifest = json.load(f)
+        print(f"Loaded material manifest: {len(material_manifest)} entries")
+
     uem_files = sorted(glob.glob(os.path.join(UEM_DIR, "UEM_*.uem")))
     print(f"Found {len(uem_files)} UEM_* files")
 
@@ -164,7 +214,8 @@ def main():
                     skins_shaders = extract_skins_shaders(uem_path, exp_name, pkg=pkg)
                     export_gltf(mesh, out_path, texture_dir=TEXTURE_DIR, shader_map=shader_map,
                                 bind_rot_overrides=anim_rots, bind_pos_overrides=anim_pos,
-                                pkg_name=pkg_name, skins_shaders=skins_shaders)
+                                pkg_name=pkg_name, skins_shaders=skins_shaders,
+                                material_manifest=material_manifest)
 
                     # Detect color variants: if skins_shaders lists more shaders than
                     # material slots, the extra entries are texture variants for slot 0.
@@ -179,8 +230,10 @@ def main():
                                 idx = start + si
                                 s_name = skins_shaders[idx] if idx < len(skins_shaders) else None
                                 tex_url = None
-                                if s_name and shader_map:
-                                    entry = shader_map.get(s_name.lower())
+                                if s_name:
+                                    tex_url = _manifest_texture_url(material_manifest, s_name)
+                                if s_name and tex_url is None and shader_map:
+                                    entry = _shader_map_entry(shader_map, s_name)
                                     if entry:
                                         tex = entry.get("texture") if isinstance(entry, dict) else (
                                             entry if isinstance(entry, str) and not entry.startswith("color:") else None)
@@ -213,8 +266,25 @@ def main():
         except Exception as e:
             total_failed += 1
 
-    # Write manifest
+    # Write manifest. Filtered runs are useful for small probes; merge their
+    # results into the existing manifest instead of replacing the full export.
     manifest_path = os.path.join(OUTPUT_DIR, "manifest.json")
+    if args.filter and os.path.exists(manifest_path):
+        try:
+            with open(manifest_path) as f:
+                existing_manifest = json.load(f)
+        except Exception:
+            existing_manifest = []
+
+        replacement_packages = {entry["package"] for entry in manifest}
+        if replacement_packages and isinstance(existing_manifest, list):
+            manifest = [
+                entry for entry in existing_manifest
+                if entry.get("package") not in replacement_packages
+            ] + manifest
+        elif isinstance(existing_manifest, list):
+            manifest = existing_manifest
+
     with open(manifest_path, "w") as f:
         json.dump(manifest, f, indent=2)
 

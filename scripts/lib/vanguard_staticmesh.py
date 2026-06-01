@@ -1,5 +1,5 @@
 """
-Python adaptation of UE Viewer's SerializeVanguardMesh for Vanguard packages.
+Exact port of UEViewer's SerializeVanguardMesh to Python.
 
 Parses Vanguard StaticMesh binary data to extract:
 - Vertices (position, normal)
@@ -92,6 +92,27 @@ def _read_compact_index_array(r):
     return items
 
 
+def _import_full_path(imports, import_index):
+    """Resolve an import-table entry to its package-qualified object path."""
+    names = []
+    seen = set()
+    idx = import_index
+    while imports is not None and 0 <= idx < len(imports) and idx not in seen:
+        seen.add(idx)
+        imp = imports[idx]
+        object_name = str(imp.get("object_name") or "")
+        if object_name:
+            names.append(object_name)
+        outer = int(imp.get("package", 0) or 0)
+        if outer < 0:
+            idx = -outer - 1
+            continue
+        break
+    if not names:
+        return None
+    return ".".join(reversed(names))
+
+
 def parse_vanguard_staticmesh(data, names, serial_offset=0, imports=None):
     """
     Parse a Vanguard StaticMesh export's serialized data.
@@ -107,7 +128,7 @@ def parse_vanguard_staticmesh(data, names, serial_offset=0, imports=None):
     Returns:
         VanguardMeshData or None if parsing fails
 
-    Source reference: UEViewer SerializeVanguardMesh (UnMesh2.cpp:1801-1883)
+    Source: UEViewer SerializeVanguardMesh (UnMesh2.cpp:1801-1883)
     """
     mesh = VanguardMeshData()
     r = BinaryReader(data)
@@ -203,7 +224,9 @@ def parse_vanguard_staticmesh(data, names, serial_offset=0, imports=None):
             if imports is not None and ref_idx < 0:
                 imp_idx = -ref_idx - 1
                 if 0 <= imp_idx < len(imports):
-                    mat_name = imports[imp_idx].get("object_name")
+                    mat_name = _import_full_path(imports, imp_idx) or imports[
+                        imp_idx
+                    ].get("object_name")
             mat_names.append(mat_name)
         r.read_compact_index()  # FName
         mesh.skins.append(mat_names)

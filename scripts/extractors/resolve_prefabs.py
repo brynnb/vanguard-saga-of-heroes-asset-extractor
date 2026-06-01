@@ -196,7 +196,7 @@ if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     import config
     
-    SGO_PATH = getattr(config, "SGO_PATH", os.path.join(config.ARCHIVES_DIR, "binaryprefabs.sgo"))
+    SGO_PATH = config.SGO_PATH
     MESH_DB_PATH = os.path.join(config.DATA_DIR, "mesh_index.sqlite")
     
     resolver = PrefabResolver(SGO_PATH)

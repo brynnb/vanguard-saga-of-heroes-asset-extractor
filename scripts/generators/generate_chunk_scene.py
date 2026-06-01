@@ -315,7 +315,7 @@ def generate_scene_gltf(objects, output_path, chunk_name):
     })
 
     # Initialize Prefab Resolver
-    sgo_path = getattr(config, "SGO_PATH", os.path.join(config.ARCHIVES_DIR, "binaryprefabs.sgo"))
+    sgo_path = config.SGO_PATH
     try:
         resolver = PrefabResolver(sgo_path)
     except:

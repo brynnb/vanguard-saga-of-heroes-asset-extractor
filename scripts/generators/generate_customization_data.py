@@ -36,24 +36,24 @@ two data files consumed by the character viewer:
           4 Eye,         5 Ear,        6 Nose,      7 Mouth
       - pageIdx == -1 (Breast Gravity) is a hidden auto-slider; not shown in UI.
       - Under each header, the body is: a bone-name line followed by three tab-
-        separated rows of 6 floats. These rows correspond to slider positions
-        0 / 50 / 100 (rowMin / rowMid / rowMax).
-      - The 6-float row encoding is a bone transform delta. The current viewer
-        treats it as (tx, ty, tz, sx, sy, sz) with sx==0 as a "skip" sentinel.
-        Ghidra hints (FUN_00945050 takes two vec3 pointers) suggest the native
-        engine treats each row as a pair of vec3s; the precise semantics of
-        each triplet still need verification. We preserve the raw data verbatim
-        so the viewer can be corrected later without re-extracting.
+        separated rows of 6 floats. The historical JSON keys call these
+        rowMin / rowMid / rowMax, but the source shape and native loader match
+        X / Y / Z axis rows. Each axis row is interpreted downstream as:
+          [position_min, position_max, rotation_min, rotation_max, scale_min, scale_max]
+        We keep the legacy key names to avoid a broad schema migration, but
+        they should not be read as slider 0 / 50 / 100 rows.
 
     cust_race_mods_v2.txt
       - 63 rows × 76 whitespace-separated integers each (= 38 min/max pairs).
-      - Each pair is a clamp on ONE slider (in customization_data.txt order,
-        first 38 sliders). Midpoint of each pair is the race's default slider
-        value. Sliders 38..48 always default to 50 (no clamp data).
+      - Each pair is a clamp on ONE slider, but the file is not sequential.
+        VGClient's native loader reads the first 19 pairs into even slider
+        slots and the second 19 pairs into odd slider slots. Midpoint of each
+        deinterleaved pair is the race's default slider value. Sliders 38..48
+        currently default to 50 because no race-mod clamp data is present.
       - Rows 0..41 correspond to 21 races × 2 genders (M, F interleaved).
         Rows 42..62 are non-playable races cut from the shipping game.
-      - Row→race mapping is recovered by fuzzy-matching row midpoints against
-        the existing playable_races.json slider_defaults (avg_diff < 0.6).
+      - Row→race mapping is fixed by source order. The current playable list
+        omits HalfOrc, so rows 18/19 are skipped.
 
 Usage:
     python scripts/generators/generate_customization_data.py
@@ -109,9 +109,9 @@ def parse_customization_data(txt_path: Path) -> list[dict[str, Any]]:
           "bones": [
               {
                  "name":   str,
-                 "rowMin": [6 floats],
-                 "rowMid": [6 floats],
-                 "rowMax": [6 floats],
+                 "rowMin": [6 floats],  # legacy key: source X-axis row
+                 "rowMid": [6 floats],  # legacy key: source Y-axis row
+                 "rowMax": [6 floats],  # legacy key: source Z-axis row
               }, ...
           ]
         }
@@ -255,9 +255,11 @@ def visible_slider_order(all_sliders: list[dict[str, Any]]) -> list[str]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def parse_race_mods(txt_path: Path) -> list[list[tuple[int, int]]]:
-    """Return a list of rows, each a list of (min, max) integer tuples.
+    """Return rows of deinterleaved (min, max) integer tuples.
 
     Expect 63 rows × 38 pairs. Rows 0..41 are 21 playable races × 2 genders.
+    VGClient lays the 38 source pairs out as all even slider slots first, then
+    all odd slider slots; normalize that here so every row is in slider order.
     """
     rows: list[list[tuple[int, int]]] = []
     for raw in txt_path.read_text().splitlines():
@@ -267,8 +269,32 @@ def parse_race_mods(txt_path: Path) -> list[list[tuple[int, int]]]:
         nums = [int(tok) for tok in line.split()]
         if len(nums) % 2 != 0:
             raise ValueError(f"Odd number of tokens in row: '{raw}'")
-        rows.append([(nums[i], nums[i + 1]) for i in range(0, len(nums), 2)])
+        rows.append(_deinterleave_race_mod_pairs(
+            [(nums[i], nums[i + 1]) for i in range(0, len(nums), 2)]
+        ))
     return rows
+
+
+def _deinterleave_race_mod_pairs(pairs: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Return pairs in engine slider-slot order.
+
+    The native loader copies source pairs 0..18 into output slots 0,2,4..36
+    and source pairs 19..37 into output slots 1,3,5..37. Keeping this in the
+    generator fixes the source provenance instead of compensating per slider.
+    """
+    out: list[tuple[int, int] | None] = [None] * len(pairs)
+    even_count = (len(pairs) + 1) // 2
+    for source_index, pair in enumerate(pairs):
+        if source_index < even_count:
+            slot = source_index * 2
+        else:
+            slot = (source_index - even_count) * 2 + 1
+        if slot >= len(out):
+            raise ValueError(f"Race-mod pair {source_index} maps outside row length")
+        out[slot] = pair
+    if any(pair is None for pair in out):
+        raise ValueError("Race-mod deinterleave left one or more slots empty")
+    return [pair for pair in out if pair is not None]
 
 
 def row_midpoints(pairs: list[tuple[int, int]], full_slider_count: int) -> list[int]:
@@ -285,43 +311,51 @@ def row_midpoints(pairs: list[tuple[int, int]], full_slider_count: int) -> list[
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Row-to-race mapping (recovered from existing playable_races.json)
+# Row-to-race mapping
 # ─────────────────────────────────────────────────────────────────────────────
 
-def match_rows_to_races(
+RACE_MOD_RACE_ORDER = [
+    "Dwarf",
+    "DarkElf",
+    "HighElf",
+    "WoodElf",
+    "Gnome",
+    "Goblin",
+    "HalfElf",
+    "LesserGiant",
+    "Halfling",
+    "HalfOrc",
+    "Kojani",
+    "Qaliathari",
+    "Thestran",
+    "Mordebi",
+    "Orc",
+    "Raki",
+    "Vulmane",
+    "KojanBarbarian",
+    "Varanthari",
+    "Varanjar",
+    "Kurashasa",
+]
+
+
+def source_rows_to_races(
     rows: list[list[tuple[int, int]]],
     playable_entries: list[dict[str, Any]],
-    slider_count: int,
-    max_avg_diff: float = 0.6,
 ) -> dict[str, int]:
-    """For each race_gender entry in playable_races.json, find the row in
-    cust_race_mods_v2.txt whose midpoints best match its slider_defaults.
+    """Return {race_gender_key: row_index} from the source race order."""
+    source_map: dict[str, int] = {}
+    for race_index, race in enumerate(RACE_MOD_RACE_ORDER):
+        for gender_offset, gender in enumerate(("M", "F")):
+            row_index = race_index * 2 + gender_offset
+            if row_index < len(rows):
+                source_map[f"{race}_{gender}"] = row_index
 
-    Returns {race_gender_key: row_index}. Races with no close match are
-    omitted; they'll fall back to all-50 defaults.
-    """
     mapping: dict[str, int] = {}
     for entry in playable_entries:
         key = f"{entry['race']}_{entry['gender']}"
-        defaults = entry.get("slider_defaults", [])
-        if len(defaults) < slider_count:
-            continue
-
-        best_row = None
-        best_diff = float("inf")
-        for ri, row in enumerate(rows):
-            # Only compare the first len(row) sliders; past that, both the
-            # race defaults and the implicit-50 extensions agree.
-            diffs = [
-                abs(defaults[i] - (row[i][0] + row[i][1]) / 2)
-                for i in range(len(row))
-            ]
-            avg = sum(diffs) / len(diffs)
-            if avg < best_diff:
-                best_diff = avg
-                best_row = ri
-        if best_row is not None and best_diff <= max_avg_diff:
-            mapping[key] = best_row
+        if key in source_map:
+            mapping[key] = source_map[key]
     return mapping
 
 
@@ -381,8 +415,8 @@ def main() -> int:
         return 1
     playable = json.loads(playable_path.read_text())
 
-    row_map = match_rows_to_races(rows, playable, visible_count)
-    print(f"Matched {len(row_map)}/{len(playable)} race entries to race-mod rows")
+    row_map = source_rows_to_races(rows, playable)
+    print(f"Mapped {len(row_map)}/{len(playable)} race entries to race-mod source rows")
     missing = [
         f"{e['race']}_{e['gender']}"
         for e in playable

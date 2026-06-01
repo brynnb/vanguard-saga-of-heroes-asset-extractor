@@ -10,12 +10,12 @@ This script performs all necessary initialization for a fresh clone:
 5. Indexes mesh objects
 6. Builds texture database
 7. Property extraction
-8. (Optional) Full terrain/mesh extraction
+8. (Optional) Full material, terrain, mesh, SGO, and object extraction
 
 Usage:
     python3 scripts/setup_assets.py          # Standard setup
     python3 scripts/setup_assets.py --reset  # Delete database and start fresh
-    python3 scripts/setup_assets.py --full   # Full setup (includes terrain + mesh extraction)
+    python3 scripts/setup_assets.py --full   # Full setup (terrain + HD terrain layers + meshes + SGO + objects)
 """
 
 import os
@@ -29,6 +29,7 @@ from datetime import datetime
 # Add project root to path
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+SCRIPTS_DIR = os.path.join(PROJECT_ROOT, "scripts")
 sys.path.insert(0, PROJECT_ROOT)
 
 # =============================================================================
@@ -87,6 +88,85 @@ def validate_config():
 # DATABASE INITIALIZATION
 # =============================================================================
 
+NAVIGATION_POINT_COLUMNS = {
+    "nav_type": "TEXT NOT NULL DEFAULT 'NavigationPoint'",
+    "rotation_pitch": "REAL",
+    "rotation_yaw": "REAL",
+    "rotation_roll": "REAL",
+    "is_path_node": "INTEGER DEFAULT 0",
+    "is_player_start": "INTEGER DEFAULT 0",
+    "next_navigation_point_ref": "INTEGER",
+    "path_list_json": "TEXT",
+    "forced_paths_json": "TEXT",
+    "proscribed_paths_json": "TEXT",
+    "property_count": "INTEGER",
+    "property_start": "INTEGER",
+    "properties_json": "TEXT",
+}
+
+
+def ensure_navigation_point_columns(conn):
+    """Add newer navigation point columns when upgrading an existing DB."""
+    cursor = conn.cursor()
+    existing = {
+        row[1]
+        for row in cursor.execute("PRAGMA table_info(navigation_points)").fetchall()
+    }
+    for column, definition in NAVIGATION_POINT_COLUMNS.items():
+        if column not in existing:
+            cursor.execute(
+                f"ALTER TABLE navigation_points ADD COLUMN {column} {definition}"
+            )
+
+
+def ensure_path_nodes_view(conn):
+    """Expose path_nodes as a filtered compatibility view."""
+    cursor = conn.cursor()
+    row = cursor.execute(
+        """
+        SELECT type FROM sqlite_master
+        WHERE name = 'path_nodes' AND type IN ('table', 'view')
+        """
+    ).fetchone()
+
+    if row and row[0] == "table":
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO navigation_points (
+                chunk_id, export_id, export_index, object_name, class_name,
+                nav_type, tag, location_x, location_y, location_z, level_ref,
+                region_text, region_hex, b_paths_changed, b_light_changed,
+                is_path_node, is_player_start, serial_offset, serial_size
+            )
+            SELECT
+                chunk_id, export_id, export_index, object_name, class_name,
+                class_name, tag, location_x, location_y, location_z, level_ref,
+                region_text, region_hex, b_paths_changed, b_light_changed,
+                1, 0, serial_offset, serial_size
+            FROM path_nodes
+            """
+        )
+        cursor.execute("DROP TABLE path_nodes")
+    elif row and row[0] == "view":
+        cursor.execute("DROP VIEW path_nodes")
+
+    cursor.execute(
+        """
+        CREATE VIEW path_nodes AS
+        SELECT
+            id, chunk_id, export_id, export_index, object_name, class_name,
+            nav_type, tag, location_x, location_y, location_z,
+            rotation_pitch, rotation_yaw, rotation_roll, level_ref,
+            region_text, region_hex, b_paths_changed, b_light_changed,
+            next_navigation_point_ref, path_list_json, forced_paths_json,
+            proscribed_paths_json, property_count, property_start,
+            properties_json, serial_offset, serial_size
+        FROM navigation_points
+        WHERE is_path_node = 1
+        """
+    )
+
+
 def init_database(config):
     """Create database and all required tables."""
     print("\n" + "=" * 60)
@@ -131,6 +211,43 @@ def init_database(config):
             serial_offset INTEGER,
             serial_size INTEGER,
             FOREIGN KEY (chunk_id) REFERENCES chunks(id),
+            UNIQUE(chunk_id, export_index)
+        );
+
+        -- Navigation anchors extracted from VGR NavigationPoint subclasses
+        CREATE TABLE IF NOT EXISTS navigation_points (
+            id INTEGER PRIMARY KEY,
+            chunk_id INTEGER NOT NULL,
+            export_id INTEGER NOT NULL,
+            export_index INTEGER NOT NULL,
+            object_name TEXT NOT NULL,
+            class_name TEXT NOT NULL,
+            nav_type TEXT NOT NULL DEFAULT 'NavigationPoint',
+            tag TEXT,
+            location_x REAL,
+            location_y REAL,
+            location_z REAL,
+            rotation_pitch REAL,
+            rotation_yaw REAL,
+            rotation_roll REAL,
+            level_ref INTEGER,
+            region_text TEXT,
+            region_hex TEXT,
+            b_paths_changed INTEGER,
+            b_light_changed INTEGER,
+            is_path_node INTEGER DEFAULT 0,
+            is_player_start INTEGER DEFAULT 0,
+            next_navigation_point_ref INTEGER,
+            path_list_json TEXT,
+            forced_paths_json TEXT,
+            proscribed_paths_json TEXT,
+            property_count INTEGER,
+            property_start INTEGER,
+            properties_json TEXT,
+            serial_offset INTEGER,
+            serial_size INTEGER,
+            FOREIGN KEY (chunk_id) REFERENCES chunks(id),
+            FOREIGN KEY (export_id) REFERENCES exports(id),
             UNIQUE(chunk_id, export_index)
         );
         
@@ -308,6 +425,9 @@ def init_database(config):
         -- Create indexes
         CREATE INDEX IF NOT EXISTS idx_exports_class ON exports(class_name);
         CREATE INDEX IF NOT EXISTS idx_exports_chunk ON exports(chunk_id);
+        CREATE INDEX IF NOT EXISTS idx_navigation_points_chunk ON navigation_points(chunk_id);
+        CREATE INDEX IF NOT EXISTS idx_navigation_points_class ON navigation_points(class_name);
+        CREATE INDEX IF NOT EXISTS idx_navigation_points_location ON navigation_points(location_x, location_y, location_z);
         CREATE INDEX IF NOT EXISTS idx_files_ext ON files(extension);
         CREATE INDEX IF NOT EXISTS idx_files_category ON files(category);
         CREATE INDEX IF NOT EXISTS idx_mesh_index_name ON mesh_index(object_name);
@@ -321,11 +441,14 @@ def init_database(config):
         CREATE INDEX IF NOT EXISTS idx_prefabs_name ON prefabs(prefab_name);
     """)
     
+    ensure_navigation_point_columns(conn)
+    ensure_path_nodes_view(conn)
+
     conn.commit()
     conn.close()
     
     print(f"   ✓ Database initialized: {config.DB_PATH}")
-    print("   ✓ Tables: chunks, exports, files, terrain_chunks, mesh_index,")
+    print("   ✓ Tables: chunks, exports, navigation_points, files, terrain_chunks, mesh_index,")
     print("             names, imports, properties, shaders, mesh_materials, prefabs")
 
 
@@ -472,23 +595,24 @@ def index_files(config):
 # CHUNK DATA EXPORT
 # =============================================================================
 
-def export_chunk_data(config):
+def export_chunk_data(config, required=False):
     """Export chunk data using the extract_chunk_data script."""
     print("\n" + "=" * 60)
     print("STAGE 4: Exporting Chunk Data")
     print("=" * 60)
-    run_extractor("Chunk Data", "extract_chunk_data.py", silent=False, args=["--silent"])
+    runner = run_required_extractor if required else run_extractor
+    return runner("Chunk Data", "extract_chunk_data.py", silent=False, args=["--silent"])
 
 
 # =============================================================================
 # OPTIONAL: FULL EXTRACTION
 # =============================================================================
 
-def run_extractor(name, script_name, silent=False, args=None):
-    """Run an extractor script and report status."""
+def run_project_script(name, relative_path, silent=False, args=None):
+    """Run a project script and report status."""
     import subprocess
-    
-    script_path = os.path.join(PROJECT_ROOT, "scripts", "extractors", script_name)
+
+    script_path = os.path.join(PROJECT_ROOT, relative_path)
     
     if not os.path.exists(script_path):
         if not silent: print(f"   ⚠ Script not found: {script_path}")
@@ -497,12 +621,21 @@ def run_extractor(name, script_name, silent=False, args=None):
     cmd = [sys.executable, script_path]
     if args:
         cmd.extend(args)
+
+    env = os.environ.copy()
+    pythonpath_parts = [PROJECT_ROOT, SCRIPTS_DIR]
+    if env.get("PYTHONPATH"):
+        pythonpath_parts.append(env["PYTHONPATH"])
+    env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
     
     try:
+        sys.stdout.flush()
+        sys.stderr.flush()
         # If silent, we suppress all output unless it fails
         result = subprocess.run(
             cmd,
             cwd=PROJECT_ROOT,
+            env=env,
             capture_output=silent,
             text=True
         )
@@ -522,21 +655,45 @@ def run_extractor(name, script_name, silent=False, args=None):
         return False
 
 
-def run_full_extraction(config):
-    """Run terrain and mesh extraction (takes hours)."""
-    print("\n" + "=" * 60)
-    print("STAGE 8: Full Extraction (Terrain + Meshes)")
-    print("=" * 60)
-    print("   This stage extracts terrain and meshes from all chunks.")
-    print("   WARNING: This can take several minutes!")
-    
-    print_progress_bar(0, 1, prefix='   Terrain:', suffix='Running...', length=40)
-    if run_extractor("Terrain Extraction", "extract_all_terrain.py", silent=False, args=["--all", "--silent"]):
-        print_progress_bar(1, 1, prefix='   Terrain:', suffix='Complete  ', length=40)
-    
-    print_progress_bar(0, 1, prefix='   StaticMesh:', suffix='Running...', length=40)
-    if run_extractor("StaticMesh Pipeline", "staticmesh_pipeline.py", silent=False, args=["--silent"]):
-        print_progress_bar(1, 1, prefix='   StaticMesh:', suffix='Complete  ', length=40)
+def run_required_script(name, relative_path, silent=False, args=None):
+    """Run a required project script and abort setup if it fails."""
+    if not run_project_script(name, relative_path, silent=silent, args=args):
+        print(f"\n❌ Required stage failed: {name}")
+        sys.exit(1)
+
+
+def run_extractor(name, script_name, silent=False, args=None):
+    """Run an extractor script and report status."""
+    return run_project_script(
+        name,
+        os.path.join("scripts", "extractors", script_name),
+        silent=silent,
+        args=args,
+    )
+
+
+def run_required_extractor(name, script_name, silent=False, args=None):
+    """Run a required extractor script and abort setup if it fails."""
+    run_required_script(
+        name,
+        os.path.join("scripts", "extractors", script_name),
+        silent=silent,
+        args=args,
+    )
+
+
+def terrain_args_for(chunk_name):
+    """Build extract_all_terrain.py args for all chunks or one chunk."""
+    if chunk_name:
+        return ["--chunk", chunk_name, "--silent"]
+    return ["--all", "--silent"]
+
+
+def object_args_for(chunk_name):
+    """Build generate_objects_from_txt.py args for all chunks or one chunk."""
+    if chunk_name:
+        return [chunk_name]
+    return ["--all"]
 
 
 # =============================================================================
@@ -555,6 +712,10 @@ def print_summary(config):
     file_count = cursor.execute("SELECT COUNT(*) FROM files").fetchone()[0]
     chunk_count = cursor.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
     export_count = cursor.execute("SELECT COUNT(*) FROM exports").fetchone()[0]
+    navigation_point_count = cursor.execute(
+        "SELECT COUNT(*) FROM navigation_points"
+    ).fetchone()[0]
+    path_node_count = cursor.execute("SELECT COUNT(*) FROM path_nodes").fetchone()[0]
     prop_count = cursor.execute("SELECT COUNT(*) FROM properties").fetchone()[0]
     
     conn.close()
@@ -563,19 +724,24 @@ def print_summary(config):
     print(f"   Files indexed: {file_count}")
     print(f"   Chunks processed: {chunk_count}")
     print(f"   Exports cataloged: {export_count}")
+    print(f"   Navigation points extracted: {navigation_point_count}")
+    print(f"   Path nodes extracted: {path_node_count}")
     print(f"   Properties parsed: {prop_count}")
     
-    print("\n   Extraction commands:")
-    print("   python3 vanguard.py build-shaders")
-    print("   python3 vanguard.py extract-terrain")
-    print("   python3 vanguard.py export-meshes")
-    print("   python3 vanguard.py export-characters")
+    print("\n   Next steps:")
+    print("   1. Run targeted exports with python3 vanguard.py <command>")
+    print("   2. Run the full pipeline with python3 vanguard.py extract-all")
+    print("   3. Use --sections and --limit-meshes for smaller validation runs")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Vanguard Asset Extractor Setup")
     parser.add_argument('--reset', action='store_true', help='Delete existing database and start fresh')
-    parser.add_argument('--full', action='store_true', help='Run full extraction (Terrain + Meshes)')
+    parser.add_argument(
+        '--full',
+        action='store_true',
+        help='Run full world extraction (terrain, HD terrain layers, meshes, SGO prefabs, objects)',
+    )
     parser.add_argument('--skip-core', action='store_true', help='Skip core setup stages (1-4) if DB exists')
     
     # Granular stage flags
@@ -585,15 +751,33 @@ def main():
     parser.add_argument('--mesh-index', action='store_true', help='Stage 5: Index Mesh Objects')
     parser.add_argument('--textures', action='store_true', help='Stage 6: Build Texture Database')
     parser.add_argument('--properties', action='store_true', help='Stage 7: extract Object Properties')
-    parser.add_argument('--terrain', action='store_true', help='Stage 8a: Extract Terrain')
-    parser.add_argument('--meshes', action='store_true', help='Stage 8b: Extract StaticMeshes')
-    parser.add_argument('--limit', type=int, default=0, help='Limit number of items to process in Stage 8')
+    parser.add_argument('--shader-map', action='store_true', help='Stage 8a: Build material manifest, shader-to-texture map, and extract PNG textures')
+    parser.add_argument('--terrain', action='store_true', help='Stage 8b: Extract Terrain and HD terrain layers')
+    parser.add_argument('--meshes', action='store_true', help='Stage 8c: Extract StaticMeshes')
+    parser.add_argument('--sgo', action='store_true', help='Stage 8d: Rebuild SGO prefab data')
+    parser.add_argument('--objects', action='store_true', help='Stage 8e: Generate chunk object placement glTFs and SGO sidecars')
+    parser.add_argument(
+        '--chunk',
+        help='Limit chunk-scoped terrain/object stages to one chunk, e.g. chunk_n25_26',
+    )
+    parser.add_argument('--limit', type=int, default=0, help='Limit StaticMesh package count in Stage 8c')
     
     args = parser.parse_args()
     
     # Determine if we are running specific stages or default flow
-    specific_stage = any([args.db, args.files, args.chunks, args.mesh_index, 
-                         args.textures, args.properties, args.terrain, args.meshes])
+    specific_stage = any([
+        args.db,
+        args.files,
+        args.chunks,
+        args.mesh_index,
+        args.textures,
+        args.properties,
+        args.shader_map,
+        args.terrain,
+        args.meshes,
+        args.sgo,
+        args.objects,
+    ])
     
     print("\n" + "=" * 60)
     print("VANGUARD ASSET EXTRACTOR - SETUP")
@@ -611,8 +795,9 @@ def main():
         else:
             print("   (No existing database found)")
     
-    # Default flow runs stages 2-7 unless skipped or specific stage selected
-    should_run_defaults = not specific_stage and not args.skip_core
+    # Default flow runs stages 2-7 unless skipped. A full pass needs the core
+    # database/file/chunk/property state before the expensive extraction stages.
+    should_run_defaults = (args.full or not specific_stage) and not args.skip_core
     
     # Stage 2: Initialize database
     if args.db or should_run_defaults:
@@ -624,21 +809,23 @@ def main():
     
     # Stage 4: Export chunk data
     if args.chunks or should_run_defaults:
-        export_chunk_data(config)
+        export_chunk_data(config, required=args.full)
     
     # Stage 5: Index meshes
     if args.mesh_index or should_run_defaults:
         print("\n" + "=" * 60)
         print("STAGE 5: Indexing Mesh Objects")
         print("=" * 60)
-        run_extractor("Mesh Index", "index_meshes.py", silent=False, args=["--silent"])
+        runner = run_required_extractor if args.full else run_extractor
+        runner("Mesh Index", "index_meshes.py", silent=False, args=["--silent"])
     
     # Stage 6: Build texture database
     if args.textures or should_run_defaults:
         print("\n" + "=" * 60)
         print("STAGE 6: Building Texture Database")
         print("=" * 60)
-        run_extractor("Texture DB", "build_texture_db.py", silent=False, args=["--silent"])
+        runner = run_required_extractor if args.full else run_extractor
+        runner("Texture DB", "build_texture_db.py", silent=False, args=["--silent"])
     
     # Stage 7: Property Extraction
     if args.properties or should_run_defaults:
@@ -646,28 +833,92 @@ def main():
         print("STAGE 7: Extracting Object Properties")
         print("=" * 60)
         print("   This parses class member values (Location, Mesh, etc.)")
-        run_extractor("Property Extraction", "extract_properties.py", silent=False, args=["--silent"])
+        runner = run_required_extractor if args.full else run_extractor
+        runner("Property Extraction", "extract_properties.py", silent=False, args=["--silent"])
     
-    # Stage 8: Full Extraction (Terrain + Meshes)
+    if args.chunk and args.full:
+        print(
+            f"\n   ⚠ --chunk={args.chunk} limits terrain/object stages only; "
+            "StaticMesh and SGO stages still run globally."
+        )
+
+    # Stage 8a: Material manifest + legacy shader map/texture PNG extraction
+    if args.full or args.shader_map:
+        print("\n" + "=" * 60)
+        print("STAGE 8a: Material Manifest + Shader/Texture Map Extraction")
+        print("=" * 60)
+        run_required_extractor(
+            "Material Manifest",
+            "build_material_manifest.py",
+            silent=False,
+            args=["--progress-every", "500", "--flush-every", "100"],
+        )
+        run_required_extractor(
+            "Legacy Shader/Texture Projection",
+            "build_shader_texture_map.py",
+            silent=False,
+            args=["--from-material-manifest"],
+        )
+
+    # Stage 8b: Terrain extraction
     # Only run if --full is set OR specific flags are set
     if args.full or args.terrain:
         print("\n" + "=" * 60)
-        print("STAGE 8a: Terrain Extraction")
+        print("STAGE 8b: Terrain + HD Layer Extraction")
         print("=" * 60)
         print_progress_bar(0, 1, prefix='   Terrain:', suffix='Running...', length=40)
-        if run_extractor("Terrain Extraction", "extract_all_terrain.py", silent=False, args=["--all", "--silent"]):
-            print_progress_bar(1, 1, prefix='   Terrain:', suffix='Complete  ', length=40)
+        run_required_extractor(
+            "Terrain Extraction",
+            "extract_all_terrain.py",
+            silent=False,
+            args=terrain_args_for(args.chunk),
+        )
+        print_progress_bar(1, 1, prefix='   Terrain:', suffix='Complete  ', length=40)
+        run_required_script(
+            "Grass Material Manifest",
+            os.path.join("scripts", "generators", "generate_grass_material_manifest.py"),
+            silent=False,
+            args=["--quiet"],
+        )
 
+    # Stage 8c: StaticMesh extraction
     if args.full or args.meshes:
         print("\n" + "=" * 60)
-        print("STAGE 8b: StaticMesh Extraction")
+        print("STAGE 8c: StaticMesh Extraction")
         print("=" * 60)
         print_progress_bar(0, 1, prefix='   StaticMesh:', suffix='Running...', length=40)
         mesh_args = ["--silent"]
         if args.limit > 0:
             mesh_args.extend(["--limit", str(args.limit)])
-        if run_extractor("StaticMesh Pipeline", "staticmesh_pipeline.py", silent=False, args=mesh_args):
-            print_progress_bar(1, 1, prefix='   StaticMesh:', suffix='Complete  ', length=40)
+        run_required_extractor(
+            "StaticMesh Pipeline",
+            "staticmesh_pipeline.py",
+            silent=False,
+            args=mesh_args,
+        )
+        print_progress_bar(1, 1, prefix='   StaticMesh:', suffix='Complete  ', length=40)
+
+    # Stage 8d: SGO prefab extraction. Objects depend on this sidecar source.
+    if args.full or args.sgo:
+        print("\n" + "=" * 60)
+        print("STAGE 8d: SGO Prefab Extraction")
+        print("=" * 60)
+        run_required_extractor("SGO Raw Dump", "dump_sgo_raw.py", silent=False)
+        run_required_extractor("SGO Mesh/Light Prefabs", "parse_sgo_prefabs.py", silent=False)
+        run_required_extractor("SGO Class Split", "split_sgo_by_class.py", silent=False)
+        run_required_extractor("SGO Extras Fold", "fold_actors_into_prefabs.py", silent=False)
+
+    # Stage 8e: Chunk object placement glTFs and per-chunk SGO template sidecars.
+    if args.full or args.objects:
+        print("\n" + "=" * 60)
+        print("STAGE 8e: Object Placement Generation")
+        print("=" * 60)
+        run_required_script(
+            "Object Placement Generation",
+            os.path.join("scripts", "generators", "generate_objects_from_txt.py"),
+            silent=False,
+            args=object_args_for(args.chunk),
+        )
     
     # Summary
     print_summary(config)

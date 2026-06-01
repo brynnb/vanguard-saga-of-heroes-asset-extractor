@@ -27,17 +27,13 @@ import json
 from pathlib import Path
 from collections import defaultdict
 
+import config
+
 from .package import UE2Package
 from .reader import read_compact_index_at as read_compact_index
 
-try:
-    import config
-
-    DB_PATH = config.DB_PATH
-    MAPS_DIR = config.MAPS_DIR
-except ImportError:
-    DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output", "data", "vanguard_data.db")
-    MAPS_DIR = os.path.expanduser("~/Downloads/Vanguard EMU/Assets/Maps")
+DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output", "data", "vanguard_data.db")
+MAPS_DIR = config.MAPS_DIR
 
 PROP_TYPES = {
     0: "None",
@@ -530,7 +526,7 @@ def parse_struct_properties(
             if struct_idx is not None and 0 <= struct_idx < len(names):
                 struct_name = names[struct_idx]
 
-        # Read array index (UE2 compact encoding; see UEViewer UnObject.cpp)
+        # Read array index (UE2 compact encoding per UEViewer UnObject.cpp)
         if array_flag and prop_type != 3:
             if offset < len(data):
                 b = data[offset]
@@ -898,7 +894,7 @@ def parse_properties(data: bytes, names: list, start_offset: int) -> list:
                 if struct_name in INVALID_STRUCT_NAMES:
                     break
 
-        # Read array index (UE2 compact encoding; see UEViewer UnObject.cpp)
+        # Read array index (UE2 compact encoding per UEViewer UnObject.cpp)
         array_index = 0
         if array_flag and prop_type != 3:
             if offset < len(data):
@@ -1026,6 +1022,40 @@ def init_database(conn):
     conn.commit()
 
 
+def resolve_package_export(
+    pkg: UE2Package, export_index: int, object_name: str = None, class_name: str = None
+) -> dict:
+    """Resolve a DB export row to the matching 1-based UE2 package export.
+
+    Older chunk extraction stored export_index as 0-based, while UE2Package uses
+    1-based Unreal export indexes. Prefer class/name matches so a stale DB cannot
+    silently parse the neighboring export.
+    """
+
+    def matches(exp: dict) -> bool:
+        if object_name and exp.get("object_name") != object_name:
+            return False
+        if class_name and exp.get("class_name") != class_name:
+            return False
+        return True
+
+    for candidate_index in (export_index, export_index + 1, export_index - 1):
+        if 1 <= candidate_index <= len(pkg.exports):
+            exp = pkg.exports[candidate_index - 1]
+            if matches(exp):
+                return exp
+
+    if object_name or class_name:
+        for exp in pkg.exports:
+            if matches(exp):
+                return exp
+
+    if 1 <= export_index <= len(pkg.exports):
+        return pkg.exports[export_index - 1]
+
+    return None
+
+
 def parse_chunk(conn, chunk_id: int, chunk_path: str, class_filter: str = None) -> dict:
     """Parse all exports in a chunk."""
     stats = {"exports": 0, "properties": 0, "failed": 0}
@@ -1039,7 +1069,7 @@ def parse_chunk(conn, chunk_id: int, chunk_path: str, class_filter: str = None) 
     if class_filter:
         cursor = conn.execute(
             """
-            SELECT id, export_index, class_name 
+            SELECT id, export_index, object_name, class_name
             FROM exports 
             WHERE chunk_id = ? AND class_name = ?
         """,
@@ -1048,7 +1078,7 @@ def parse_chunk(conn, chunk_id: int, chunk_path: str, class_filter: str = None) 
     else:
         cursor = conn.execute(
             """
-            SELECT id, export_index, class_name 
+            SELECT id, export_index, object_name, class_name
             FROM exports 
             WHERE chunk_id = ?
         """,
@@ -1057,9 +1087,10 @@ def parse_chunk(conn, chunk_id: int, chunk_path: str, class_filter: str = None) 
 
     exports = cursor.fetchall()
 
-    for exp_id, exp_index, class_name in exports:
-        # Get the export
-        exp = next((e for e in pkg.exports if e.get("index") == exp_index), None)
+    for exp_id, exp_index, object_name, class_name in exports:
+        # Get the package export. Match by name/class to tolerate older 0-based
+        # export_index rows from pre-path-node extraction databases.
+        exp = resolve_package_export(pkg, exp_index, object_name, class_name)
         if not exp:
             continue
 

@@ -44,11 +44,12 @@ except ImportError:
     DEFAULT_SGO = None
 
 if not DEFAULT_SGO:
-    DEFAULT_SGO = os.path.expanduser(
-        "~/Downloads/Vanguard EMU/Assets/Archives/binaryprefabs.sgo"
+    DEFAULT_SGO = os.path.join(
+        PROJECT_ROOT, "Vanguard EMU", "Assets", "Archives", "binaryprefabs.sgo"
     )
 
 DEFAULT_OUT = os.path.join(PROJECT_ROOT, "output/data/sgo_prefabs.json")
+DEFAULT_INDEX_OUT = os.path.join(PROJECT_ROOT, "output/data/sgo_prefab_index.json")
 
 parser = argparse.ArgumentParser(
     description="Parse binaryprefabs.sgo into prefab component JSON"
@@ -66,6 +67,28 @@ if not os.path.exists(SGO_PATH):
 
 data = open(SGO_PATH, "rb").read()
 d = data[8:]  # Skip 8-byte SGO header
+
+
+def write_prefab_index(prefabs, prefabs_out_path):
+    if os.path.abspath(prefabs_out_path) == os.path.abspath(DEFAULT_OUT):
+        index_out_path = DEFAULT_INDEX_OUT
+    else:
+        index_out_path = prefabs_out_path + ".index.json"
+
+    index = {
+        name: sum(
+            1
+            for actor in entry.get("actors", [])
+            if isinstance(actor, dict) and "mesh" in actor
+        )
+        for name, entry in prefabs.items()
+    }
+    os.makedirs(os.path.dirname(index_out_path), exist_ok=True)
+    tmp_path = index_out_path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(index, f, separators=(",", ":"))
+    os.replace(tmp_path, index_out_path)
+    return index_out_path, len(index)
 
 
 def read_ci(buf, pos):
@@ -118,6 +141,36 @@ def read_fstr(buf, pos):
     return s, pos
 
 
+def _store_prop(props, name, value):
+    if name not in props:
+        props[name] = value
+        return
+    if props[name] is None and value is not None:
+        props.setdefault(f"{name}__extra", []).append(props[name])
+        props[name] = value
+        return
+    props.setdefault(f"{name}__extra", []).append(value)
+
+
+def _actor_hidden(props):
+    return bool(props.get("bHidden")) or bool(props.get("bHiddenEd"))
+
+
+def _copy_actor_identity(record, cls, export_name, props):
+    record["class"] = cls
+    record["name"] = export_name
+    record["props"] = props
+    if "bHidden" in props:
+        record["hidden"] = props["bHidden"]
+    if "bHiddenEd" in props:
+        record["hidden_editor"] = props["bHiddenEd"]
+    if "Tag" in props:
+        record["tag"] = props["Tag"]
+    if "ColLocation" in props:
+        record["col_location"] = props["ColLocation"]
+    return record
+
+
 def parse_all_props(buf, offset, size, names, imports):
     """Parse ALL property blocks (multiple None terminators) from serialized data.
 
@@ -153,7 +206,7 @@ def parse_all_props(buf, offset, size, names, imports):
         af = (info >> 7) & 0x01
 
         if pt == 3:
-            props[pn] = bool(af)
+            _store_prop(props, pn, bool(af))
             continue
 
         sn = None
@@ -187,43 +240,56 @@ def parse_all_props(buf, offset, size, names, imports):
             psz = struct.unpack("<I", buf[pos : pos + 4])[0]
             pos += 4
 
+        array_index = None
         if af:
-            _, pos = read_ci(buf, pos)
+            array_index, pos = read_ci(buf, pos)
 
         if pos + psz > end:
             break
         pdata = buf[pos : pos + psz]
 
-        # Only store properties we care about (don't overwrite with later blocks)
-        if pn not in props:
-            if pt == 10 and sn == "Vector" and psz >= 12:
-                x, y, z = struct.unpack("<fff", pdata[:12])
-                props[pn] = [x, y, z]
-            elif pt == 10 and sn == "Rotator" and psz >= 12:
-                p2, y2, r2 = struct.unpack("<iii", pdata[:12])
-                props[pn] = [p2, y2, r2]
-            elif pt == 10 and sn == "Color" and psz >= 4:
-                props[pn] = {"R": pdata[0], "G": pdata[1], "B": pdata[2], "A": pdata[3]}
-            elif pt == 10 and sn == "PointRegion" and psz >= 13:
-                pass  # Skip PointRegion structs
-            elif pt == 5 and psz >= 1:
-                ref, _ = read_ci(pdata, 0)
-                if ref < 0:
-                    ii = -ref - 1
-                    props[pn] = imports[ii]["name"] if ii < len(imports) else None
-                elif ref > 0:
-                    props[pn] = f"export_{ref}"
-                else:
-                    props[pn] = None
-            elif pt == 4 and psz >= 4:
-                props[pn] = struct.unpack("<f", pdata[:4])[0]
-            elif pt == 2 and psz >= 4:
-                props[pn] = struct.unpack("<i", pdata[:4])[0]
-            elif pt == 6 and psz >= 1:
-                ni2, _ = read_ci(pdata, 0)
-                props[pn] = names[ni2] if 0 <= ni2 < len(names) else None
-            elif pt == 1 and psz >= 1:
-                props[pn] = pdata[0]
+        if pt == 10 and sn == "Vector" and psz >= 12:
+            x, y, z = struct.unpack("<fff", pdata[:12])
+            value = [x, y, z]
+        elif pt == 10 and sn == "Rotator" and psz >= 12:
+            p2, y2, r2 = struct.unpack("<iii", pdata[:12])
+            value = [p2, y2, r2]
+        elif pt == 10 and sn == "Color" and psz >= 4:
+            value = {"R": pdata[0], "G": pdata[1], "B": pdata[2], "A": pdata[3]}
+        elif pt == 10:
+            value = {
+                "property_type": pt,
+                "struct": sn,
+                "raw_hex": pdata.hex(),
+            }
+        elif pt == 5 and psz >= 1:
+            ref, _ = read_ci(pdata, 0)
+            if ref < 0:
+                ii = -ref - 1
+                value = imports[ii]["name"] if ii < len(imports) else None
+            elif ref > 0:
+                value = f"export_{ref}"
+            else:
+                value = None
+        elif pt == 4 and psz >= 4:
+            value = struct.unpack("<f", pdata[:4])[0]
+        elif pt == 2 and psz >= 4:
+            value = struct.unpack("<i", pdata[:4])[0]
+        elif pt == 6 and psz >= 1:
+            ni2, _ = read_ci(pdata, 0)
+            value = names[ni2] if 0 <= ni2 < len(names) else None
+        elif pt == 1 and psz >= 1:
+            value = pdata[0]
+        else:
+            value = {
+                "property_type": pt,
+                "size_type": st,
+                "struct": sn,
+                "raw_hex": pdata.hex(),
+            }
+        if array_index is not None:
+            value = {"array_index": array_index, "value": value}
+        _store_prop(props, pn, value)
 
         pos += psz
 
@@ -308,12 +374,14 @@ for i in range(len(boundaries)):
             if ci2 < 0:
                 ii = -ci2 - 1
                 cls = imports[ii]["name"] if ii < len(imports) else ""
-            export_info.append((cls, ss, so2))
+            export_name = names[oni] if 0 <= oni < len(names) else ""
+            export_info.append((cls, export_name, ss, so2))
 
         mesh_components = []
+        static_mesh_actors_without_mesh = []
         sub_refs = []
 
-        for cls, ss, so2 in export_info:
+        for cls, export_name, ss, so2 in export_info:
             if ss <= 0:
                 continue
             try:
@@ -325,7 +393,9 @@ for i in range(len(boundaries)):
                 sm = props.get("StaticMesh")
                 if sm:
                     total_sma_with_mesh += 1
-                    comp = {"mesh": sm}
+                    comp = _copy_actor_identity(
+                        {"mesh": sm}, cls, export_name, props
+                    )
                     if props.get("Location"):
                         comp["location"] = props["Location"]
                     if props.get("Rotation") and any(v != 0 for v in props["Rotation"]):
@@ -341,9 +411,14 @@ for i in range(len(boundaries)):
                     mesh_components.append(comp)
                 else:
                     total_sma_without_mesh += 1
+                    static_mesh_actors_without_mesh.append(
+                        _copy_actor_identity({}, cls, export_name, props)
+                    )
 
             elif cls in ("Light", "DynamicLight"):
-                light = {"type": "light"}
+                light = _copy_actor_identity(
+                    {"type": "light"}, cls, export_name, props
+                )
                 if props.get("Location"):
                     light["location"] = props["Location"]
                 if props.get("Rotation") and any(v != 0 for v in props["Rotation"]):
@@ -378,7 +453,9 @@ for i in range(len(boundaries)):
             elif cls == "CompoundObject":
                 pn = props.get("PrefabName")
                 if pn:
-                    ref = {"sub_prefab": pn}
+                    ref = _copy_actor_identity(
+                        {"sub_prefab": pn}, cls, export_name, props
+                    )
                     if props.get("Location"):
                         ref["location"] = props["Location"]
                     if props.get("Rotation") and any(v != 0 for v in props["Rotation"]):
@@ -391,6 +468,9 @@ for i in range(len(boundaries)):
 
         if mesh_components:
             leaf_prefabs[prefab_name] = mesh_components
+        if static_mesh_actors_without_mesh:
+            leaf_prefabs.setdefault(prefab_name, [])
+            leaf_prefabs[prefab_name].extend(static_mesh_actors_without_mesh)
         if sub_refs:
             compound_prefabs[prefab_name] = sub_refs
     except:
@@ -555,6 +635,10 @@ def resolve_prefab(name, visited=None, depth=0):
                 rotated = _mat_apply(parent_rot_m, scaled)
                 new_comp = dict(comp)
                 new_comp["location"] = [parent_loc[i] + rotated[i] for i in range(3)]
+                if _actor_hidden(ref.get("props", {})):
+                    new_comp["hidden"] = True
+                    if ref.get("hidden_editor"):
+                        new_comp["hidden_editor"] = True
 
                 # Compose rotation: world = parent ∘ child
                 child_rot = comp.get("rotation")
@@ -592,20 +676,24 @@ def resolve_prefab(name, visited=None, depth=0):
     return result
 
 
-all_prefabs = dict(leaf_prefabs)
-for name in compound_prefabs:
+all_prefabs = {}
+for name in sorted(set(leaf_prefabs) | set(compound_prefabs)):
     resolved = resolve_prefab(name)
-    if resolved:
-        all_prefabs[name] = resolved
+    entry = {"actors": resolved}
+    if name in compound_prefabs:
+        entry["compound_refs"] = compound_prefabs[name]
+    all_prefabs[name] = entry
 
 t2 = time.time()
-total_actors = sum(len(v) for v in all_prefabs.values())
+total_actors = sum(len(v.get("actors", [])) for v in all_prefabs.values())
 print(f"Pass 2 ({t2-t1:.1f}s): {len(all_prefabs)} prefabs, {total_actors} actors")
 
 os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
 with open(OUT_PATH, "w") as f:
     json.dump(all_prefabs, f, indent=1)
 print(f"Saved ({os.path.getsize(OUT_PATH)/1024:.0f} KB)")
+index_path, index_count = write_prefab_index(all_prefabs, OUT_PATH)
+print(f"Saved prefab index: {index_path} ({index_count:,} prefabs)")
 
 # Check targets
 targets = [
@@ -631,7 +719,7 @@ print(f"\n{'='*60}")
 found = 0
 for name in targets:
     if name in all_prefabs:
-        comps = all_prefabs[name]
+        comps = all_prefabs[name].get("actors", [])
         found += 1
         meshes = set(c.get("mesh", "?") for c in comps)
         has_offsets = any(
