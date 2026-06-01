@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Export actor race visual prefixes from the client decompile.
+"""Export actor race visual prefixes from the committed client lookup table.
 
 The emulator database stores race IDs/names, but most NPC character visuals are
 selected by a client-side race definition table. That table assigns each race a
-UEM character prefix such as ``RiftWalker -> chupacabra``. This script extracts
-that source table from the checked-in Ghidra decompile and records whether the
-referenced prefix is present in the local exported character mesh manifest.
+UEM character prefix such as ``RiftWalker -> chupacabra``. This script reads a
+clean lookup table under ``client_tables/`` and records whether the referenced
+prefix is present in the local exported character mesh manifest. Pass
+``--ghidra`` only when regenerating the table from decompilation evidence.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from pathlib import Path
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-DEFAULT_GHIDRA_PATH = ROOT_DIR / "ghidra" / "audio_dispatch_probe.json"
+DEFAULT_CLIENT_TABLE_PATH = ROOT_DIR / "client_tables" / "actor_race_visual_table.json"
 DEFAULT_CHARACTER_MANIFEST_PATH = (
     ROOT_DIR / "output" / "meshes" / "characters" / "manifest.json"
 )
@@ -56,6 +57,13 @@ _DATA_SYMBOL_PREFIX_HINTS = {
 def _load_json(path: Path) -> object:
     with open(path, encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def _display_path(path: Path) -> str:
+    try:
+        return os.path.relpath(path, ROOT_DIR)
+    except ValueError:
+        return str(path)
 
 
 def _normalise_prefix(value: str) -> str:
@@ -156,14 +164,39 @@ def _extract_actor_entries(ghidra_path: Path) -> list[dict[str, object]]:
     return entries
 
 
+def _load_actor_entries(client_table_path: Path) -> list[dict[str, object]]:
+    payload = _load_json(client_table_path)
+    rows = payload.get("rows", []) if isinstance(payload, dict) else payload
+    if not isinstance(rows, list):
+        raise ValueError(f"{client_table_path} does not contain a rows list")
+
+    entries: list[dict[str, object]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        entry = dict(row)
+        visual_prefix = str(entry.get("visual_prefix", ""))
+        entry["normalized_prefix"] = str(
+            entry.get("normalized_prefix") or _normalise_prefix(visual_prefix)
+        )
+        entries.append(entry)
+    return entries
+
+
 def build_actor_race_visual_map(
-    ghidra_path: Path = DEFAULT_GHIDRA_PATH,
+    client_table_path: Path = DEFAULT_CLIENT_TABLE_PATH,
     character_manifest_path: Path = DEFAULT_CHARACTER_MANIFEST_PATH,
     uem_dir: Path = DEFAULT_UEM_DIR,
+    ghidra_path: Path | None = None,
 ) -> dict[str, object]:
     exported_prefixes = _load_exported_prefixes(character_manifest_path)
     raw_prefixes = _load_raw_uem_prefixes(uem_dir)
-    entries = _extract_actor_entries(ghidra_path)
+    if ghidra_path is not None:
+        entries = _extract_actor_entries(ghidra_path)
+        source_path = ghidra_path
+    else:
+        entries = _load_actor_entries(client_table_path)
+        source_path = client_table_path
 
     races: dict[str, dict[str, object]] = {}
     for entry in entries:
@@ -182,7 +215,7 @@ def build_actor_race_visual_map(
     unresolved = sum(1 for entry in races.values() if not entry.get("normalized_prefix"))
 
     return {
-        "source": os.path.relpath(ghidra_path, ROOT_DIR),
+        "source": _display_path(source_path),
         "character_manifest": os.path.relpath(character_manifest_path, ROOT_DIR),
         "uem_dir": str(uem_dir),
         "summary": {
@@ -199,14 +232,16 @@ def build_actor_race_visual_map(
 
 def write_actor_race_visual_map(
     output_path: Path = DEFAULT_OUTPUT_PATH,
-    ghidra_path: Path = DEFAULT_GHIDRA_PATH,
+    client_table_path: Path = DEFAULT_CLIENT_TABLE_PATH,
     character_manifest_path: Path = DEFAULT_CHARACTER_MANIFEST_PATH,
     uem_dir: Path = DEFAULT_UEM_DIR,
+    ghidra_path: Path | None = None,
 ) -> dict[str, object]:
     payload = build_actor_race_visual_map(
-        ghidra_path=ghidra_path,
+        client_table_path=client_table_path,
         character_manifest_path=character_manifest_path,
         uem_dir=uem_dir,
+        ghidra_path=ghidra_path,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
@@ -219,7 +254,8 @@ def write_actor_race_visual_map(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export actor race visual map")
-    parser.add_argument("--ghidra", type=Path, default=DEFAULT_GHIDRA_PATH)
+    parser.add_argument("--client-table", type=Path, default=DEFAULT_CLIENT_TABLE_PATH)
+    parser.add_argument("--ghidra", type=Path, help="Optional Ghidra JSON override used only for table regeneration")
     parser.add_argument(
         "--character-manifest",
         type=Path,
@@ -231,9 +267,10 @@ def main() -> None:
 
     payload = write_actor_race_visual_map(
         output_path=args.out,
-        ghidra_path=args.ghidra,
+        client_table_path=args.client_table,
         character_manifest_path=args.character_manifest,
         uem_dir=args.uem_dir,
+        ghidra_path=args.ghidra,
     )
     summary = payload["summary"]
     print(

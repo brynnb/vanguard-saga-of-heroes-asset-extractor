@@ -1,0 +1,2708 @@
+{
+  "schema_version": 1,
+  "description": "Client-side object race static mesh table extracted from VGClient.exe decompilation.",
+  "source": "VGClient.exe object race registration table, preserved as a committed lookup table.",
+  "row_count": 450,
+  "rows": [
+    {
+      "client_table_index": 1,
+      "race_name": "MailboxThestra",
+      "source_package": "Ra8000_P1_C1_Mailbox_Mesh",
+      "source_export": "Ra8000_P1_C1_Mailbox_Mailbox001"
+    },
+    {
+      "client_table_index": 2,
+      "race_name": "MailboxQalia",
+      "source_package": "Ra8000_P1_C2_Mailbox_Mesh",
+      "source_export": "Ra8000_P1_C2_Mailbox_Mailbox001"
+    },
+    {
+      "client_table_index": 3,
+      "race_name": "MailboxKojan",
+      "source_package": "Ra8000_P1_C4_Mailbox_Mesh",
+      "source_export": "Ra8000_P1_C4_Mailbox_Mailbox001"
+    },
+    {
+      "client_table_index": 4,
+      "race_name": "TreeMediumOne",
+      "source_package": "Ra8500_P1_TreeBirch_mesh",
+      "source_export": "Ra8500_P1_TreeBirch_TreeBirchPaper001_Med01"
+    },
+    {
+      "client_table_index": 5,
+      "race_name": "TreeMediumTwo",
+      "source_package": "Ra8500_P1_C1_Trees_mesh",
+      "source_export": "Ra8500_P1_C1_Trees_VineElvTemple003"
+    },
+    {
+      "client_table_index": 6,
+      "race_name": "TreeLargeOne",
+      "source_package": "Ra8500_P1_TreeBirch_mesh",
+      "source_export": "Ra8500_P1_TreeBirch_TreeBirchPaper001_Lrg01"
+    },
+    {
+      "client_table_index": 7,
+      "race_name": "GrassClumpTwo",
+      "source_package": "Ra8500_P1_BushesGrasses_mesh",
+      "source_export": "Ra8500_P1_BushesGrasses_Grass002"
+    },
+    {
+      "client_table_index": 8,
+      "race_name": "HerbBushOne",
+      "source_package": "Ra8500_P1_BushesGrasses_mesh",
+      "source_export": "Ra8500_P1_BushesGrasses_Herb001_Bush01"
+    },
+    {
+      "client_table_index": 9,
+      "race_name": "HerbSproutOne",
+      "source_package": "Ra8500_P1_BushesGrasses_mesh",
+      "source_export": "Ra8500_P1_BushesGrasses_Herb001_Sprout01"
+    },
+    {
+      "client_table_index": 10,
+      "race_name": "OreMediumEight",
+      "source_package": "Ra8500_P1_Mines_mesh.",
+      "source_export": "Ra8500_P1_Mines_MineRockOre001_Med08"
+    },
+    {
+      "client_table_index": 11,
+      "race_name": "OreMediumFive",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockOre001_Med05"
+    },
+    {
+      "client_table_index": 12,
+      "race_name": "OreMediumFour",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockOre001_Med04"
+    },
+    {
+      "client_table_index": 13,
+      "race_name": "OreMediumOne",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockOre001_Med01"
+    },
+    {
+      "client_table_index": 14,
+      "race_name": "OreMediumSeven",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockOre001_Med07"
+    },
+    {
+      "client_table_index": 15,
+      "race_name": "OreMediumSix",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockOre001_Med06"
+    },
+    {
+      "client_table_index": 16,
+      "race_name": "OreMediumThree",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockOre001_Med03"
+    },
+    {
+      "client_table_index": 17,
+      "race_name": "OreMediumTwo",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockOre001_Med02"
+    },
+    {
+      "client_table_index": 18,
+      "race_name": "OreSmallFive",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockOre001_Sml05"
+    },
+    {
+      "client_table_index": 19,
+      "race_name": "OreSmallFour",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockOre001_Sml04"
+    },
+    {
+      "client_table_index": 20,
+      "race_name": "OreSmallOne",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockOre001_Sml01"
+    },
+    {
+      "client_table_index": 21,
+      "race_name": "OreSmallSeven",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockOre001_Sml07"
+    },
+    {
+      "client_table_index": 22,
+      "race_name": "OreSmallSix",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockOre001_Sml06"
+    },
+    {
+      "client_table_index": 23,
+      "race_name": "OreSmallThree",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockOre001_Sml03"
+    },
+    {
+      "client_table_index": 24,
+      "race_name": "OreSmallTwo",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockOre001_Sml02"
+    },
+    {
+      "client_table_index": 25,
+      "race_name": "SawMill",
+      "source_package": "Ra8003_P1_C1_craftWood_mesh",
+      "source_export": "Ra8003_P1_C1_craftWood_sawmill001"
+    },
+    {
+      "client_table_index": 26,
+      "race_name": "StoneMediumEight",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockStone001_Med08"
+    },
+    {
+      "client_table_index": 27,
+      "race_name": "StoneMediumFive",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockStone001_Med05"
+    },
+    {
+      "client_table_index": 28,
+      "race_name": "StoneMediumFour",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockStone001_Med04"
+    },
+    {
+      "client_table_index": 29,
+      "race_name": "StoneMediumOne",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockStone001_Med01"
+    },
+    {
+      "client_table_index": 30,
+      "race_name": "StoneMediumSeven",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockStone001_Med07"
+    },
+    {
+      "client_table_index": 31,
+      "race_name": "StoneMediumSix",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockStone001_Med06"
+    },
+    {
+      "client_table_index": 32,
+      "race_name": "StoneMediumThree",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockStone001_Med03"
+    },
+    {
+      "client_table_index": 33,
+      "race_name": "StoneMediumTwo",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockStone001_Med02"
+    },
+    {
+      "client_table_index": 34,
+      "race_name": "StoneSmallFive",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockStone001_Sml05"
+    },
+    {
+      "client_table_index": 35,
+      "race_name": "StoneSmallFour",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockStone001_Sml04"
+    },
+    {
+      "client_table_index": 36,
+      "race_name": "StoneSmallOne",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockStone001_Sml01"
+    },
+    {
+      "client_table_index": 37,
+      "race_name": "StoneSmallSeven",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockStone001_Sml07"
+    },
+    {
+      "client_table_index": 38,
+      "race_name": "StoneSmallSix",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockStone001_Sml06"
+    },
+    {
+      "client_table_index": 39,
+      "race_name": "StoneSmallThree",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockStone001_Sml03"
+    },
+    {
+      "client_table_index": 40,
+      "race_name": "StoneSmallTwo",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockStone001_Sml02"
+    },
+    {
+      "client_table_index": 41,
+      "race_name": "StumpSmallOne",
+      "source_package": "Ra8500_P1_TreePine_mesh",
+      "source_export": "Ra8500_P1_TreePine_TreePinusWallichiana003_Stump01"
+    },
+    {
+      "client_table_index": 42,
+      "race_name": "TailorSpinningWheel",
+      "source_package": "Ra8001_P1_C1_CraftTailor_mesh",
+      "source_export": "Ra8001_P1_C1_CraftTailor_spinngWheel001"
+    },
+    {
+      "client_table_index": 43,
+      "race_name": "TreeBareOne",
+      "source_package": "Ra8500_P1_TreeBirch_mesh",
+      "source_export": "Ra8500_P1_TreeBirch_TreeBirchBare001_Lrg01"
+    },
+    {
+      "client_table_index": 44,
+      "race_name": "TreeSmallOne",
+      "source_package": "Ra8500_P1_TreeBirch_mesh",
+      "source_export": "Ra8500_P1_TreeBirch_TreeBirchPaper001_Baby01"
+    },
+    {
+      "client_table_index": 45,
+      "race_name": "AlchemyFlask",
+      "source_package": "Ra8003_P1_C1_craftAlchemy_mesh",
+      "source_export": "Ra8003_P1_C1_craftAlchemy_LgBeeker001"
+    },
+    {
+      "client_table_index": 46,
+      "race_name": "BlacksmithForge",
+      "source_package": "Ra1_P1_craftBlacksmith_mesh",
+      "source_export": "Ra8001_P1_CraftBlacksmith_furnace001"
+    },
+    {
+      "client_table_index": 47,
+      "race_name": "Bramble",
+      "source_package": "Ra8500_P1_C1_Trees_mesh",
+      "source_export": "Swamp.Ra8500_P1_C1_Trees_BrambleSwamp001"
+    },
+    {
+      "client_table_index": 48,
+      "race_name": "BushIrishYew",
+      "source_package": "Ra8500_P1_C1_BushesGrasses_mesh",
+      "source_export": "Ra8500_P1_C1_BushesGrasses_IrishYew001"
+    },
+    {
+      "client_table_index": 49,
+      "race_name": "GemSmallOne",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockGem001_Sml01"
+    },
+    {
+      "client_table_index": 50,
+      "race_name": "GemSmallThree",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockGem001_Sml03"
+    },
+    {
+      "client_table_index": 51,
+      "race_name": "GemSmallTwo",
+      "source_package": "Ra8500_P1_Mines_mesh",
+      "source_export": "Ra8500_P1_Mines_MineRockGem001_Sml02"
+    },
+    {
+      "client_table_index": 52,
+      "race_name": "GemTable",
+      "source_package": "Ra8001_P1_CraftingGem_mesh",
+      "source_export": "Ra8001_P1_CraftingGem_table001"
+    },
+    {
+      "client_table_index": 53,
+      "race_name": "GrassClumpOne",
+      "source_package": "Ra8500_P1_BushesGrasses_mesh",
+      "source_export": "Ra8500_P1_BushesGrasses_Grass001"
+    },
+    {
+      "client_table_index": 54,
+      "race_name": "GrassClumpThree",
+      "source_package": "Ra8500_P1_BushesGrasses_mesh",
+      "source_export": "Ra8500_P1_BushesGrasses_Grass003"
+    },
+    {
+      "client_table_index": 55,
+      "race_name": "DebrisOne",
+      "source_package": "Ra8002_P1_C1_Grid_Dargun_mesh",
+      "source_export": "Ra8002_P1_C1_Grid_Dargun_debris001"
+    },
+    {
+      "client_table_index": 56,
+      "race_name": "DebrisTwo",
+      "source_package": "Ra8002_P1_C1_Grid_Dargun_mesh",
+      "source_export": "Ra8002_P1_C1_Grid_Dargun_debris002"
+    },
+    {
+      "client_table_index": 57,
+      "race_name": "DebrisThree",
+      "source_package": "Ra8002_P1_C1_Grid_Dargun_mesh",
+      "source_export": "Ra8002_P1_C1_Grid_Dargun_debris003"
+    },
+    {
+      "client_table_index": 58,
+      "race_name": "DebrisFour",
+      "source_package": "Ra8002_P1_C1_Grid_Dargun_mesh",
+      "source_export": "Ra8002_P1_C1_Grid_Dargun_debris004"
+    },
+    {
+      "client_table_index": 59,
+      "race_name": "DebrisFive",
+      "source_package": "Ra8002_P1_C1_Grid_Dargun_mesh",
+      "source_export": "Ra8002_P1_C1_Grid_Dargun_debris005"
+    },
+    {
+      "client_table_index": 60,
+      "race_name": "Bindstone",
+      "source_package": "Ra8000_GamePlayAssets_Mesh",
+      "source_export": "Ra8000_GamePlayAssets_Bindstone001"
+    },
+    {
+      "client_table_index": 61,
+      "race_name": "Tombstone",
+      "source_package": "Ra8001_P1_C1_Tombstones_mesh",
+      "source_export": "Ra8001_P1_C1_Tombstones_Tombstone003_Large01"
+    },
+    {
+      "client_table_index": 62,
+      "race_name": "BarrelStatic",
+      "source_package": "Ra8001_P1_Barrel_mesh",
+      "source_export": "Ra8001_P1_Barrel_Barrel006"
+    },
+    {
+      "client_table_index": 63,
+      "race_name": "BookStatic",
+      "source_package": "Ra8001_P1_Bookshelf_Mesh",
+      "source_export": "Ra8001_P1_Bookshelf_book004"
+    },
+    {
+      "client_table_index": 64,
+      "race_name": "ChestStatic",
+      "source_package": "Ra8001_P1_Chests_mesh",
+      "source_export": "Ra8001_P1_Chests_chest001"
+    },
+    {
+      "client_table_index": 65,
+      "race_name": "GraveStatic",
+      "source_package": "Ra8001_P1_Graves_mesh",
+      "source_export": "Ra8001_P1_Graves_grave002"
+    },
+    {
+      "client_table_index": 66,
+      "race_name": "JarStatic",
+      "source_package": "Ra0001_P0001_Jar_Mesh",
+      "source_export": "Ra0001_P0001_Jar001"
+    },
+    {
+      "client_table_index": 67,
+      "race_name": "BasketStatic",
+      "source_package": "Ra0001_P0001_Basket_Mesh",
+      "source_export": "Ra0001_P0001_Basket002"
+    },
+    {
+      "client_table_index": 68,
+      "race_name": "HayPileStatic",
+      "source_package": "Ra8001_P1_Haybales_mesh",
+      "source_export": "Ra8001_P1_Haybales_haybale002"
+    },
+    {
+      "client_table_index": 69,
+      "race_name": "Crystals",
+      "source_package": "Ra8503_P1_C3_Grid_Caves01_mesh",
+      "source_export": "Ra8503_P1_C3_Grid_Caves01_crsytal004"
+    },
+    {
+      "client_table_index": 70,
+      "race_name": "Eggs",
+      "source_package": "Ra8031_P1_C1_EggSacks_mesh",
+      "source_export": "Ra8031_P1_C1_EggSacks_eggs007"
+    },
+    {
+      "client_table_index": 71,
+      "race_name": "Crate",
+      "source_package": "Ra8001_P1_Crates_mesh",
+      "source_export": "Ra8001_P1_Crates_Crate008"
+    },
+    {
+      "client_table_index": 72,
+      "race_name": "SkeletonBones",
+      "source_package": "Ra8008_P1_C1_Torture_mesh",
+      "source_export": "Ra8008_P1_C1_Torture_Skeleton003"
+    },
+    {
+      "client_table_index": 73,
+      "race_name": "TrengalBrazier",
+      "source_package": "Ra8001_P1_C1_Foundations_mesh",
+      "source_export": "Ra8001_P1_C1_Foundations_brazier002"
+    },
+    {
+      "client_table_index": 74,
+      "race_name": "GenericBrazier",
+      "source_package": "Ra8001_P1_Brazier_mesh",
+      "source_export": "Ra8001_P1_Brazier001"
+    },
+    {
+      "client_table_index": 75,
+      "race_name": "Wagon",
+      "source_package": "Ra8001_P1_Wagons_mesh",
+      "source_export": "Ra8001_P1_Wagons_wagon004"
+    },
+    {
+      "client_table_index": 76,
+      "race_name": "SmallCart",
+      "source_package": "Ra8001_P1_Carts_mesh",
+      "source_export": "Ra8001_P1_Carts_cart001"
+    },
+    {
+      "client_table_index": 77,
+      "race_name": "DarkElfTentOne",
+      "source_package": "Ra8026_P1_C2_Tents_mesh",
+      "source_export": "Ra8026_P1_C2_Tents_large001_burnt01"
+    },
+    {
+      "client_table_index": 78,
+      "race_name": "DarkElfTentTwo",
+      "source_package": "Ra8026_P1_C2_Tents_mesh",
+      "source_export": "Ra8026_P1_C2_Tents_large003_burnt01"
+    },
+    {
+      "client_table_index": 79,
+      "race_name": "DarkElfBallista",
+      "source_package": "Ra8026_P1_C2_Warmachines_mesh",
+      "source_export": "Ra8026_P1_C2_Warmachines_ballista001"
+    },
+    {
+      "client_table_index": 80,
+      "race_name": "QalianScroll",
+      "source_package": "Ra8021_P1_C2_Decor_mesh",
+      "source_export": "Ra8021_P1_C2_Decor_scrolls003"
+    },
+    {
+      "client_table_index": 81,
+      "race_name": "QalianChest",
+      "source_package": "Ra8021_P1_C2_Chests_mesh",
+      "source_export": "Ra8021_P1_C2_Chests_Chest006"
+    },
+    {
+      "client_table_index": 82,
+      "race_name": "DarkElfMagicBall",
+      "source_package": "Ra8026_P1_C2_Grid_PankorZhi_mesh",
+      "source_export": "Ra8026_P1_C2_Grid_PankorZhi_Arcane001_Mstr01_orb1"
+    },
+    {
+      "client_table_index": 83,
+      "race_name": "DarkElfMagicBallPedestal",
+      "source_package": "Ra8026_P1_C2_Decor_mesh",
+      "source_export": "Ra8026_P1_C2_Decor_pedestal001"
+    },
+    {
+      "client_table_index": 84,
+      "race_name": "WaspCombBlocker",
+      "source_package": "Ra8071_P1_C2_WaspNests_mesh",
+      "source_export": "Ra8071_P1_C2_WaspNests_CombBlocker001"
+    },
+    {
+      "client_table_index": 85,
+      "race_name": "WaspBroodCells",
+      "source_package": "Ra8071_P1_C2_WaspNests_mesh",
+      "source_export": "Ra8071_P1_C2_WaspNests_broodCellsSm001"
+    },
+    {
+      "client_table_index": 86,
+      "race_name": "WaspRoyalJelly",
+      "source_package": "Ra8071_P1_C2_WaspNests_mesh",
+      "source_export": "Ra8071_P1_C2_WaspNests_RoyalJelly001"
+    },
+    {
+      "client_table_index": 87,
+      "race_name": "BoneSkull",
+      "source_package": "Ra8001_P1_Bones_mesh",
+      "source_export": "Ra8001_P1_Bones_skull001"
+    },
+    {
+      "client_table_index": 88,
+      "race_name": "BoneCombo1",
+      "source_package": "Ra8001_P1_Bones_mesh",
+      "source_export": "Ra8001_P1_Bones_BoneCombo001_aged01"
+    },
+    {
+      "client_table_index": 89,
+      "race_name": "BoneCombo2",
+      "source_package": "Ra8001_P1_Bones_mesh",
+      "source_export": "Ra8001_P1_Bones_BoneCombo003_aged01"
+    },
+    {
+      "client_table_index": 90,
+      "race_name": "BoneForearm",
+      "source_package": "Ra8001_P1_Bones_mesh",
+      "source_export": "Ra8001_P1_Bones_Forearm002_aged01"
+    },
+    {
+      "client_table_index": 91,
+      "race_name": "BonePelvis",
+      "source_package": "Ra8001_P1_Bones_mesh",
+      "source_export": "Ra8001_P1_Bones_Pelvis002_aged01"
+    },
+    {
+      "client_table_index": 92,
+      "race_name": "BoneRibs",
+      "source_package": "Ra8001_P1_Bones_mesh",
+      "source_export": "Ra8001_P1_Bones_Ribs002_aged01"
+    },
+    {
+      "client_table_index": 93,
+      "race_name": "DarkElfTentFull",
+      "source_package": "Ra8026_P1_C2_Tents_mesh",
+      "source_export": "Ra8026_P1_C2_Tents_large003"
+    },
+    {
+      "client_table_index": 94,
+      "race_name": "WyrmEggOne",
+      "source_package": "Ra8026_P1_C2_Grid_WyrmRoost_mesh",
+      "source_export": "Ra8026_P1_C2_Grid_WyrmRoost_egg001"
+    },
+    {
+      "client_table_index": 95,
+      "race_name": "WyrmEggTwo",
+      "source_package": "Ra8026_P1_C2_Grid_WyrmRoost_mesh",
+      "source_export": "Ra8026_P1_C2_Grid_WyrmRoost_egg002"
+    },
+    {
+      "client_table_index": 96,
+      "race_name": "WyrmEggCrackedOne",
+      "source_package": "Ra8026_P1_C2_Grid_WyrmRoost_mesh",
+      "source_export": "Ra8026_P1_C2_Grid_WyrmRoost_Crackedegg004"
+    },
+    {
+      "client_table_index": 97,
+      "race_name": "WyrmEggCrackedTwo",
+      "source_package": "Ra8026_P1_C2_Grid_WyrmRoost_mesh",
+      "source_export": "Ra8026_P1_C2_Grid_WyrmRoost_Crackedegg003"
+    },
+    {
+      "client_table_index": 98,
+      "race_name": "ArcaneMagicDevice",
+      "source_package": "Ra8025_P1_C2_Decor_mesh",
+      "source_export": "Ra8025_P1_C2_Decor_Arcane002"
+    },
+    {
+      "client_table_index": 99,
+      "race_name": "PipeVent",
+      "source_package": "Ra8025_P1_C2_Decor_mesh",
+      "source_export": "Ra8025_P1_C2_Decor_PipeVent001"
+    },
+    {
+      "client_table_index": 100,
+      "race_name": "PileOfBooks",
+      "source_package": "Ra8025_P1_C2_Books_mesh",
+      "source_export": "Ra8025_P1_C2_Books_bookstack002"
+    },
+    {
+      "client_table_index": 101,
+      "race_name": "DarkElfAltar",
+      "source_package": "Ra8026_P1_C2_Altar_mesh",
+      "source_export": "Ra8026_P1_C2_Altar_Altar001"
+    },
+    {
+      "client_table_index": 102,
+      "race_name": "RunicPillar",
+      "source_package": "Ra8021_P1_C2_Artifacts_mesh",
+      "source_export": "Ra8021_P1_C2_Artifacts_GHpillar001"
+    },
+    {
+      "client_table_index": 103,
+      "race_name": "Sundial",
+      "source_package": "Ra8021_P1_C2_Clocks_mesh",
+      "source_export": "Ra8021_P1_C2_Clocks_sunDial002"
+    },
+    {
+      "client_table_index": 104,
+      "race_name": "SimpleBoat",
+      "source_package": "Ra8021_P1_C2_Ships_mesh",
+      "source_export": "Ra8021_P1_C2_Ships_DhowExt002"
+    },
+    {
+      "client_table_index": 105,
+      "race_name": "SimpleBanner",
+      "source_package": "Ra8004_P1_C1_Banners_mesh",
+      "source_export": "Ra8004_P1_C1_Banners_Banner003"
+    },
+    {
+      "client_table_index": 106,
+      "race_name": "GatePortal",
+      "source_package": "Ra8023_P1_C2_Decor_mesh",
+      "source_export": "Ra8023_P1_C2_Decor_GatePortal001"
+    },
+    {
+      "client_table_index": 107,
+      "race_name": "GriffonNest",
+      "source_package": "Ra8500_P1_C1_Nest_mesh",
+      "source_export": "Ra8500_P1_C1_Nest_griffin001"
+    },
+    {
+      "client_table_index": 108,
+      "race_name": "DemonPortal",
+      "source_package": "Ra8023_P1_C2_Grid_Temple_mesh",
+      "source_export": "Ra8023_P1_C2_Grid_Temple_DemonPortal001"
+    },
+    {
+      "client_table_index": 109,
+      "race_name": "MeatPile",
+      "source_package": "Ra8042_P1_C3_Food_mesh",
+      "source_export": "Ra8042_P1_C3_Food_meatpile001"
+    },
+    {
+      "client_table_index": 110,
+      "race_name": "MeatPile2",
+      "source_package": "Ra8042_P1_C3_Food_mesh",
+      "source_export": "Ra8042_P1_C3_Food_meatpile002"
+    },
+    {
+      "client_table_index": 111,
+      "race_name": "MeatPile3",
+      "source_package": "Ra8042_P1_C3_Food_mesh",
+      "source_export": "Ra8042_P1_C3_Food_meatpile003"
+    },
+    {
+      "client_table_index": 112,
+      "race_name": "MeatPile4",
+      "source_package": "Ra8042_P1_C3_Food_mesh",
+      "source_export": "Ra8042_P1_C3_Food_meatpile004"
+    },
+    {
+      "client_table_index": 113,
+      "race_name": "MeatPile5",
+      "source_package": "Ra8042_P1_C3_Food_mesh",
+      "source_export": "Ra8042_P1_C3_Food_meatpile005"
+    },
+    {
+      "client_table_index": 114,
+      "race_name": "ScriptAction",
+      "source_package": "Sigil_Tools",
+      "source_export": "Sigil_ToolSpawner"
+    },
+    {
+      "client_table_index": 115,
+      "race_name": "StoneHengeCenter",
+      "source_package": "Ra8026_P1_C2_StoneHenge_mesh",
+      "source_export": "Ra8026_P1_C2_StoneHenge_Center001"
+    },
+    {
+      "client_table_index": 116,
+      "race_name": "BurlapSack",
+      "source_package": "Ra8021_P1_C2_Containers_mesh",
+      "source_export": "Ra8021_P1_C2_Containers_Pouch001"
+    },
+    {
+      "client_table_index": 117,
+      "race_name": "BrokenJars",
+      "source_package": "Ra8021_P1_C2_Artifacts_mesh",
+      "source_export": "Ra8021_P1_C2_Artifacts_brokenJars003"
+    },
+    {
+      "client_table_index": 118,
+      "race_name": "KsavariBanner",
+      "source_package": "Ra8079_P1_C2_Banners_mesh",
+      "source_export": "Ra8079_P1_C2_Banners_Banner002"
+    },
+    {
+      "client_table_index": 119,
+      "race_name": "TotemJar",
+      "source_package": "Ra8012_P1_C2_Containers_mesh",
+      "source_export": "Ra8012_P1_C2_Containers_container001"
+    },
+    {
+      "client_table_index": 120,
+      "race_name": "FishBasket",
+      "source_package": "Ra8021_P1_C2_Food_mesh",
+      "source_export": "Ra8021_P1_C2_Food_Foodbasket003"
+    },
+    {
+      "client_table_index": 121,
+      "race_name": "RopeCoveredAmphora",
+      "source_package": "Ra8034_P1_C2_Containers_mesh",
+      "source_export": "Ra8034_P1_C2_Containers_Jug003"
+    },
+    {
+      "client_table_index": 122,
+      "race_name": "TrialsDungeonBrazier",
+      "source_package": "Ra8062_P1_C4_Grid_TrialsDungeon_mesh",
+      "source_export": "Ra8062_P1_C4_Grid_TrialsDungeon_Brazier001"
+    },
+    {
+      "client_table_index": 123,
+      "race_name": "TrialsDungeonNest",
+      "source_package": "Ra8062_P1_C4_Grid_TrialsDungeon_mesh",
+      "source_export": "Ra8062_P1_C4_Grid_TrialsDungeon_Nest001"
+    },
+    {
+      "client_table_index": 124,
+      "race_name": "TrialsDungeonNest2",
+      "source_package": "Ra8062_P1_C4_Grid_TrialsDungeon_mesh",
+      "source_export": "Ra8062_P1_C4_Grid_TrialsDungeon_Nest002"
+    },
+    {
+      "client_table_index": 125,
+      "race_name": "TrialsDungeonOrb",
+      "source_package": "Ra8062_P1_C4_Grid_TrialsDungeon_mesh",
+      "source_export": "Ra8062_P1_C4_Grid_TrialsDungeon_Orb001"
+    },
+    {
+      "client_table_index": 126,
+      "race_name": "TrialsDungeonStump",
+      "source_package": "Ra8062_P1_C4_Grid_TrialsDungeon_mesh",
+      "source_export": "Ra8062_P1_C4_Grid_TrialsDungeon_Stump001"
+    },
+    {
+      "client_table_index": 127,
+      "race_name": "TrialsDungeonTablet",
+      "source_package": "Ra8062_P1_C4_Grid_TrialsDungeon_mesh",
+      "source_export": "Ra8062_P1_C4_Grid_TrialsDungeon_Tablet001"
+    },
+    {
+      "client_table_index": 128,
+      "race_name": "KurashasanTent",
+      "source_package": "Ra8023_P1_C2_Tents_mesh",
+      "source_export": "Ra8023_P1_C2_Tents_tent001_outside01"
+    },
+    {
+      "client_table_index": 129,
+      "race_name": "BlackCauldron",
+      "source_package": "Ra8007_P1_C1_Decor_mesh",
+      "source_export": "Ra8007_P1_C1_Decor_BlackCauldron001"
+    },
+    {
+      "client_table_index": 130,
+      "race_name": "MarbleTablet",
+      "source_package": "Ra8082_P1_C2_Tablets_mesh",
+      "source_export": "Ra8082_P1_C2_Tablets_tablet001"
+    },
+    {
+      "client_table_index": 131,
+      "race_name": "StoneTablet",
+      "source_package": "Ra8082_P1_C2_Tablets_mesh",
+      "source_export": "Ra8082_P1_C2_Tablets_tablet002"
+    },
+    {
+      "client_table_index": 132,
+      "race_name": "VulmaneBoulder",
+      "source_package": "Ra8004_P1_C1_Decor_mesh",
+      "source_export": "Ra8004_P1_C1_Decor_boulder001"
+    },
+    {
+      "client_table_index": 133,
+      "race_name": "VulmaneBoulder2",
+      "source_package": "Ra8004_P1_C1_Decor_mesh",
+      "source_export": "Ra8004_P1_C1_Decor_boulder002"
+    },
+    {
+      "client_table_index": 134,
+      "race_name": "Statue",
+      "source_package": "Ra8070_P1_C2_Statues_mesh",
+      "source_export": "Ra8070_P1_C2_statues_statue001"
+    },
+    {
+      "client_table_index": 135,
+      "race_name": "BindstoneCrystal",
+      "source_package": "Ra8000_P1_Bindstone_mesh",
+      "source_export": "Ra8000_P1_Bindstone_Base001_Crystal01"
+    },
+    {
+      "client_table_index": 136,
+      "race_name": "BindstoneShield",
+      "source_package": "Ra8000_P1_Bindstone_mesh",
+      "source_export": "Ra8000_P1_Bindstone_Corpse001_Shield01"
+    },
+    {
+      "client_table_index": 137,
+      "race_name": "KaerellunAltarBlue",
+      "source_package": "Ra8026_P1_C2_Decor_mesh",
+      "source_export": "Ra8026_P1_C2_Decor_KaerellunAltar001_Blue01"
+    },
+    {
+      "client_table_index": 138,
+      "race_name": "KaerellunAltarYellow",
+      "source_package": "Ra8026_P1_C2_Decor_mesh",
+      "source_export": "Ra8026_P1_C2_Decor_KaerellunAltar001_Yellow01"
+    },
+    {
+      "client_table_index": 139,
+      "race_name": "KaerellunAltarGreen",
+      "source_package": "Ra8026_P1_C2_Decor_mesh",
+      "source_export": "Ra8026_P1_C2_Decor_KaerellunAltar001_Green01"
+    },
+    {
+      "client_table_index": 140,
+      "race_name": "KaerellunAltarRed",
+      "source_package": "Ra8026_P1_C2_Decor_mesh",
+      "source_export": "Ra8026_P1_C2_Decor_KaerellunAltar001_Red01"
+    },
+    {
+      "client_table_index": 141,
+      "race_name": "GenericBrazier2",
+      "source_package": "Ra8001_P1_Brazier_mesh",
+      "source_export": "Ra8001_P1_Brazier001"
+    },
+    {
+      "client_table_index": 142,
+      "race_name": "SkullWithHorns",
+      "source_package": "Ra8008_P1_C1_Bones_Mesh",
+      "source_export": "Ra8008_P1_C1_Bones_skullHorns001"
+    },
+    {
+      "client_table_index": 143,
+      "race_name": "Gasbag",
+      "source_package": "Ra8504_P1_C4_Deco_mesh",
+      "source_export": "Ra8504_P1_C4_Deco_GasbagMesh001"
+    },
+    {
+      "client_table_index": 144,
+      "race_name": "Fence",
+      "source_package": "Ra8001_P1_C1_Fences_mesh",
+      "source_export": "Ra8001_P1_C1_Fences_fences001_straight03"
+    },
+    {
+      "client_table_index": 145,
+      "race_name": "RedFlowerPod",
+      "source_package": "Ra8080_P1_C2_Flowerpods_mesh",
+      "source_export": "Ra8080_P1_C2_Flowerpods_pod001"
+    },
+    {
+      "client_table_index": 146,
+      "race_name": "YellowFlowerPod",
+      "source_package": "Ra8080_P1_C2_Flowerpods_mesh",
+      "source_export": "Ra8080_P1_C2_Flowerpods_pod002"
+    },
+    {
+      "client_table_index": 147,
+      "race_name": "PinkFlowerPod",
+      "source_package": "Ra8080_P1_C2_Flowerpods_mesh",
+      "source_export": "Ra8080_P1_C2_Flowerpods_pod003"
+    },
+    {
+      "client_table_index": 148,
+      "race_name": "VioletFlowerPod",
+      "source_package": "Ra8080_P1_C2_Flowerpods_mesh",
+      "source_export": "Ra8080_P1_C2_Flowerpods_pod004"
+    },
+    {
+      "client_table_index": 149,
+      "race_name": "OrangeFlowerPod",
+      "source_package": "Ra8080_P1_C2_Flowerpods_mesh",
+      "source_export": "Ra8080_P1_C2_Flowerpods_pod005"
+    },
+    {
+      "client_table_index": 150,
+      "race_name": "BlueFlowerPod",
+      "source_package": "Ra8080_P1_C2_Flowerpods_mesh",
+      "source_export": "Ra8080_P1_C2_Flowerpods_pod006"
+    },
+    {
+      "client_table_index": 151,
+      "race_name": "CorpseFlower",
+      "source_package": "Ra8080_P1_C2_LargeFlowers_mesh",
+      "source_export": "Ra8080_P1_C2_LargeFlowers_Corpse001"
+    },
+    {
+      "client_table_index": 152,
+      "race_name": "ElephantSkull",
+      "source_package": "Ra8050_P1_Bones_mesh",
+      "source_export": "Ra8050_P1_Bones_Elephant001_Skull01"
+    },
+    {
+      "client_table_index": 153,
+      "race_name": "ElephantTusk",
+      "source_package": "Ra8050_P1_Bones_mesh",
+      "source_export": "Ra8050_P1_Bones_Elephant001_Tusk02"
+    },
+    {
+      "client_table_index": 154,
+      "race_name": "DeadBody",
+      "source_package": "Ra8021_P1_C2_Bodies_mesh",
+      "source_export": "Ra8021_P1_C2_Bodies_dead002"
+    },
+    {
+      "client_table_index": 155,
+      "race_name": "DeadBody2",
+      "source_package": "Ra8021_P1_C2_Bodies_mesh",
+      "source_export": "Ra8021_P1_C2_Bodies_dead005"
+    },
+    {
+      "client_table_index": 156,
+      "race_name": "BlackLotusPatch",
+      "source_package": "Ra8080_P1_C2_LargeFlowers_mesh",
+      "source_export": "Ra8080_P1_C2_LargeFlowers_blackLotusPatch001"
+    },
+    {
+      "client_table_index": 157,
+      "race_name": "OrchidPatch",
+      "source_package": "Ra8080_P1_C2_LargeFlowers_mesh",
+      "source_export": "Ra8080_P1_C2_LargeFlowers_orchidPatch001"
+    },
+    {
+      "client_table_index": 158,
+      "race_name": "PoppyPatch",
+      "source_package": "Ra8080_P1_C2_LargeFlowers_mesh",
+      "source_export": "Ra8080_P1_C2_LargeFlowers_poppyPatch001"
+    },
+    {
+      "client_table_index": 159,
+      "race_name": "RosePatch",
+      "source_package": "Ra8080_P1_C2_LargeFlowers_mesh",
+      "source_export": "Ra8080_P1_C2_LargeFlowers_rosePatch001"
+    },
+    {
+      "client_table_index": 160,
+      "race_name": "Pumpkin",
+      "source_package": "Ra8005_P1_C1_Food_mesh",
+      "source_export": "Ra8005_P1_C1_Food_pumpkin001"
+    },
+    {
+      "client_table_index": 161,
+      "race_name": "Pumpkin2",
+      "source_package": "Ra8005_P1_C1_Food_mesh",
+      "source_export": "Ra8005_P1_C1_Food_pumpkin002"
+    },
+    {
+      "client_table_index": 162,
+      "race_name": "Pumpkin3",
+      "source_package": "Ra8005_P1_C1_Food_mesh",
+      "source_export": "Ra8005_P1_C1_Food_pumpkin003"
+    },
+    {
+      "client_table_index": 163,
+      "race_name": "Pumpkin4",
+      "source_package": "Ra8005_P1_C1_Food_mesh",
+      "source_export": "Ra8005_P1_C1_Food_pumpkin004"
+    },
+    {
+      "client_table_index": 164,
+      "race_name": "PumpkinPile",
+      "source_package": "Ra8005_P1_C1_Food_mesh",
+      "source_export": "Ra8005_P1_C1_Food_pumpkinPile001"
+    },
+    {
+      "client_table_index": 165,
+      "race_name": "Fountain",
+      "source_package": "Ra8080_P1_C2_Fountains_mesh",
+      "source_export": "Ra8080_P1_C2_Fountains_Large001"
+    },
+    {
+      "client_table_index": 166,
+      "race_name": "MartokChest",
+      "source_package": "Ra8061_P1_C4_Containers_mesh",
+      "source_export": "Ra8061_P1_C4_Containers_chest001"
+    },
+    {
+      "client_table_index": 167,
+      "race_name": "Statue2",
+      "source_package": "Ra8080_P1_C2_Statues_mesh",
+      "source_export": "Ra8080_P1_C2_Statues_statue001"
+    },
+    {
+      "client_table_index": 168,
+      "race_name": "Statue3",
+      "source_package": "Ra8080_P1_C2_Statues_mesh",
+      "source_export": "Ra8080_P1_C2_Statues_statue002"
+    },
+    {
+      "client_table_index": 169,
+      "race_name": "Statue4",
+      "source_package": "Ra8080_P1_C2_Statues_mesh",
+      "source_export": "Ra8080_P1_C2_Statues_statue003"
+    },
+    {
+      "client_table_index": 170,
+      "race_name": "Statue5",
+      "source_package": "Ra8080_P1_C2_Statues_mesh",
+      "source_export": "Ra8080_P1_C2_Statues_statue004"
+    },
+    {
+      "client_table_index": 171,
+      "race_name": "Statue6",
+      "source_package": "Ra8080_P1_C2_Statues_mesh",
+      "source_export": "Ra8080_P1_C2_Statues_statue005"
+    },
+    {
+      "client_table_index": 172,
+      "race_name": "Statue7",
+      "source_package": "Ra8080_P1_C2_Statues_mesh",
+      "source_export": "Ra8080_P1_C2_Statues_statue006"
+    },
+    {
+      "client_table_index": 173,
+      "race_name": "ShroomCluster",
+      "source_package": "Ra8500_P1_C1_Mushrooms_Mesh",
+      "source_export": "Ra8500_P1_C1_Mushrooms_ShroomCluster001_Sm01"
+    },
+    {
+      "client_table_index": 174,
+      "race_name": "ShroomCluster2",
+      "source_package": "Ra8500_P1_C1_Mushrooms_Mesh",
+      "source_export": "Ra8500_P1_C1_Mushrooms_ShroomCluster002_Sm01"
+    },
+    {
+      "client_table_index": 175,
+      "race_name": "StoneTree",
+      "source_package": "Ra8502_P1_C2_Grid_Caves01_mesh",
+      "source_export": "Ra8502_P1_C2_Grid_Caves01_stonetree001"
+    },
+    {
+      "client_table_index": 177,
+      "race_name": "WoodPile",
+      "source_package": "Ra8061_P1_C4_Decor_mesh",
+      "source_export": "Ra8061_P1_C4_Decor_woodPile001"
+    },
+    {
+      "client_table_index": 178,
+      "race_name": "DeadBody3",
+      "source_package": "Ra8031_P1_C1_deadBodies_mesh",
+      "source_export": "Ra8031_P1_C1_deadBodies_Corps007"
+    },
+    {
+      "client_table_index": 179,
+      "race_name": "BrickOldTarganor",
+      "source_package": "Ra8001_P1_C1_Rubbish_mesh",
+      "source_export": "Ra8001_P1_C1_Rubbish_block001_OldTarganor01"
+    },
+    {
+      "client_table_index": 180,
+      "race_name": "BrickTrengal",
+      "source_package": "Ra8001_P1_C1_Rubbish_mesh",
+      "source_export": "Ra8001_P1_C1_Rubbish_block001_Trengal01"
+    },
+    {
+      "client_table_index": 181,
+      "race_name": "BrickVolTuniel",
+      "source_package": "Ra8001_P1_C1_Rubbish_mesh",
+      "source_export": "Ra8001_P1_C1_Rubbish_block001_VolTuniel01"
+    },
+    {
+      "client_table_index": 182,
+      "race_name": "BrickAncientStrands",
+      "source_package": "Ra8001_P1_C1_Rubbish_mesh",
+      "source_export": "Ra8001_P1_C2_Rubbish_block001_AncientStrands01"
+    },
+    {
+      "client_table_index": 183,
+      "race_name": "RolledScroll",
+      "source_package": "Ra8001_P1_C1_Scrolls_mesh",
+      "source_export": "Ra8001_P1_C1_Scrolls_ArchPlans004"
+    },
+    {
+      "client_table_index": 184,
+      "race_name": "Hourglass",
+      "source_package": "Ra8001_P1_C1_Alchemy_mesh",
+      "source_export": "Ra8001_P1_C1_Alchemy_hourGlass001"
+    },
+    {
+      "client_table_index": 185,
+      "race_name": "KojanLantern",
+      "source_package": "Ra8086_P1_C4_Grid_Nirashuri_mesh",
+      "source_export": "Ra8086_P1_C4_Grid_Nirashuri_Lantern002"
+    },
+    {
+      "client_table_index": 186,
+      "race_name": "KaonPhaseStone",
+      "source_package": "Ra8076_P1_C1_Camps_mesh",
+      "source_export": "Ra8076_P1_C1_Camps_Camp004"
+    },
+    {
+      "client_table_index": 187,
+      "race_name": "SupportBeam",
+      "source_package": "Ra8001_P1_C1_Grid_TuMines01_mesh",
+      "source_export": "Ra8001_P1_C1_Grid_TuMines01_beam002"
+    },
+    {
+      "client_table_index": 188,
+      "race_name": "BrickIllithid",
+      "source_package": "Ra8001_P1_C1_Rubbish_mesh",
+      "source_export": "Ra8001_P1_C2_Rubbish_block001_Illithid01"
+    },
+    {
+      "client_table_index": 189,
+      "race_name": "BrickCityOfBrass",
+      "source_package": "Ra8001_P1_C1_Rubbish_mesh",
+      "source_export": "Ra8001_P1_C2_Rubbish_block001_CityOfBrass01"
+    },
+    {
+      "client_table_index": 190,
+      "race_name": "TreasureBox",
+      "source_package": "Ra8021_P1_C2_Artifacts_mesh",
+      "source_export": "Ra8021_P1_C2_Artifacts_chest002"
+    },
+    {
+      "client_table_index": 191,
+      "race_name": "Sword",
+      "source_package": "Ra8700_P1_Weapons_mesh",
+      "source_export": "Ra8700_P1_Weapons_sword1C001"
+    },
+    {
+      "client_table_index": 192,
+      "race_name": "Sword2",
+      "source_package": "Ra8700_P1_Weapons_mesh",
+      "source_export": "Ra8700_P1_Weapons_sword4C001"
+    },
+    {
+      "client_table_index": 193,
+      "race_name": "ElkHeadTrophy",
+      "source_package": "Ra8001_Trophies_Meshes",
+      "source_export": "Ra8001_Trophies_elkHead001"
+    },
+    {
+      "client_table_index": 194,
+      "race_name": "TilrakiConsole",
+      "source_package": "Ra8065_P1_C4_Grid_TilrakiIslands_mesh",
+      "source_export": "Ra8065_P1_C4_Grid_TilrakiIslands_console001"
+    },
+    {
+      "client_table_index": 195,
+      "race_name": "SpikeyFence",
+      "source_package": "Ra8009_P1_C1_Outpost_mesh",
+      "source_export": "Ra8009_P1_C1_Outpost_FencePiece001"
+    },
+    {
+      "client_table_index": 196,
+      "race_name": "SpikeyFence2",
+      "source_package": "Ra8009_P1_C1_Outpost_mesh",
+      "source_export": "Ra8009_P1_C1_Outpost_FencePiece004"
+    },
+    {
+      "client_table_index": 197,
+      "race_name": "SpikeyFence3",
+      "source_package": "Ra8009_P1_C1_Outpost_mesh",
+      "source_export": "Ra8009_P1_C1_Outpost_FencePiece005"
+    },
+    {
+      "client_table_index": 198,
+      "race_name": "LordTsangTablet",
+      "source_package": "Ra8060_P1_C4_Decor_mesh",
+      "source_export": "Ra8060_P1_C4_Decor_tablet001"
+    },
+    {
+      "client_table_index": 199,
+      "race_name": "LordTsangTablet2",
+      "source_package": "Ra8060_P1_C4_Decor_mesh",
+      "source_export": "Ra8060_P1_C4_Decor_tablet002"
+    },
+    {
+      "client_table_index": 200,
+      "race_name": "KojaneseAxe",
+      "source_package": "Ra8700_P1_Weapons_mesh",
+      "source_export": "Ra8700_P1_Weapons_axeKojanese1C001"
+    },
+    {
+      "client_table_index": 201,
+      "race_name": "KojaneseDagger",
+      "source_package": "Ra8700_P1_Weapons_mesh",
+      "source_export": "Ra8700_P1_Weapons_daggerKojanese1C001"
+    },
+    {
+      "client_table_index": 202,
+      "race_name": "KojaneseLongsword",
+      "source_package": "Ra8700_P1_Weapons_mesh",
+      "source_export": "Ra8700_P1_Weapons_longSwordKojanese1C001"
+    },
+    {
+      "client_table_index": 203,
+      "race_name": "KojaneseMace",
+      "source_package": "Ra8700_P1_Weapons_mesh",
+      "source_export": "Ra8700_P1_Weapons_maceKojanese1C001"
+    },
+    {
+      "client_table_index": 204,
+      "race_name": "KojaneseFocusItem",
+      "source_package": "Ra8700_P1_Weapons_mesh",
+      "source_export": "Ra8700_P1_Weapons_focusItemKojanese3C001"
+    },
+    {
+      "client_table_index": 205,
+      "race_name": "Gems",
+      "source_package": "Ra8060_P1_C4_Decor_mesh",
+      "source_export": "Ra8060_P1_C4_Decor_gems001"
+    },
+    {
+      "client_table_index": 206,
+      "race_name": "Gems2",
+      "source_package": "Ra8060_P1_C4_Decor_mesh",
+      "source_export": "Ra8060_P1_C4_Decor_gems002"
+    },
+    {
+      "client_table_index": 207,
+      "race_name": "DiplomacyHubBase",
+      "source_package": "Ra8000_P1_DiplomacyHub_Mesh",
+      "source_export": "Ra8000_P1_DiplomacyHub_Base001"
+    },
+    {
+      "client_table_index": 208,
+      "race_name": "DiplomacyHubBase2",
+      "source_package": "Ra8000_P1_DiplomacyHub_Mesh",
+      "source_export": "Ra8000_P1_DiplomacyHub_Base001_ver02"
+    },
+    {
+      "client_table_index": 209,
+      "race_name": "DiplomacyHubPillar",
+      "source_package": "Ra8000_P1_DiplomacyHub_Mesh",
+      "source_export": "Ra8000_P1_DiplomacyHub_pillar001"
+    },
+    {
+      "client_table_index": 210,
+      "race_name": "DiplomacyHubPillar2",
+      "source_package": "Ra8000_P1_DiplomacyHub_Mesh",
+      "source_export": "Ra8000_P1_DiplomacyHub_pillar001_ver02"
+    },
+    {
+      "client_table_index": 211,
+      "race_name": "EnergyConduit",
+      "source_package": "Ra60_P1_C4_EnergyConduit_Meshes",
+      "source_export": "Ra60_P1_C4_EnergyConduit_Conduit001"
+    },
+    {
+      "client_table_index": 212,
+      "race_name": "EnergyConduitBroken",
+      "source_package": "Ra60_P1_C4_EnergyConduit_Meshes",
+      "source_export": "Ra60_P1_C4_EnergyConduit_BrokenConduit001_Part01"
+    },
+    {
+      "client_table_index": 213,
+      "race_name": "PsionicGestalt",
+      "source_package": "Ra8000_P1_PsionicGestalt_Mesh",
+      "source_export": "Ra8000_P1_PsionicGestalt_stone001"
+    },
+    {
+      "client_table_index": 214,
+      "race_name": "Barrel",
+      "source_package": "Ra60_P1_C4_Containers_mesh",
+      "source_export": "Ra60_P1_C4_Containers_barrel004"
+    },
+    {
+      "client_table_index": 216,
+      "race_name": "FloorDial",
+      "source_package": "Ra60_P1_C4_Decor_mesh",
+      "source_export": "Ra60_P1_C4_Decor_floorDial001"
+    },
+    {
+      "client_table_index": 217,
+      "race_name": "HillsburyMirror",
+      "source_package": "Ra1_P1_C2_Hillsbury_mesh",
+      "source_export": "Ra1_P1_C1_Hillsbury_MirrorStanding001"
+    },
+    {
+      "client_table_index": 218,
+      "race_name": "BaobabFruitRipe",
+      "source_package": "Ra79_P1_C2_BoababFruit_Meshes",
+      "source_export": "Ra79_P1_C2_BoababFruit_Ripe001"
+    },
+    {
+      "client_table_index": 219,
+      "race_name": "BaobabFruitRotten",
+      "source_package": "Ra79_P1_C2_BoababFruit_Meshes",
+      "source_export": "Ra79_P1_C2_BoababFruit_Rotten001"
+    },
+    {
+      "client_table_index": 220,
+      "race_name": "HayBale",
+      "source_package": "Ra44_P1_C3_Farm_Mesh",
+      "source_export": "Ra44_P1_C3_Farm_Haybale001"
+    },
+    {
+      "client_table_index": 221,
+      "race_name": "HayBale2",
+      "source_package": "Ra44_P1_C3_Farm_Mesh",
+      "source_export": "Ra44_P1_C3_Farm_Haybale002"
+    },
+    {
+      "client_table_index": 222,
+      "race_name": "Target",
+      "source_package": "Ra0001_P0001_Target_Mesh",
+      "source_export": "Ra0001_P0001_Target001"
+    },
+    {
+      "client_table_index": 223,
+      "race_name": "Dummy",
+      "source_package": "Ra0001_P0001_Dummy_Mesh",
+      "source_export": "Ra0001_P0001_Dummy001"
+    },
+    {
+      "client_table_index": 224,
+      "race_name": "Fireplace",
+      "source_package": "Ra2_P1_C1_fireplace_mesh",
+      "source_export": "Ra2_P1_C1_fireplace004"
+    },
+    {
+      "client_table_index": 225,
+      "race_name": "Crystals2",
+      "source_package": "Ra5003_P1_C3_Grid_Caves01_mesh",
+      "source_export": "Ra5003_P1_C3_Grid_Caves01_newer_crsytal001"
+    },
+    {
+      "client_table_index": 226,
+      "race_name": "Crystals3",
+      "source_package": "Ra5003_P1_C3_Grid_Caves01_mesh",
+      "source_export": "Ra5003_P1_C3_Grid_Caves01_newer_crsytal002"
+    },
+    {
+      "client_table_index": 227,
+      "race_name": "Crystals4",
+      "source_package": "Ra5003_P1_C3_Grid_Caves01_mesh",
+      "source_export": "Ra5003_P1_C3_Grid_Caves01_newer_crsytal003"
+    },
+    {
+      "client_table_index": 228,
+      "race_name": "Crystals5",
+      "source_package": "Ra5003_P1_C3_Grid_Caves01_mesh",
+      "source_export": "Ra5003_P1_C3_Grid_Caves01_newer_crsytal005"
+    },
+    {
+      "client_table_index": 229,
+      "race_name": "Crystals6",
+      "source_package": "Ra5003_P1_C3_Grid_Caves01_mesh",
+      "source_export": "Ra5003_P1_C3_Grid_Caves01_newer_crsytal006"
+    },
+    {
+      "client_table_index": 230,
+      "race_name": "Crystals7",
+      "source_package": "Ra5003_P1_C3_Grid_Caves01_mesh",
+      "source_export": "Ra5003_P1_C3_Grid_Caves01_newer_crsytal007"
+    },
+    {
+      "client_table_index": 231,
+      "race_name": "Globe",
+      "source_package": "Ra29_P1_C3_Tools_Mesh",
+      "source_export": "Ra29_P1_C3_Tools_Globe001"
+    },
+    {
+      "client_table_index": 232,
+      "race_name": "Globe2",
+      "source_package": "Ra29_P1_C3_Tools_Mesh",
+      "source_export": "Ra29_P1_C3_Tools_Globe002"
+    },
+    {
+      "client_table_index": 233,
+      "race_name": "Globe3",
+      "source_package": "Ra29_P1_C3_Tools_Mesh",
+      "source_export": "Ra29_P1_C3_Tools_Globe003"
+    },
+    {
+      "client_table_index": 234,
+      "race_name": "Globe4",
+      "source_package": "Ra29_P1_C3_Tools_Mesh",
+      "source_export": "Ra29_P1_C3_Tools_Globe004"
+    },
+    {
+      "client_table_index": 235,
+      "race_name": "Globe5",
+      "source_package": "Ra29_P1_C3_Tools_Mesh",
+      "source_export": "Ra29_P1_C3_Tools_Globe005"
+    },
+    {
+      "client_table_index": 236,
+      "race_name": "FlyIdol",
+      "source_package": "Ra7_P1_C1_Decor_Meshes",
+      "source_export": "Ra7_P1_C1_Decor_FlyIdol001"
+    },
+    {
+      "client_table_index": 237,
+      "race_name": "HaystackThestran",
+      "source_package": "Ra1_P1_C1_Farm_mesh",
+      "source_export": "Ra1_P1_C1_farm_Stook001_var01"
+    },
+    {
+      "client_table_index": 238,
+      "race_name": "HaystackThestran2",
+      "source_package": "Ra1_P1_C1_Farm_mesh",
+      "source_export": "Ra1_P1_C1_farm_stook002"
+    },
+    {
+      "client_table_index": 239,
+      "race_name": "LampRiftseeker",
+      "source_package": "Ra29_P1_C3_Lights_mesh",
+      "source_export": "Ra29_P1_C3_Lights_lightBase001"
+    },
+    {
+      "client_table_index": 240,
+      "race_name": "LampRiftseeker2",
+      "source_package": "Ra29_P1_C3_Lights_mesh",
+      "source_export": "Ra29_P1_C3_Lights_lightBase002"
+    },
+    {
+      "client_table_index": 241,
+      "race_name": "BrazierRiftseeker",
+      "source_package": "Ra29_P1_C3_Lights_mesh",
+      "source_export": "RA29_P1_C3_Lights_Brazier001"
+    },
+    {
+      "client_table_index": 242,
+      "race_name": "BrazierRiftseeker2",
+      "source_package": "Ra29_P1_C3_Lights_mesh",
+      "source_export": "RA29_P1_C3_Lights_Brazier002"
+    },
+    {
+      "client_table_index": 243,
+      "race_name": "BrazierRiftseeker3",
+      "source_package": "Ra29_P1_C3_Lights_mesh",
+      "source_export": "RA29_P1_C3_Lights_Brazier003"
+    },
+    {
+      "client_table_index": 244,
+      "race_name": "BrazierRiftseeker4",
+      "source_package": "Ra29_P1_C3_Lights_mesh",
+      "source_export": "RA29_P1_C3_Lights_Brazier004"
+    },
+    {
+      "client_table_index": 245,
+      "race_name": "BrazierRiftseeker5",
+      "source_package": "Ra29_P1_C3_Lights_mesh",
+      "source_export": "RA29_P1_C3_Lights_Brazier005"
+    },
+    {
+      "client_table_index": 246,
+      "race_name": "UrnRiftseeker",
+      "source_package": "Ra29_P1_C3_Containers_Mesh",
+      "source_export": "Ra29_P1_C3_Containers_Urns001"
+    },
+    {
+      "client_table_index": 247,
+      "race_name": "TombstoneThestranSm",
+      "source_package": "Ra0001_P1_C1_Tombstones_Mesh",
+      "source_export": "Ra0001_P1_C1_Tombstone001_Small"
+    },
+    {
+      "client_table_index": 248,
+      "race_name": "TombstoneThestranMed",
+      "source_package": "Ra0001_P1_C1_Tombstones_Mesh",
+      "source_export": "Ra0001_P1_C1_Tombstone002_Medium"
+    },
+    {
+      "client_table_index": 249,
+      "race_name": "TombstoneThestranLg",
+      "source_package": "Ra0001_P1_C1_Tombstones_Mesh",
+      "source_export": "Ra0001_P1_C1_Tombstone003_Large"
+    },
+    {
+      "client_table_index": 250,
+      "race_name": "BrazierCartheon",
+      "source_package": "Ra8_P1_C1_LightSources_meshes",
+      "source_export": "Ra8_P1_C1_LightSources_brazier001"
+    },
+    {
+      "client_table_index": 251,
+      "race_name": "BrazierCartheon2",
+      "source_package": "Ra8_P1_C1_LightSources_meshes",
+      "source_export": "Ra8_P1_C1_LightSources_brazier002"
+    },
+    {
+      "client_table_index": 252,
+      "race_name": "Orrery",
+      "source_package": "Ra29_P1_C3_Tools_Mesh",
+      "source_export": "Ra29_P1_C3_Tools_Orrery001"
+    },
+    {
+      "client_table_index": 253,
+      "race_name": "Orrery2",
+      "source_package": "Ra29_P1_C3_Tools_Mesh",
+      "source_export": "Ra29_P1_C3_Tools_Orrery002"
+    },
+    {
+      "client_table_index": 254,
+      "race_name": "Telescope",
+      "source_package": "Ra29_P1_C3_Tools_Mesh",
+      "source_export": "Ra29_P1_C3_Tools_Telescope001"
+    },
+    {
+      "client_table_index": 255,
+      "race_name": "Telescope2",
+      "source_package": "Ra29_P1_C3_Tools_Mesh",
+      "source_export": "Ra29_P1_C3_Tools_Telescope002"
+    },
+    {
+      "client_table_index": 256,
+      "race_name": "Telescope3",
+      "source_package": "Ra29_P1_C3_Tools_Mesh",
+      "source_export": "Ra29_P1_C3_Tools_Telescope003"
+    },
+    {
+      "client_table_index": 257,
+      "race_name": "ObeliskCartheon",
+      "source_package": "Ra52_P1_C1_Altar_Meshes",
+      "source_export": "Ra52_P1_C1_Altar_Obelisk001"
+    },
+    {
+      "client_table_index": 258,
+      "race_name": "BarrelSmall",
+      "source_package": "Ra0001_P0001_Barrel001_Mesh",
+      "source_export": "Ra1_P1_Barrels_Small001"
+    },
+    {
+      "client_table_index": 259,
+      "race_name": "BarrelSmallGroup",
+      "source_package": "Ra0001_P0001_Barrel001_Mesh",
+      "source_export": "Ra1_P1_Barrels_Small001_Grp01"
+    },
+    {
+      "client_table_index": 260,
+      "race_name": "RolledScroll2",
+      "source_package": "Ra1_P1_C1_Scrolls_Mesh",
+      "source_export": "Ra1_P1_C1_Scrolls_ArchPlans001"
+    },
+    {
+      "client_table_index": 261,
+      "race_name": "RolledScroll3",
+      "source_package": "Ra1_P1_C1_Scrolls_Mesh",
+      "source_export": "Ra1_P1_C1_Scrolls_ArchPlans002"
+    },
+    {
+      "client_table_index": 262,
+      "race_name": "RolledScroll4",
+      "source_package": "Ra1_P1_C1_Scrolls_Mesh",
+      "source_export": "Ra1_P1_C1_Scrolls_ArchPlans003"
+    },
+    {
+      "client_table_index": 263,
+      "race_name": "ScrollBundle",
+      "source_package": "Ra1_P1_C1_Scrolls_Mesh",
+      "source_export": "Ra1_P1_C1_Scrolls_ArchPlansGroup001"
+    },
+    {
+      "client_table_index": 264,
+      "race_name": "ScrollBundle2",
+      "source_package": "Ra1_P1_C1_Scrolls_Mesh",
+      "source_export": "Ra1_P1_C1_Scrolls_ArchPlansGroup002"
+    },
+    {
+      "client_table_index": 265,
+      "race_name": "ScrollBundle3",
+      "source_package": "Ra1_P1_C1_Scrolls_Mesh",
+      "source_export": "Ra1_P1_C1_Scrolls_ArchPlansGroup003"
+    },
+    {
+      "client_table_index": 267,
+      "race_name": "ManikinCloth",
+      "source_package": "Ra0001_P0001_armor_mesh",
+      "source_export": "Ra0001_P0001_armor_manikinClothArmor001"
+    },
+    {
+      "client_table_index": 268,
+      "race_name": "ManikinCloth2",
+      "source_package": "Ra0001_P0001_armor_mesh",
+      "source_export": "Ra0001_P0001_armor_manikinClothArmor002"
+    },
+    {
+      "client_table_index": 269,
+      "race_name": "ManikinCloth3",
+      "source_package": "Ra0001_P0001_armor_mesh",
+      "source_export": "Ra0001_P0001_armor_manikinClothArmor003"
+    },
+    {
+      "client_table_index": 270,
+      "race_name": "WeaponRack",
+      "source_package": "Ra0001_P0001_WeaponRacks_Mesh",
+      "source_export": "Ra0001_P0001_WeaponRack_empty001"
+    },
+    {
+      "client_table_index": 271,
+      "race_name": "WeaponRack2",
+      "source_package": "Ra0001_P0001_WeaponRacks_Mesh",
+      "source_export": "Ra0001_P0001_WeaponRack001"
+    },
+    {
+      "client_table_index": 272,
+      "race_name": "WeaponRack3",
+      "source_package": "Ra0001_P0001_WeaponRacks_Mesh",
+      "source_export": "Ra0001_P0001_WeaponRack002"
+    },
+    {
+      "client_table_index": 273,
+      "race_name": "WeaponRackAxes",
+      "source_package": "Ra0001_P0001_WeaponRacks_Mesh",
+      "source_export": "Ra0001_P0001_WeaponRack_Axes001"
+    },
+    {
+      "client_table_index": 274,
+      "race_name": "WeaponRackHammers",
+      "source_package": "Ra0001_P0001_WeaponRacks_Mesh",
+      "source_export": "Ra0001_P0001_WeaponRack_DwarvenHammers001"
+    },
+    {
+      "client_table_index": 275,
+      "race_name": "WeaponRackSpears",
+      "source_package": "Ra0001_P0001_WeaponRacks_Mesh",
+      "source_export": "Ra0001_P0001_WeaponRack_HalflingElf001"
+    },
+    {
+      "client_table_index": 276,
+      "race_name": "WeaponRackStaves",
+      "source_package": "Ra0001_P0001_WeaponRacks_Mesh",
+      "source_export": "Ra0001_P0001_WeaponRack_HumanStaves001"
+    },
+    {
+      "client_table_index": 277,
+      "race_name": "WeaponRackStaves2",
+      "source_package": "Ra0001_P0001_WeaponRacks_Mesh",
+      "source_export": "Ra0001_P0001_WeaponRack_HumanStaves002"
+    },
+    {
+      "client_table_index": 278,
+      "race_name": "WeaponRackMaces",
+      "source_package": "Ra0001_P0001_WeaponRacks_Mesh",
+      "source_export": "Ra0001_P0001_WeaponRack_Maces001"
+    },
+    {
+      "client_table_index": 279,
+      "race_name": "WeaponRackSwords",
+      "source_package": "Ra0001_P0001_WeaponRacks_Mesh",
+      "source_export": "Ra0001_P0001_WeaponRack_Swords001"
+    },
+    {
+      "client_table_index": 280,
+      "race_name": "ShirtPile",
+      "source_package": "Ra3_P1_C1_Clothing_Mesh",
+      "source_export": "Ra3_P1_C1_Clothing_Shirts001"
+    },
+    {
+      "client_table_index": 281,
+      "race_name": "ShirtPile2",
+      "source_package": "Ra3_P1_C1_Clothing_Mesh",
+      "source_export": "Ra3_P1_C1_Clothing_Shirts002"
+    },
+    {
+      "client_table_index": 282,
+      "race_name": "FabricRack",
+      "source_package": "Ra3_P1_C1_Clothing_Mesh",
+      "source_export": "Ra3_P1_C1_Clothing_fabricRack001"
+    },
+    {
+      "client_table_index": 283,
+      "race_name": "ManikinMen",
+      "source_package": "Ra3_P1_C1_Clothing_Mesh",
+      "source_export": "Ra3_P1_C1_Clothing_manikinMen001"
+    },
+    {
+      "client_table_index": 284,
+      "race_name": "ManikinMen2",
+      "source_package": "Ra3_P1_C1_Clothing_Mesh",
+      "source_export": "Ra3_P1_C1_Clothing_manikinMen002"
+    },
+    {
+      "client_table_index": 285,
+      "race_name": "ManikinMen3",
+      "source_package": "Ra3_P1_C1_Clothing_Mesh",
+      "source_export": "Ra3_P1_C1_Clothing_manikinMen003"
+    },
+    {
+      "client_table_index": 286,
+      "race_name": "ManikinWomen",
+      "source_package": "Ra3_P1_C1_Clothing_Mesh",
+      "source_export": "Ra3_P1_C1_Clothing_manikinWomen001"
+    },
+    {
+      "client_table_index": 287,
+      "race_name": "ManikinWomen2",
+      "source_package": "Ra3_P1_C1_Clothing_Mesh",
+      "source_export": "Ra3_P1_C1_Clothing_manikinWomen002"
+    },
+    {
+      "client_table_index": 288,
+      "race_name": "ContainerDarkElf",
+      "source_package": "Ra26_P1_C2_Containers_mesh",
+      "source_export": "Ra26_P1_C2_Containers_Container001"
+    },
+    {
+      "client_table_index": 289,
+      "race_name": "ContainerDarkElf2",
+      "source_package": "Ra26_P1_C2_Containers_mesh",
+      "source_export": "Ra26_P1_C2_Containers_Container002"
+    },
+    {
+      "client_table_index": 290,
+      "race_name": "ContainerDarkElf3",
+      "source_package": "Ra26_P1_C2_Containers_mesh",
+      "source_export": "Ra26_P1_C2_Containers_Container003"
+    },
+    {
+      "client_table_index": 291,
+      "race_name": "ContainerDarkElf4",
+      "source_package": "Ra26_P1_C2_Containers_mesh",
+      "source_export": "Ra26_P1_C2_Containers_Container004"
+    },
+    {
+      "client_table_index": 292,
+      "race_name": "ContainerDarkElf5",
+      "source_package": "Ra26_P1_C2_Containers_mesh",
+      "source_export": "Ra26_P1_C2_Containers_Container005"
+    },
+    {
+      "client_table_index": 293,
+      "race_name": "ContainerDarkElf6",
+      "source_package": "Ra26_P1_C2_Containers_mesh",
+      "source_export": "Ra26_P1_C2_Containers_Container006"
+    },
+    {
+      "client_table_index": 294,
+      "race_name": "ContainerGroupDarkElf",
+      "source_package": "Ra26_P1_C2_Containers_mesh",
+      "source_export": "Ra26_P1_C2_Containers_group001"
+    },
+    {
+      "client_table_index": 295,
+      "race_name": "ContainerGroupDarkElf2",
+      "source_package": "Ra26_P1_C2_Containers_mesh",
+      "source_export": "Ra26_P1_C2_Containers_group002"
+    },
+    {
+      "client_table_index": 296,
+      "race_name": "ContainerGroupDarkElf3",
+      "source_package": "Ra26_P1_C2_Containers_Mesh",
+      "source_export": "Ra26_P1_C2_Containers_group003"
+    },
+    {
+      "client_table_index": 297,
+      "race_name": "BonesStand",
+      "source_package": "Ra8_P1_C1_Bones_meshes",
+      "source_export": "Ra8_P1_C1_Bones_stand001"
+    },
+    {
+      "client_table_index": 298,
+      "race_name": "MagicMeteor",
+      "source_package": "Ra5000_P0001_C0001_magicMeteors_meshes",
+      "source_export": "Ra5000_P0001_C0001_magicMeteors2_meteor001"
+    },
+    {
+      "client_table_index": 299,
+      "race_name": "ChainCollar",
+      "source_package": "Ra15_P1_C1_Cages_Mesh",
+      "source_export": "Ra15_P1_C1_Cages_Collar001"
+    },
+    {
+      "client_table_index": 300,
+      "race_name": "TroglodyteStatue",
+      "source_package": "Ra0007_P1_C1_Shrines_Meshes",
+      "source_export": "Ra0007_P1_C1_Shrines_Statue002"
+    },
+    {
+      "client_table_index": 301,
+      "race_name": "DarkElfBrazier",
+      "source_package": "Ra26_P1_C2_Lights_Mesh",
+      "source_export": "Ra26_P1_C2_Lights_Brazier001"
+    },
+    {
+      "client_table_index": 302,
+      "race_name": "ArtifactMordebi",
+      "source_package": "Ra28_P1_C2_Pyramids_Mesh",
+      "source_export": "Ra28_P1_C2_Pyramids_artifact001"
+    },
+    {
+      "client_table_index": 303,
+      "race_name": "ObeliskMordebi",
+      "source_package": "Ra28_P1_C2_Pyramids_Mesh",
+      "source_export": "Ra28_P1_C2_Pyramids_Obelisk001"
+    },
+    {
+      "client_table_index": 304,
+      "race_name": "ChestQalia",
+      "source_package": "Ra21_P1_C2_artifacts_mesh",
+      "source_export": "Ra21_P1_C2_artifacts_chest001"
+    },
+    {
+      "client_table_index": 305,
+      "race_name": "ChestQalia2",
+      "source_package": "Ra21_P1_C2_artifacts_mesh",
+      "source_export": "Ra21_P1_C2_artifacts_chest002"
+    },
+    {
+      "client_table_index": 306,
+      "race_name": "GobletQalia",
+      "source_package": "Ra21_P1_C2_artifacts_mesh",
+      "source_export": "Ra21_P1_C2_artifacts_goblet001"
+    },
+    {
+      "client_table_index": 307,
+      "race_name": "OniAltarStone",
+      "source_package": "Ra84_P1_C3_Grid_Ulvari_Mesh",
+      "source_export": "Ra84_P1_C3_Grid_Ulvari_AlterStone001"
+    },
+    {
+      "client_table_index": 308,
+      "race_name": "OniAltarBase",
+      "source_package": "Ra84_P1_C3_Grid_Ulvari_Mesh",
+      "source_export": "Ra84_P1_C3_Grid_Ulvari_AlterBase001"
+    },
+    {
+      "client_table_index": 309,
+      "race_name": "OniStatue",
+      "source_package": "Ra84_P1_C3_Grid_Ulvari_Mesh",
+      "source_export": "Ra84_P1_C3_Grid_Ulvari_statue001"
+    },
+    {
+      "client_table_index": 310,
+      "race_name": "ChestNaga",
+      "source_package": "Ra75_P1_C2_chests_mesh",
+      "source_export": "Ra75_P1_C2_chests_Capsule001"
+    },
+    {
+      "client_table_index": 311,
+      "race_name": "SwitchNaga",
+      "source_package": "Ra75_P1_C2_decor_mesh",
+      "source_export": "Ra75_P1_C2_decor_switch001"
+    },
+    {
+      "client_table_index": 312,
+      "race_name": "CrystalNaga",
+      "source_package": "Ra75_P1_C2_decor_mesh",
+      "source_export": "Ra75_P1_C2_decor_powercrystals001"
+    },
+    {
+      "client_table_index": 313,
+      "race_name": "ChestHighElfClosed",
+      "source_package": "Ra0003_P0001_C0001_Chests_Meshes",
+      "source_export": "Ra0003_P0001_C0001_Chests_Chest01_Clsd01"
+    },
+    {
+      "client_table_index": 314,
+      "race_name": "ChestHighElfClosedBroken",
+      "source_package": "Ra0003_P0001_C0001_Chests_Meshes",
+      "source_export": "Ra0003_P0001_C0001_Chests_Chest01_Clsd01_Broken01"
+    },
+    {
+      "client_table_index": 315,
+      "race_name": "ChestHighElfOpen",
+      "source_package": "Ra0003_P0001_C0001_Chests_Meshes",
+      "source_export": "Ra0003_P0001_C0001_Chests_Chest01_Open01"
+    },
+    {
+      "client_table_index": 316,
+      "race_name": "ChestHighElfOpenBroken",
+      "source_package": "Ra0003_P0001_C0001_Chests_Meshes",
+      "source_export": "Ra0003_P0001_C0001_Chests_Chest01_Open01_Broken01"
+    },
+    {
+      "client_table_index": 317,
+      "race_name": "ChestHighElf2",
+      "source_package": "Ra0003_P0001_C0001_Chests_Meshes",
+      "source_export": "Ra3_P1_C1_Chests_Chest02"
+    },
+    {
+      "client_table_index": 318,
+      "race_name": "ChestHighElf3",
+      "source_package": "Ra0003_P0001_C0001_Chests_Meshes",
+      "source_export": "Ra3_P1_C1_Chests_Chest03"
+    },
+    {
+      "client_table_index": 319,
+      "race_name": "ChestHighElf4",
+      "source_package": "Ra0003_P0001_C0001_Chests_Meshes",
+      "source_export": "Ra3_P1_C1_Chests_Elven001"
+    },
+    {
+      "client_table_index": 320,
+      "race_name": "ChestHighElf5",
+      "source_package": "Ra0003_P0001_C0001_Chests_Meshes",
+      "source_export": "Ra3_P1_C1_Chests_Elven002"
+    },
+    {
+      "client_table_index": 321,
+      "race_name": "CauldronHighElfOpen",
+      "source_package": "Ra0003_P0001_C0001_Caldarons_Meshes",
+      "source_export": "Ra0003_P0001_C0001_Caldarons_Caldaron01_Open01"
+    },
+    {
+      "client_table_index": 322,
+      "race_name": "CauldronHighElfClosed",
+      "source_package": "Ra0003_P0001_C0001_Caldarons_Meshes",
+      "source_export": "Ra0003_P0001_C0001_Caldarons_Caldaron01_Clsd01"
+    },
+    {
+      "client_table_index": 323,
+      "race_name": "PortraitFinch",
+      "source_package": "Ra26_P1_C2_Grid_SethoriMines_mesh",
+      "source_export": "Ra26_P1_C2_Grid_SethoriMines_Portrait001"
+    },
+    {
+      "client_table_index": 324,
+      "race_name": "GriffonEgg",
+      "source_package": "Ra5000_P1_C1_nest_mesh",
+      "source_export": "Ra5000_P1_C1_nest_eggGriffon001"
+    },
+    {
+      "client_table_index": 325,
+      "race_name": "Coffin",
+      "source_package": "Ra03_P1_C1_Coffins_mesh",
+      "source_export": "Ra03_P1_C1_Coffins_casket001"
+    },
+    {
+      "client_table_index": 326,
+      "race_name": "PillarLight",
+      "source_package": "Ra3_P1_C1_Lights_mesh",
+      "source_export": "Ra3_P1_C1_Lights_pillarLight002"
+    },
+    {
+      "client_table_index": 327,
+      "race_name": "WrappedMummy",
+      "source_package": "Ra21_P1_C2_mummy_mesh",
+      "source_export": "Ra21_P1_C2_mummy_mummy001"
+    },
+    {
+      "client_table_index": 328,
+      "race_name": "WrappedMummy2",
+      "source_package": "Ra21_P1_C2_mummy_mesh",
+      "source_export": "Ra21_P1_C2_mummy_mummy002"
+    },
+    {
+      "client_table_index": 329,
+      "race_name": "WrappedMummy3",
+      "source_package": "Ra21_P1_C2_mummy_mesh",
+      "source_export": "Ra21_P1_C2_mummy_mummy003"
+    },
+    {
+      "client_table_index": 330,
+      "race_name": "WrappedMummy4",
+      "source_package": "Ra21_P1_C2_mummy_mesh",
+      "source_export": "Ra21_P1_C2_mummy_mummy005"
+    },
+    {
+      "client_table_index": 331,
+      "race_name": "WrappedMummy5",
+      "source_package": "Ra21_P1_C2_mummy_mesh",
+      "source_export": "Ra21_P1_C2_mummy_mummy007"
+    },
+    {
+      "client_table_index": 332,
+      "race_name": "WrappedMummy6",
+      "source_package": "Ra21_P1_C2_mummy_mesh",
+      "source_export": "Ra21_P1_C2_mummy_mummy008"
+    },
+    {
+      "client_table_index": 333,
+      "race_name": "PoisonVent",
+      "source_package": "Ra1_P1_C1_PortIOs_mesh",
+      "source_export": "Ra1_P1_C1_PortIOs_poisonVent001"
+    },
+    {
+      "client_table_index": 334,
+      "race_name": "PoisonVent2",
+      "source_package": "Ra1_P1_C1_PortIOs_mesh",
+      "source_export": "Ra1_P1_C1_PortIOs_poisonVent002"
+    },
+    {
+      "client_table_index": 335,
+      "race_name": "InteractiveScreen",
+      "source_package": "Ra1_P1_C1_Artifacts_Mesh",
+      "source_export": "Ra1_P1_C1_Artifacts_Gateway001_InteractiveScreen001"
+    },
+    {
+      "client_table_index": 336,
+      "race_name": "CrystalDeviceBase",
+      "source_package": "Ra1_P1_C1_Artifacts_Mesh",
+      "source_export": "Ra1_P1_C1_Articacts_crystalDeviceBase001"
+    },
+    {
+      "client_table_index": 337,
+      "race_name": "CrystalDeviceCrystal",
+      "source_package": "Ra1_P1_C1_Artifacts_Mesh",
+      "source_export": "Ra1_P1_C1_Articacts_crystal001"
+    },
+    {
+      "client_table_index": 338,
+      "race_name": "CrystalDeviceRing",
+      "source_package": "Ra1_P1_C1_Artifacts_Mesh",
+      "source_export": "Ra1_P1_C1_Articacts_crystalDeviceRing001"
+    },
+    {
+      "client_table_index": 340,
+      "race_name": "Books",
+      "source_package": "Ra1_P1_C1_Artifacts_Mesh",
+      "source_export": "Ra1_P1_C1_Artifacts_Podium001_part04"
+    },
+    {
+      "client_table_index": 341,
+      "race_name": "Books2",
+      "source_package": "Ra1_P1_C1_Artifacts_Mesh",
+      "source_export": "Ra1_P1_C1_Artifacts_Podium001_part05"
+    },
+    {
+      "client_table_index": 342,
+      "race_name": "ZepFan",
+      "source_package": "Ra1_P1_C1_Artifacts_Mesh",
+      "source_export": "Ra1_P1_C1_Artifacts_zepFan001"
+    },
+    {
+      "client_table_index": 343,
+      "race_name": "ZepFanBlade",
+      "source_package": "Ra1_P1_C1_Artifacts_Mesh",
+      "source_export": "Ra1_P1_C1_Artifacts_zepFan001_Blade01"
+    },
+    {
+      "client_table_index": 344,
+      "race_name": "ZepFanBlade2",
+      "source_package": "Ra1_P1_C1_Artifacts_Mesh",
+      "source_export": "Ra1_P1_C1_Artifacts_zepFan001_Blade02"
+    },
+    {
+      "client_table_index": 345,
+      "race_name": "ZepWheel",
+      "source_package": "Ra1_P1_C1_Artifacts_Mesh",
+      "source_export": "Ra1_P1_C1_Artifacts_zepWheel001"
+    },
+    {
+      "client_table_index": 346,
+      "race_name": "ZepWing",
+      "source_package": "Ra1_P1_C1_Artifacts_Mesh",
+      "source_export": "Ra1_P1_C1_Artifacts_zepWings001"
+    },
+    {
+      "client_table_index": 347,
+      "race_name": "AirTube",
+      "source_package": "Ra1_P1_C1_PortSubDeco_Meshes",
+      "source_export": "Ra1_P1_C1_PortSubDeco_AirTube001"
+    },
+    {
+      "client_table_index": 348,
+      "race_name": "AirTube2",
+      "source_package": "Ra1_P1_C1_PortSubDeco_Meshes",
+      "source_export": "Ra1_P1_C1_PortSubDeco_AirTube002"
+    },
+    {
+      "client_table_index": 349,
+      "race_name": "DiveHelm",
+      "source_package": "Ra1_P1_C1_PortSubDeco_Meshes",
+      "source_export": "Ra1_P1_C1_PortSubDeco_DiveHelm001"
+    },
+    {
+      "client_table_index": 350,
+      "race_name": "WyvernCorpse",
+      "source_package": "Ra74_P1_C2_Wyvern_mesh",
+      "source_export": "Ra74_P1_C2_Wyvern_dead001"
+    },
+    {
+      "client_table_index": 351,
+      "race_name": "TrialShrub",
+      "source_package": "W2_C1_Objects_Meshes",
+      "source_export": "W2_C1_Objects_Bush001"
+    },
+    {
+      "client_table_index": 352,
+      "race_name": "TrialCrate",
+      "source_package": "W2_C1_R1_Objects_Meshes",
+      "source_export": "W2_C1_R1_Objects_Crates_Crate008"
+    },
+    {
+      "client_table_index": 475,
+      "race_name": "DiplomacyBanner004",
+      "source_package": "W2_C1_R1_Objects_Meshes",
+      "source_export": "W2_C1_R1_Objects_banner004"
+    },
+    {
+      "client_table_index": 476,
+      "race_name": "KojaniWell",
+      "source_package": "W2_C1_R1_Objects_Meshes",
+      "source_export": "W2_C1_R1_Objects_Well001"
+    },
+    {
+      "client_table_index": 477,
+      "race_name": "Gift001",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_Present001"
+    },
+    {
+      "client_table_index": 478,
+      "race_name": "Gift002",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_Present002"
+    },
+    {
+      "client_table_index": 479,
+      "race_name": "Gift003",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_Present003"
+    },
+    {
+      "client_table_index": 480,
+      "race_name": "Gift004",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_Present004"
+    },
+    {
+      "client_table_index": 481,
+      "race_name": "Gift005",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_Present005"
+    },
+    {
+      "client_table_index": 482,
+      "race_name": "Gift006",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_Present006"
+    },
+    {
+      "client_table_index": 483,
+      "race_name": "Gift007",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_Present007"
+    },
+    {
+      "client_table_index": 484,
+      "race_name": "Gift008",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_Present008"
+    },
+    {
+      "client_table_index": 485,
+      "race_name": "GiftOpen001",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_PresentOpen001"
+    },
+    {
+      "client_table_index": 486,
+      "race_name": "GiftOpen002",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_PresentOpen002"
+    },
+    {
+      "client_table_index": 487,
+      "race_name": "GiftOpen003",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_PresentOpen003"
+    },
+    {
+      "client_table_index": 488,
+      "race_name": "GiftOpen004",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_PresentOpen004"
+    },
+    {
+      "client_table_index": 489,
+      "race_name": "GiftOpen005",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_PresentOpen005"
+    },
+    {
+      "client_table_index": 490,
+      "race_name": "GiftOpen006",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_PresentOpen006"
+    },
+    {
+      "client_table_index": 491,
+      "race_name": "GiftOpen007",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_PresentOpen007"
+    },
+    {
+      "client_table_index": 492,
+      "race_name": "GiftOpen008",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_PresentOpen008"
+    },
+    {
+      "client_table_index": 493,
+      "race_name": "GiftGroup001",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_PresentGroup001"
+    },
+    {
+      "client_table_index": 494,
+      "race_name": "GiftGroup002",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_PresentGroup002"
+    },
+    {
+      "client_table_index": 495,
+      "race_name": "GiftGroup003",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_PresentGroup003"
+    },
+    {
+      "client_table_index": 496,
+      "race_name": "GiftWeapon001",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_PresentWeapon001"
+    },
+    {
+      "client_table_index": 497,
+      "race_name": "GiftWeapon002",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_PresentWeapon002"
+    },
+    {
+      "client_table_index": 498,
+      "race_name": "GiftWeapon003",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_PresentWeapon003"
+    },
+    {
+      "client_table_index": 499,
+      "race_name": "GiftWeapon004",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_PresentWeapon004"
+    },
+    {
+      "client_table_index": 500,
+      "race_name": "GiftWeapon005",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_PresentWeapon005"
+    },
+    {
+      "client_table_index": 501,
+      "race_name": "GiftWeapon006",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_PresentWeapon006"
+    },
+    {
+      "client_table_index": 502,
+      "race_name": "GiftWeapon007",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_PresentWeapon007"
+    },
+    {
+      "client_table_index": 503,
+      "race_name": "GiftWeapon008",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_PresentWeapon008"
+    },
+    {
+      "client_table_index": 504,
+      "race_name": "GiftWeapon009",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_PresentWeapon009"
+    },
+    {
+      "client_table_index": 505,
+      "race_name": "GiftWeapon010",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_PresentWeapon010"
+    },
+    {
+      "client_table_index": 506,
+      "race_name": "GiftWeapon011",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_PresentWeapon011"
+    },
+    {
+      "client_table_index": 507,
+      "race_name": "Snowman001",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_Snowman001"
+    },
+    {
+      "client_table_index": 508,
+      "race_name": "Snowman002",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_Snowman002"
+    },
+    {
+      "client_table_index": 509,
+      "race_name": "Snowman003",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_Snowman003"
+    },
+    {
+      "client_table_index": 510,
+      "race_name": "HolidayTree001",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_ChristmasTree001"
+    },
+    {
+      "client_table_index": 511,
+      "race_name": "HolidayTree002",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_ChristmasTree002"
+    },
+    {
+      "client_table_index": 512,
+      "race_name": "HolidayTree003",
+      "source_package": "W1_HolidayDecor_prefab",
+      "source_export": "W1_HolidayDecor_ChristmasTree003"
+    },
+    {
+      "client_table_index": 513,
+      "race_name": "HolidayTree004",
+      "source_package": "W1_HolidayDecor_prefab",
+      "source_export": "W1_HolidayDecor_ChristmasTree004"
+    },
+    {
+      "client_table_index": 514,
+      "race_name": "Garland001",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_Garland001"
+    },
+    {
+      "client_table_index": 515,
+      "race_name": "Wreath001",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_Wreath001"
+    },
+    {
+      "client_table_index": 516,
+      "race_name": "ReindeerStatuette001",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_reindeerstatue001"
+    },
+    {
+      "client_table_index": 517,
+      "race_name": "Sleigh001",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_sleigh001"
+    },
+    {
+      "client_table_index": 518,
+      "race_name": "HeartBanner001",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_valBanner001"
+    },
+    {
+      "client_table_index": 519,
+      "race_name": "HeartBanner002",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_valBanner002"
+    },
+    {
+      "client_table_index": 520,
+      "race_name": "HeartBanner003",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_valBanner003"
+    },
+    {
+      "client_table_index": 521,
+      "race_name": "Bouquet001",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_valBouquet001"
+    },
+    {
+      "client_table_index": 522,
+      "race_name": "Bouquet002",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_valBouquet002"
+    },
+    {
+      "client_table_index": 523,
+      "race_name": "Flower001",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_valFlower001"
+    },
+    {
+      "client_table_index": 524,
+      "race_name": "Flower002",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_valFlower002"
+    },
+    {
+      "client_table_index": 525,
+      "race_name": "Flower003",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_valFlower003"
+    },
+    {
+      "client_table_index": 526,
+      "race_name": "Flower004",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_valFlower004"
+    },
+    {
+      "client_table_index": 527,
+      "race_name": "Flower005",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_valFlower005"
+    },
+    {
+      "client_table_index": 528,
+      "race_name": "Heart001",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_valHeart001"
+    },
+    {
+      "client_table_index": 529,
+      "race_name": "Heart002",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_valHeart002"
+    },
+    {
+      "client_table_index": 530,
+      "race_name": "Heart003",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_valHeart003"
+    },
+    {
+      "client_table_index": 531,
+      "race_name": "HeartPresent001",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_valPresent001"
+    },
+    {
+      "client_table_index": 532,
+      "race_name": "HeartPresent002",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_valPresent002"
+    },
+    {
+      "client_table_index": 533,
+      "race_name": "HeartPresent003",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_valPresent003"
+    },
+    {
+      "client_table_index": 534,
+      "race_name": "HeartPresent004",
+      "source_package": "W1_HolidayDecor_meshes",
+      "source_export": "W1_HolidayDecor_valPresent004"
+    },
+    {
+      "client_table_index": 535,
+      "race_name": "HobgoblinMeat01",
+      "source_package": "W2_C1_HobObjects_Meshes",
+      "source_export": "W2_C1_HobObjects_Food001_Meat01"
+    },
+    {
+      "client_table_index": 536,
+      "race_name": "HobgoblinCauldron01",
+      "source_package": "W2_C1_HobObjects_Meshes",
+      "source_export": "W2_C1_HobObjects_Containers001_Cauldron01"
+    },
+    {
+      "client_table_index": 537,
+      "race_name": "HobgoblinWok01",
+      "source_package": "W2_C1_HobObjects_Meshes",
+      "source_export": "W2_C1_HobObjects_Containers001_Wok01"
+    },
+    {
+      "client_table_index": 538,
+      "race_name": "HobgoblinBasket02",
+      "source_package": "W2_C1_HobObjects_Meshes",
+      "source_export": "W2_C1_HobObjects_Containers001_Basket02"
+    },
+    {
+      "client_table_index": 539,
+      "race_name": "IsleDawnBarrel01",
+      "source_package": "W2_C1_R1_Objects_meshes",
+      "source_export": "W2_C1_R1_Objects_barrel001"
+    },
+    {
+      "client_table_index": 540,
+      "race_name": "IsleDawnBarrel02",
+      "source_package": "W2_C1_R1_Objects_Meshes",
+      "source_export": "W2_C1_R1_Objects_barrel002"
+    },
+    {
+      "client_table_index": 541,
+      "race_name": "IsleDawnDiplomacyHubBase",
+      "source_package": "W2_Objects_mesh",
+      "source_export": "W2_Objects_DiplomacyHub001"
+    },
+    {
+      "client_table_index": 542,
+      "race_name": "IsleDawnMushroomCluster",
+      "source_package": "W2_C1_Objects_Meshes",
+      "source_export": "W2_C1_Objects_IOMushroom001"
+    },
+    {
+      "client_table_index": 543,
+      "race_name": "IsleDawnLogPile",
+      "source_package": "W2_C1_R1_Objects_Meshes",
+      "source_export": "W2_C1_R1_Objects_Logging001_LogPile01"
+    },
+    {
+      "client_table_index": 544,
+      "race_name": "IsleDawnBookPile",
+      "source_package": "W2_C1_R1_Objects_Meshes",
+      "source_export": "W2_C1_R1_Objects_bookPile001"
+    },
+    {
+      "client_table_index": 545,
+      "race_name": "IsleDawnBox",
+      "source_package": "W2_C1_R1_Objects_Meshes",
+      "source_export": "W2_C1_R1_Objects_box001"
+    },
+    {
+      "client_table_index": 546,
+      "race_name": "IsleDawnChest01",
+      "source_package": "W2_C1_R1_Objects_Meshes",
+      "source_export": "W2_C1_R1_Objects_chest001"
+    },
+    {
+      "client_table_index": 547,
+      "race_name": "IsleDawnScrollBundle",
+      "source_package": "W2_C1_R1_Objects_Meshes",
+      "source_export": "W2_C1_R1_Objects_scrollBundle001"
+    },
+    {
+      "client_table_index": 548,
+      "race_name": "IsleDawnBlackCauldron",
+      "source_package": "W2_C1_R1_Objects_Meshes",
+      "source_export": "W2_C1_R1_Objects_Decor_BlackCauldron001"
+    },
+    {
+      "client_table_index": 549,
+      "race_name": "IsleDawnDeadBody01",
+      "source_package": "W2_C1_R1_Objects_Meshes",
+      "source_export": "W2_C1_R1_Objects_dead002"
+    },
+    {
+      "client_table_index": 550,
+      "race_name": "IsleDawnDeadBody02",
+      "source_package": "W2_C1_R1_Objects_Meshes",
+      "source_export": "W2_C1_R1_Objects_dead005"
+    },
+    {
+      "client_table_index": 551,
+      "race_name": "IsleDawnSkeletonCorpse",
+      "source_package": "W2_C1_R1_Objects_Meshes",
+      "source_export": "W2_C1_R1_Objects_skeleton003"
+    },
+    {
+      "client_table_index": 552,
+      "race_name": "IsleDawnDiplomacyHubPillar",
+      "source_package": "W2_C1_R1_Objects_Meshes",
+      "source_export": "W2_C1_R1_Objects_DiplomacyHub_pillar001"
+    },
+    {
+      "client_table_index": 553,
+      "race_name": "IsleDawnKaerellunAltarRed",
+      "source_package": "W2_C1_R1_Objects_meshes",
+      "source_export": "W2_C1_R1_Objects_Decor_KaerellunAltar001_Red02"
+    },
+    {
+      "client_table_index": 554,
+      "race_name": "IsleDawnTsangTablet01",
+      "source_package": "W2_C1_R1_Objects_Meshes",
+      "source_export": "W2_C1_R1_Objects_Tablet001"
+    },
+    {
+      "client_table_index": 555,
+      "race_name": "IsleDawnTsangTablet02",
+      "source_package": "W2_C1_R1_Objects_Meshes",
+      "source_export": "W2_C1_R1_Objects_Tablet002"
+    },
+    {
+      "client_table_index": 556,
+      "race_name": "IsleDawnBurlapSack",
+      "source_package": "W2_C1_R1_Objects_Meshes",
+      "source_export": "W2_C1_R1_Objects_Pouch001"
+    },
+    {
+      "client_table_index": 557,
+      "race_name": "IsleDawnCFTHouseBrickAncient",
+      "source_package": "W2_C1_R1_Objects_Meshes",
+      "source_export": "W2_C1_R1_Objects_Rubbish_block001_AncientStrands01"
+    },
+    {
+      "client_table_index": 558,
+      "race_name": "IsleDawnCFTGemTable",
+      "source_package": "W2_C1_R1_Objects_Meshes",
+      "source_export": "W2_C1_R1_Objects_CraftingGem_table001"
+    },
+    {
+      "client_table_index": 559,
+      "race_name": "KDQEnergyCannon",
+      "source_package": "Ra25_P1_C2_lab_mesh",
+      "source_export": "Ra25_P1_C2_lab_EnergyCannon001"
+    },
+    {
+      "client_table_index": 560,
+      "race_name": "KDQGnomeLauncher",
+      "source_package": "Ra2_P1_C1_War_Machines_mesh",
+      "source_export": "Ra2_P1_C1_War_Machines_Catapult004"
+    },
+    {
+      "client_table_index": 561,
+      "race_name": "Campfire",
+      "source_package": "Ra0001_p0001_FireStones_Mesh",
+      "source_export": "ra1_p1_firestones_firering001"
+    },
+    {
+      "client_table_index": 562,
+      "race_name": "KDQEnergyCannon2",
+      "source_package": "Ra25_P1_C2_Lab_prefab",
+      "source_export": "Ra25_P1_C2_Lab_EnergyCannon001_FiringBeam01"
+    },
+    {
+      "client_table_index": 563,
+      "race_name": "PantheonAltar01",
+      "source_package": "Ra70_P1_C2_Grid_ParthenonDecor01_mesh",
+      "source_export": "Ra70_P1_C2_Grid_ParthenonDecor01_PantheonAltar001"
+    },
+    {
+      "client_table_index": 564,
+      "race_name": "PantheonFountain01",
+      "source_package": "Ra70_P1_C2_Grid_ParthenonDecor01_mesh",
+      "source_export": "Ra70_P1_C2_Grid_ParthenonDecor01_fountan001"
+    },
+    {
+      "client_table_index": 565,
+      "race_name": "PantheonGoodAltar01",
+      "source_package": "Ra70_P1_C2_Grid_ParthenonDecor01_mesh",
+      "source_export": "Ra70_P1_C2_Grid_ParthenonDecor01_GoodFont001"
+    },
+    {
+      "client_table_index": 566,
+      "race_name": "PantheonEvilAltar01",
+      "source_package": "Ra70_P1_C2_Grid_ParthenonDecor01_mesh",
+      "source_export": "Ra70_P1_C2_Grid_ParthenonDecor01_EvilFont001"
+    },
+    {
+      "client_table_index": 567,
+      "race_name": "PantheonCorruptVase001",
+      "source_package": "Ra70_P1_C2_Grid_ParthenonDecor01_mesh",
+      "source_export": "Ra70_P1_C2_Grid_ParthenonDecor01_CorruptVase001"
+    },
+    {
+      "client_table_index": 568,
+      "race_name": "PantheonCorruptVase002",
+      "source_package": "Ra70_P1_C2_Grid_ParthenonDecor01_mesh",
+      "source_export": "Ra70_P1_C2_Grid_ParthenonDecor01_CorruptVase002"
+    },
+    {
+      "client_table_index": 569,
+      "race_name": "PantheonCorruptVase003",
+      "source_package": "Ra70_P1_C2_Grid_ParthenonDecor01_mesh",
+      "source_export": "Ra70_P1_C2_Grid_ParthenonDecor01_CorruptVase003"
+    },
+    {
+      "client_table_index": 570,
+      "race_name": "PantheonGoodVase001",
+      "source_package": "Ra70_P1_C2_Grid_ParthenonDecor01_mesh",
+      "source_export": "Ra70_P1_C2_Grid_ParthenonDecor01_GoodVase001"
+    },
+    {
+      "client_table_index": 571,
+      "race_name": "PantheonGoodVase002",
+      "source_package": "Ra70_P1_C2_Grid_ParthenonDecor01_mesh",
+      "source_export": "Ra70_P1_C2_Grid_ParthenonDecor01_GoodVase002"
+    },
+    {
+      "client_table_index": 572,
+      "race_name": "PantheonGoodVase003",
+      "source_package": "Ra70_P1_C2_Grid_ParthenonDecor01_mesh",
+      "source_export": "Ra70_P1_C2_Grid_ParthenonDecor01_GoodVase003"
+    },
+    {
+      "client_table_index": 573,
+      "race_name": "SalamanderStatue01",
+      "source_package": "Ra0007_P1_C1_Shrines_meshes",
+      "source_export": "Ra0007_P1_C1_Shrines_Statue001"
+    },
+    {
+      "client_table_index": 574,
+      "race_name": "SalamanderStatue02",
+      "source_package": "Ra0007_P1_C1_Shrines_meshes",
+      "source_export": "Ra0007_P1_C1_Shrines_Statue002"
+    },
+    {
+      "client_table_index": 575,
+      "race_name": "SalamanderStatue03",
+      "source_package": "Ra0007_P1_C1_Shrines_meshes",
+      "source_export": "Ra0007_P1_C1_Shrines_Statue003"
+    },
+    {
+      "client_table_index": 576,
+      "race_name": "UlvariLantern01",
+      "source_package": "Ra84_P1_C3_Grid_Ulvari_mesh",
+      "source_export": "Ra84_P1_C3_Grid_Ulvari_lantern001"
+    }
+  ]
+}

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Export legacy object-race static mesh paths from the client decompile.
+"""Export legacy object-race static mesh paths from the client lookup table.
 
 The emulator database stores OBJECT races with race names and mesh IDs, but the
 legacy browser NPC assembly viewer needs exported glTF paths. The original
 client has a static object-race table with race name, package name, and mesh
-export name; this script extracts that table from the checked-in Ghidra
-decompile and joins it to the local static mesh manifest.
+export name; this script reads a clean lookup table under ``client_tables/``
+and joins it to the local static mesh manifest. Pass ``--ghidra`` only when
+regenerating the table from decompilation evidence.
 """
 
 import argparse
@@ -17,7 +18,7 @@ from pathlib import Path
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-DEFAULT_GHIDRA_PATH = ROOT_DIR / "ghidra" / "audio_dispatch_round4.json"
+DEFAULT_CLIENT_TABLE_PATH = ROOT_DIR / "client_tables" / "object_race_mesh_table.json"
 DEFAULT_STATIC_MESH_MANIFEST_PATH = (
     ROOT_DIR / "output" / "meshes" / "buildings" / "manifest.json"
 )
@@ -29,6 +30,13 @@ _OBJECT_CALL_RE = re.compile(
 _PACKAGE_ASSIGN_RE = re.compile(r'\+\s*0x30\)\s*=\s*L"([^"]+)"\s*;', re.S)
 _MESH_ASSIGN_RE = re.compile(r'\+\s*0x20\)\s*=\s*L"([^"]+)"\s*;', re.S)
 _TABLE_OFFSET_RE = re.compile(r"param_1\s*\+\s*0x([0-9a-fA-F]+)")
+
+
+def _display_path(path: Path) -> str:
+    try:
+        return os.path.relpath(path, ROOT_DIR)
+    except ValueError:
+        return str(path)
 
 
 def _load_static_mesh_paths(manifest_path: Path) -> list[str]:
@@ -153,13 +161,33 @@ def _extract_object_entries(ghidra_path: Path) -> list[dict[str, object]]:
     return sorted(entries, key=lambda entry: (int(entry["table_offset"]), str(entry["race_name"])))
 
 
+def _load_object_entries(client_table_path: Path) -> list[dict[str, object]]:
+    with open(client_table_path, encoding="utf-8") as handle:
+        payload = json.load(handle)
+    rows = payload.get("rows", []) if isinstance(payload, dict) else payload
+    if not isinstance(rows, list):
+        raise ValueError(f"{client_table_path} does not contain a rows list")
+
+    entries: list[dict[str, object]] = []
+    for row in rows:
+        if isinstance(row, dict):
+            entries.append(dict(row))
+    return entries
+
+
 def build_object_race_mesh_map(
-    ghidra_path: Path = DEFAULT_GHIDRA_PATH,
+    client_table_path: Path = DEFAULT_CLIENT_TABLE_PATH,
     static_mesh_manifest_path: Path = DEFAULT_STATIC_MESH_MANIFEST_PATH,
+    ghidra_path: Path | None = None,
 ) -> dict[str, object]:
     mesh_paths = _load_static_mesh_paths(static_mesh_manifest_path)
     by_package_and_export, by_export = _build_static_lookup(mesh_paths)
-    entries = _extract_object_entries(ghidra_path)
+    if ghidra_path is not None:
+        entries = _extract_object_entries(ghidra_path)
+        source_path = ghidra_path
+    else:
+        entries = _load_object_entries(client_table_path)
+        source_path = client_table_path
 
     races: dict[str, dict[str, object]] = {}
     matched = 0
@@ -178,7 +206,7 @@ def build_object_race_mesh_map(
         races[str(entry["race_name"])] = race_entry
 
     return {
-        "source": os.path.relpath(ghidra_path, ROOT_DIR),
+        "source": _display_path(source_path),
         "static_mesh_manifest": os.path.relpath(static_mesh_manifest_path, ROOT_DIR),
         "summary": {
             "race_count": len(races),
@@ -191,10 +219,15 @@ def build_object_race_mesh_map(
 
 def write_object_race_mesh_map(
     output_path: Path = DEFAULT_OUTPUT_PATH,
-    ghidra_path: Path = DEFAULT_GHIDRA_PATH,
+    client_table_path: Path = DEFAULT_CLIENT_TABLE_PATH,
     static_mesh_manifest_path: Path = DEFAULT_STATIC_MESH_MANIFEST_PATH,
+    ghidra_path: Path | None = None,
 ) -> dict[str, object]:
-    payload = build_object_race_mesh_map(ghidra_path, static_mesh_manifest_path)
+    payload = build_object_race_mesh_map(
+        client_table_path=client_table_path,
+        static_mesh_manifest_path=static_mesh_manifest_path,
+        ghidra_path=ghidra_path,
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
     with open(tmp_path, "w", encoding="utf-8") as handle:
@@ -206,7 +239,8 @@ def write_object_race_mesh_map(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export object-race mesh map")
-    parser.add_argument("--ghidra", type=Path, default=DEFAULT_GHIDRA_PATH)
+    parser.add_argument("--client-table", type=Path, default=DEFAULT_CLIENT_TABLE_PATH)
+    parser.add_argument("--ghidra", type=Path, help="Optional Ghidra JSON override used only for table regeneration")
     parser.add_argument(
         "--static-mesh-manifest",
         type=Path,
@@ -217,8 +251,9 @@ def main() -> None:
 
     payload = write_object_race_mesh_map(
         output_path=args.out,
-        ghidra_path=args.ghidra,
+        client_table_path=args.client_table,
         static_mesh_manifest_path=args.static_mesh_manifest,
+        ghidra_path=args.ghidra,
     )
     summary = payload["summary"]
     print(

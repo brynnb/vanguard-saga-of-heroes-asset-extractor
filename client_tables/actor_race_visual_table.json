@@ -1,0 +1,3048 @@
+{
+  "schema_version": 1,
+  "description": "Client-side actor race visual table extracted from VGClient.exe decompilation.",
+  "source": "VGClient.exe actor race registration table, preserved as a committed lookup table.",
+  "row_count": 304,
+  "rows": [
+    {
+      "client_table_index": 1,
+      "race_name": "OPTDarkElf",
+      "registration_arg": "10",
+      "visual_prefix": "optimizedElf",
+      "normalized_prefix": "optimizedelf",
+      "male_animation": "OPTELF_M",
+      "female_animation": "OPTELF_F",
+      "sound_package": "Elf_Male_Q_ASounds"
+    },
+    {
+      "client_table_index": 2,
+      "race_name": "OPTWoodElf",
+      "registration_arg": "10",
+      "visual_prefix": "optimizedElf",
+      "normalized_prefix": "optimizedelf",
+      "male_animation": "OPTELF_M",
+      "female_animation": "OPTELF_F",
+      "sound_package": "Elf_Male_K_ASounds"
+    },
+    {
+      "client_table_index": 3,
+      "race_name": "OPTOrc",
+      "registration_arg": "6",
+      "visual_prefix": "optimizedOrc",
+      "normalized_prefix": "optimizedorc",
+      "male_animation": "OPTORC_M",
+      "female_animation": "OPTORC_F",
+      "sound_package": "Orc_Male_ASounds"
+    },
+    {
+      "client_table_index": 4,
+      "race_name": "OPTKojanHuman",
+      "registration_arg": "0xd",
+      "visual_prefix": "optimizedHuman",
+      "normalized_prefix": "optimizedhuman",
+      "male_animation": "OPTHUMAN_M",
+      "female_animation": "OPTHUMAN_F",
+      "sound_package": "Human_Male_K_ASounds"
+    },
+    {
+      "client_table_index": 5,
+      "race_name": "OPTQaliathari",
+      "registration_arg": "0xd",
+      "visual_prefix": "optimizedHuman",
+      "normalized_prefix": "optimizedhuman",
+      "male_animation": "OPTHUMAN_M",
+      "female_animation": "OPTHUMAN_F",
+      "sound_package": "Human_Male_Q_ASounds"
+    },
+    {
+      "client_table_index": 6,
+      "race_name": "OPTMordebi",
+      "registration_arg": "10",
+      "visual_prefix": "optimizedHuman",
+      "normalized_prefix": "optimizedhuman",
+      "male_animation": "OPTHUMAN_M",
+      "female_animation": "OPTHUMAN_F",
+      "sound_package": "Mordebi_Male_ASounds"
+    },
+    {
+      "client_table_index": 7,
+      "race_name": "OPTVaranthari",
+      "registration_arg": "0xd",
+      "visual_prefix": "optimizedBarbarian",
+      "normalized_prefix": "optimizedbarbarian",
+      "male_animation": "OPTBARBARIAN_M",
+      "female_animation": "OPTBARBARIAN_F",
+      "sound_package": "Barbarian_Male_Q_ASounds"
+    },
+    {
+      "client_table_index": 8,
+      "race_name": "OPTDwarf",
+      "registration_arg": "8",
+      "visual_prefix": "optimizedDwarf",
+      "normalized_prefix": "optimizeddwarf",
+      "male_animation": "OPTDWARF_M",
+      "female_animation": "OPTDWARF_F",
+      "sound_package": "Dwarf_Male_ASounds"
+    },
+    {
+      "client_table_index": 9,
+      "race_name": "OPTLesserGiant",
+      "registration_arg": "0xe",
+      "visual_prefix": "optimizedHalfGiant",
+      "normalized_prefix": "optimizedhalfgiant",
+      "male_animation": "OPTHALFGIANT_M",
+      "female_animation": "OPTHALFGIANT_F",
+      "sound_package": "Giant_Male_ASounds"
+    },
+    {
+      "client_table_index": 10,
+      "race_name": "OPTHalfling",
+      "registration_arg": "0xb",
+      "visual_prefix": "optimizedHalfling",
+      "normalized_prefix": "optimizedhalfling",
+      "male_animation": "OPTHALFLING_M",
+      "female_animation": "OPTHALFLING_F",
+      "sound_package": "Halfling_Male_ASounds"
+    },
+    {
+      "client_table_index": 11,
+      "race_name": "OPTHighElf",
+      "registration_arg": "10",
+      "visual_prefix": "optimizedElf",
+      "normalized_prefix": "optimizedelf",
+      "male_animation": "OPTELF_M",
+      "female_animation": "OPTELF_F",
+      "sound_package": "Elf_Male_T_ASounds"
+    },
+    {
+      "client_table_index": 12,
+      "race_name": "OPTVaranjar",
+      "registration_arg": "0xb",
+      "visual_prefix": "optimizedBarbarian",
+      "normalized_prefix": "optimizedbarbarian",
+      "male_animation": "OPTBARBARIAN_M",
+      "female_animation": "OPTBARBARIAN_F",
+      "sound_package": "Barbarian_Male_T_ASounds"
+    },
+    {
+      "client_table_index": 13,
+      "race_name": "OPTThestran",
+      "registration_arg": "0xb",
+      "visual_prefix": "optimizedHuman",
+      "normalized_prefix": "optimizedhuman",
+      "male_animation": "OPTHUMAN_M",
+      "female_animation": "OPTHUMAN_F",
+      "sound_package": "Human_Male_T_ASounds"
+    },
+    {
+      "client_table_index": 14,
+      "race_name": "OPTGoblin",
+      "registration_arg": "9",
+      "visual_prefix": "optimizedGoblin",
+      "normalized_prefix": "optimizedgoblin",
+      "male_animation": "OPTGOBLIN_M",
+      "female_animation": "OPTGOBLIN_F",
+      "sound_package": "Goblin_Male_ASounds"
+    },
+    {
+      "client_table_index": 15,
+      "race_name": "OPTKurashasa",
+      "registration_arg": "0xc",
+      "visual_prefix": "optimizedKura",
+      "normalized_prefix": "optimizedkura",
+      "male_animation": "OPTKURA_M",
+      "female_animation": "OPTKURA_F",
+      "sound_package": "Kurashasa_Male_ASounds"
+    },
+    {
+      "client_table_index": 16,
+      "race_name": "OPTHalfElf",
+      "registration_arg": "10",
+      "visual_prefix": "optimizedHalfElf",
+      "normalized_prefix": "optimizedhalfelf",
+      "male_animation": "OPTHALFELF_M",
+      "female_animation": "OPTHALFELF_F",
+      "sound_package": "HalfElf_Male_ASounds"
+    },
+    {
+      "client_table_index": 17,
+      "race_name": "OPTVulmane",
+      "registration_arg": "10",
+      "visual_prefix": "optimizedVulmane",
+      "normalized_prefix": "optimizedvulmane",
+      "male_animation": "OPTVULMANE_M",
+      "female_animation": "OPTVULMANE_F",
+      "sound_package": "Vulmane_Male_ASounds"
+    },
+    {
+      "client_table_index": 18,
+      "race_name": "OPTRaki",
+      "registration_arg": "7",
+      "visual_prefix": "optimizedRaki",
+      "normalized_prefix": "optimizedraki",
+      "male_animation": "OPTRAKI_M",
+      "female_animation": "OPTRAKI_F",
+      "sound_package": "Raki_Male_ASounds"
+    },
+    {
+      "client_table_index": 19,
+      "race_name": "OPTGnome",
+      "registration_arg": "8",
+      "visual_prefix": "optimizedGnome",
+      "normalized_prefix": "optimizedgnome",
+      "male_animation": "OPTGNOME_M",
+      "female_animation": "OPTGNOME_F",
+      "sound_package": "Gnome_Male_ASounds"
+    },
+    {
+      "client_table_index": 20,
+      "race_name": "OPTHalfOrc",
+      "registration_arg": "10",
+      "visual_prefix": "optimizedHalfOrc",
+      "normalized_prefix": "optimizedhalforc",
+      "male_animation": "OPTORC_M",
+      "female_animation": "OPTORC_F",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 21,
+      "race_name": "OPTKojanBarbarian",
+      "registration_arg": "0x11",
+      "visual_prefix": "optimizedKojanBarbarian",
+      "normalized_prefix": "optimizedkojanbarbarian",
+      "male_animation": "OPTBARBARIAN_M",
+      "female_animation": "OPTBARBARIAN_F",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 22,
+      "race_name": "NPCDarkElf",
+      "registration_arg": "10",
+      "visual_prefix": "npcElf",
+      "normalized_prefix": "npcelf",
+      "male_animation": "NPCHUMAN_M",
+      "female_animation": "NPCHUMAN_F",
+      "sound_package": "Elf_Male_Q_ASounds"
+    },
+    {
+      "client_table_index": 23,
+      "race_name": "NPCWoodElf",
+      "registration_arg": "10",
+      "visual_prefix": "npcElf",
+      "normalized_prefix": "npcelf",
+      "male_animation": "NPCHUMAN_M",
+      "female_animation": "NPCHUMAN_F",
+      "sound_package": "Elf_Male_K_ASounds"
+    },
+    {
+      "client_table_index": 24,
+      "race_name": "NPCOrc",
+      "registration_arg": "6",
+      "visual_prefix": "npcOrc",
+      "normalized_prefix": "npcorc",
+      "male_animation": "NPCHUMAN_M",
+      "female_animation": "NPCHUMAN_F",
+      "sound_package": "Orc_Male_ASounds"
+    },
+    {
+      "client_table_index": 25,
+      "race_name": "NPCKojanHuman",
+      "registration_arg": "0xd",
+      "visual_prefix": "npcHuman",
+      "normalized_prefix": "npchuman",
+      "male_animation": "NPCHUMAN_M",
+      "female_animation": "NPCHUMAN_F",
+      "sound_package": "Human_Male_K_ASounds"
+    },
+    {
+      "client_table_index": 26,
+      "race_name": "NPCQaliathari",
+      "registration_arg": "0xd",
+      "visual_prefix": "npcHuman",
+      "normalized_prefix": "npchuman",
+      "male_animation": "NPCHUMAN_M",
+      "female_animation": "NPCHUMAN_F",
+      "sound_package": "Human_Male_Q_ASounds"
+    },
+    {
+      "client_table_index": 27,
+      "race_name": "NPCMordebi",
+      "registration_arg": "10",
+      "visual_prefix": "npcHuman",
+      "normalized_prefix": "npchuman",
+      "male_animation": "NPCHUMAN_M",
+      "female_animation": "NPCHUMAN_F",
+      "sound_package": "Mordebi_Male_ASounds"
+    },
+    {
+      "client_table_index": 28,
+      "race_name": "NPCVaranthari",
+      "registration_arg": "0xd",
+      "visual_prefix": "npcBarbarian",
+      "normalized_prefix": "npcbarbarian",
+      "male_animation": "NPCHUMAN_M",
+      "female_animation": "NPCHUMAN_F",
+      "sound_package": "Barbarian_Male_Q_ASounds"
+    },
+    {
+      "client_table_index": 29,
+      "race_name": "NPCDwarf",
+      "registration_arg": "8",
+      "visual_prefix": "npcDwarf",
+      "normalized_prefix": "npcdwarf",
+      "male_animation": "NPCHUMAN_M",
+      "female_animation": "NPCHUMAN_F",
+      "sound_package": "Dwarf_Male_ASounds"
+    },
+    {
+      "client_table_index": 30,
+      "race_name": "NPCLesserGiant",
+      "registration_arg": "0xe",
+      "visual_prefix": "npcHalfGiant",
+      "normalized_prefix": "npchalfgiant",
+      "male_animation": "NPCHUMAN_M",
+      "female_animation": "NPCHUMAN_F",
+      "sound_package": "Giant_Male_ASounds"
+    },
+    {
+      "client_table_index": 31,
+      "race_name": "NPCHalfling",
+      "registration_arg": "0xb",
+      "visual_prefix": "npcHalfling",
+      "normalized_prefix": "npchalfling",
+      "male_animation": "NPCHUMAN_M",
+      "female_animation": "NPCHUMAN_F",
+      "sound_package": "Halfling_Male_ASounds"
+    },
+    {
+      "client_table_index": 32,
+      "race_name": "NPCHighElf",
+      "registration_arg": "10",
+      "visual_prefix": "npcElf",
+      "normalized_prefix": "npcelf",
+      "male_animation": "NPCHUMAN_M",
+      "female_animation": "NPCHUMAN_F",
+      "sound_package": "Elf_Male_T_ASounds"
+    },
+    {
+      "client_table_index": 33,
+      "race_name": "NPCVaranjar",
+      "registration_arg": "0xb",
+      "visual_prefix": "npcBarbarian",
+      "normalized_prefix": "npcbarbarian",
+      "male_animation": "NPCHUMAN_M",
+      "female_animation": "NPCHUMAN_F",
+      "sound_package": "Barbarian_Male_T_ASounds"
+    },
+    {
+      "client_table_index": 34,
+      "race_name": "NPCThestran",
+      "registration_arg": "0xb",
+      "visual_prefix": "npcHuman",
+      "normalized_prefix": "npchuman",
+      "male_animation": "NPCHUMAN_M",
+      "female_animation": "NPCHUMAN_F",
+      "sound_package": "Human_Male_T_ASounds"
+    },
+    {
+      "client_table_index": 35,
+      "race_name": "NPCGoblin",
+      "registration_arg": "9",
+      "visual_prefix": "npcGoblin",
+      "normalized_prefix": "npcgoblin",
+      "male_animation": "NPCHUMAN_M",
+      "female_animation": "NPCHUMAN_F",
+      "sound_package": "Goblin_Male_ASounds"
+    },
+    {
+      "client_table_index": 36,
+      "race_name": "NPCKurashasa",
+      "registration_arg": "0xc",
+      "visual_prefix": "npcKura",
+      "normalized_prefix": "npckura",
+      "male_animation": "NPCHUMAN_M",
+      "female_animation": "NPCHUMAN_F",
+      "sound_package": "Kurashasa_Male_ASounds"
+    },
+    {
+      "client_table_index": 37,
+      "race_name": "NPCHalfElf",
+      "registration_arg": "10",
+      "visual_prefix": "npcHalfElf",
+      "normalized_prefix": "npchalfelf",
+      "male_animation": "NPCHUMAN_M",
+      "female_animation": "NPCHUMAN_F",
+      "sound_package": "HalfElf_Male_ASounds"
+    },
+    {
+      "client_table_index": 38,
+      "race_name": "NPCVulmane",
+      "registration_arg": "10",
+      "visual_prefix": "npcVulmane",
+      "normalized_prefix": "npcvulmane",
+      "male_animation": "NPCHUMAN_M",
+      "female_animation": "NPCHUMAN_F",
+      "sound_package": "Vulmane_Male_ASounds"
+    },
+    {
+      "client_table_index": 39,
+      "race_name": "NPCRaki",
+      "registration_arg": "7",
+      "visual_prefix": "npcRaki",
+      "normalized_prefix": "npcraki",
+      "male_animation": "NPCHUMAN_M",
+      "female_animation": "NPCHUMAN_F",
+      "sound_package": "Raki_Male_ASounds"
+    },
+    {
+      "client_table_index": 40,
+      "race_name": "NPCGnome",
+      "registration_arg": "8",
+      "visual_prefix": "npcGnome",
+      "normalized_prefix": "npcgnome",
+      "male_animation": "NPCHUMAN_M",
+      "female_animation": "NPCHUMAN_F",
+      "sound_package": "Gnome_Male_ASounds"
+    },
+    {
+      "client_table_index": 41,
+      "race_name": "NPCHalfOrc",
+      "registration_arg": "10",
+      "visual_prefix": "npcHalfOrc",
+      "normalized_prefix": "npchalforc",
+      "male_animation": "NPCHUMAN_M",
+      "female_animation": "NPCHUMAN_F",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 42,
+      "race_name": "NPCKojanBarbarian",
+      "registration_arg": "0x11",
+      "visual_prefix": "npcKojanBarbarian",
+      "normalized_prefix": "npckojanbarbarian",
+      "male_animation": "NPCHUMAN_M",
+      "female_animation": "NPCHUMAN_F",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 43,
+      "race_name": "InvisibleMan",
+      "registration_arg": "0xc",
+      "visual_prefix": "npcHuman",
+      "normalized_prefix": "npchuman",
+      "male_animation": "NPCHUMAN_M",
+      "female_animation": "NPCHUMAN_F",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 44,
+      "race_name": "IODInvisibleMan",
+      "registration_arg": "0xf",
+      "visual_prefix": "optimizedHuman",
+      "normalized_prefix": "optimizedhuman",
+      "male_animation": "NPCHUMAN_M",
+      "female_animation": "NPCHUMAN_F",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 45,
+      "race_name": "Ratman",
+      "registration_arg": "6",
+      "visual_prefix": "ratman",
+      "normalized_prefix": "ratman",
+      "male_animation": "RATMAN_M",
+      "female_animation": "",
+      "sound_package": "RatmanSounds"
+    },
+    {
+      "client_table_index": 46,
+      "race_name": "AntGiant",
+      "registration_arg": "8",
+      "visual_prefix": "",
+      "normalized_prefix": "",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "GiantAntSounds"
+    },
+    {
+      "client_table_index": 47,
+      "race_name": "Badger",
+      "registration_arg": "6",
+      "visual_prefix": "badger",
+      "normalized_prefix": "badger",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "BadgerSounds"
+    },
+    {
+      "client_table_index": 48,
+      "race_name": "Basilisk",
+      "registration_arg": "8",
+      "visual_prefix": "basilisk",
+      "normalized_prefix": "basilisk",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "BasiliskSounds"
+    },
+    {
+      "client_table_index": 49,
+      "race_name": "BasiliskSavannah",
+      "registration_arg": "0x10",
+      "visual_prefix": "basiliskSavannah",
+      "normalized_prefix": "basilisksavannah",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "BasiliskSavannahSounds"
+    },
+    {
+      "client_table_index": 50,
+      "race_name": "Bass",
+      "registration_arg": "4",
+      "visual_prefix": "BassMesh",
+      "normalized_prefix": "bassmesh",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "BassSounds"
+    },
+    {
+      "client_table_index": 51,
+      "race_name": "Bear",
+      "registration_arg": "4",
+      "visual_prefix": "bear",
+      "normalized_prefix": "bear",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "BearSounds"
+    },
+    {
+      "client_table_index": 52,
+      "race_name": "BoarWild",
+      "registration_arg": "8",
+      "visual_prefix": "boar",
+      "normalized_prefix": "boar",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "WildBoarSounds"
+    },
+    {
+      "client_table_index": 53,
+      "race_name": "Mouseman",
+      "registration_arg": "8",
+      "visual_prefix": "",
+      "normalized_prefix": "",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 54,
+      "race_name": "Lion",
+      "registration_arg": "4",
+      "visual_prefix": "catLion",
+      "normalized_prefix": "catlion",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "LionMaleSounds"
+    },
+    {
+      "client_table_index": 55,
+      "race_name": "Tiger",
+      "registration_arg": "5",
+      "visual_prefix": "catTiger",
+      "normalized_prefix": "cattiger",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "TigerSounds"
+    },
+    {
+      "client_table_index": 56,
+      "race_name": "Leopard",
+      "registration_arg": "7",
+      "visual_prefix": "catLeopard",
+      "normalized_prefix": "catleopard",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "LeopardSounds"
+    },
+    {
+      "client_table_index": 57,
+      "race_name": "Panther",
+      "registration_arg": "7",
+      "visual_prefix": "catPanther",
+      "normalized_prefix": "catpanther",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "PantherSounds"
+    },
+    {
+      "client_table_index": 58,
+      "race_name": "Cougar",
+      "registration_arg": "6",
+      "visual_prefix": "catCougar",
+      "normalized_prefix": "catcougar",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "CougarSounds"
+    },
+    {
+      "client_table_index": 59,
+      "race_name": "TreePalm",
+      "registration_arg": "8",
+      "visual_prefix": "treePalm",
+      "normalized_prefix": "treepalm",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 60,
+      "race_name": "TreeVine",
+      "registration_arg": "8",
+      "visual_prefix": "treeVine",
+      "normalized_prefix": "treevine",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 61,
+      "race_name": "TreeAmada",
+      "registration_arg": "9",
+      "visual_prefix": "treeOak",
+      "normalized_prefix": "treeoak",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 62,
+      "race_name": "Bugbear",
+      "registration_arg": "7",
+      "visual_prefix": "bugbear",
+      "normalized_prefix": "bugbear",
+      "male_animation": "BUGBEAR",
+      "female_animation": "BUGBEAR",
+      "sound_package": "BugBearMaleSounds"
+    },
+    {
+      "client_table_index": 63,
+      "race_name": "CarrionCrawler",
+      "registration_arg": "0xe",
+      "visual_prefix": "carrionCrawler",
+      "normalized_prefix": "carrioncrawler",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "CarrionCrawlerSounds"
+    },
+    {
+      "client_table_index": 64,
+      "race_name": "Chiranha",
+      "registration_arg": "8",
+      "visual_prefix": "chiranha",
+      "normalized_prefix": "chiranha",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "ChiranaSounds"
+    },
+    {
+      "client_table_index": 65,
+      "race_name": "Cockatrice",
+      "registration_arg": "10",
+      "visual_prefix": "cockatrice",
+      "normalized_prefix": "cockatrice",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "CockatriceSounds"
+    },
+    {
+      "client_table_index": 66,
+      "race_name": "Cockroach",
+      "registration_arg": "9",
+      "visual_prefix": "cockroach",
+      "normalized_prefix": "cockroach",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "CockroachSounds"
+    },
+    {
+      "client_table_index": 67,
+      "race_name": "Drake",
+      "registration_arg": "5",
+      "visual_prefix": "drake",
+      "normalized_prefix": "drake",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "DrakeSounds"
+    },
+    {
+      "client_table_index": 68,
+      "race_name": "Ettercap",
+      "registration_arg": "8",
+      "visual_prefix": "ettercap",
+      "normalized_prefix": "ettercap",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "EttercapSounds"
+    },
+    {
+      "client_table_index": 69,
+      "race_name": "Gremlin",
+      "registration_arg": "7",
+      "visual_prefix": "gremlin",
+      "normalized_prefix": "gremlin",
+      "male_animation": "GREMLIN_M",
+      "female_animation": "",
+      "sound_package": "GremlinSounds"
+    },
+    {
+      "client_table_index": 70,
+      "race_name": "ClayWarrior",
+      "registration_arg": "0xb",
+      "visual_prefix": "clayWarrior",
+      "normalized_prefix": "claywarrior",
+      "male_animation": "CLAYWARRIOR",
+      "female_animation": "",
+      "sound_package": "ClayWarriorSounds"
+    },
+    {
+      "client_table_index": 71,
+      "race_name": "DuneCrawler",
+      "registration_arg": "0xb",
+      "visual_prefix": "duneCrawler",
+      "normalized_prefix": "dunecrawler",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "DuneCrawlerSounds"
+    },
+    {
+      "client_table_index": 72,
+      "race_name": "Gnoll",
+      "registration_arg": "5",
+      "visual_prefix": "gnoll",
+      "normalized_prefix": "gnoll",
+      "male_animation": "GNOLL",
+      "female_animation": "",
+      "sound_package": "GnollSounds"
+    },
+    {
+      "client_table_index": 73,
+      "race_name": "Behemoth",
+      "registration_arg": "8",
+      "visual_prefix": "behemoth",
+      "normalized_prefix": "behemoth",
+      "male_animation": "BEHEMOTH_M",
+      "female_animation": "",
+      "sound_package": "BehemothSounds"
+    },
+    {
+      "client_table_index": 74,
+      "race_name": "Rhinoceros",
+      "registration_arg": "10",
+      "visual_prefix": "rhinoceros",
+      "normalized_prefix": "rhinoceros",
+      "male_animation": "RHINOCEROS_M",
+      "female_animation": "",
+      "sound_package": "RhinoSounds"
+    },
+    {
+      "client_table_index": 75,
+      "race_name": "Griffon",
+      "registration_arg": "7",
+      "visual_prefix": "griffon",
+      "normalized_prefix": "griffon",
+      "male_animation": "GRIFFON",
+      "female_animation": "GRIFFON",
+      "sound_package": "GriffonSounds"
+    },
+    {
+      "client_table_index": 76,
+      "race_name": "Mosquito",
+      "registration_arg": "8",
+      "visual_prefix": "mosquito",
+      "normalized_prefix": "mosquito",
+      "male_animation": "MOSQUITO",
+      "female_animation": "",
+      "sound_package": "MosquitoSounds"
+    },
+    {
+      "client_table_index": 77,
+      "race_name": "Wyrm",
+      "registration_arg": "4",
+      "visual_prefix": "wyrm",
+      "normalized_prefix": "wyrm",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "WyrmSounds"
+    },
+    {
+      "client_table_index": 78,
+      "race_name": "WyrmGround",
+      "registration_arg": "10",
+      "visual_prefix": "wyrm",
+      "normalized_prefix": "wyrm",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "WyrmSounds"
+    },
+    {
+      "client_table_index": 79,
+      "race_name": "Fairy",
+      "registration_arg": "5",
+      "visual_prefix": "fairy",
+      "normalized_prefix": "fairy",
+      "male_animation": "FAIRY",
+      "female_animation": "FAIRY",
+      "sound_package": "FairySounds"
+    },
+    {
+      "client_table_index": 80,
+      "race_name": "Wasp",
+      "registration_arg": "4",
+      "visual_prefix": "wasp",
+      "normalized_prefix": "wasp",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "WaspSounds"
+    },
+    {
+      "client_table_index": 81,
+      "race_name": "Hobgoblin",
+      "registration_arg": "9",
+      "visual_prefix": "hobgoblin",
+      "normalized_prefix": "hobgoblin",
+      "male_animation": "HOBGOBLIN",
+      "female_animation": "",
+      "sound_package": "HobgoblinSounds"
+    },
+    {
+      "client_table_index": 82,
+      "race_name": "Jharuu",
+      "registration_arg": "6",
+      "visual_prefix": "jharuu",
+      "normalized_prefix": "jharuu",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "JharuuSounds"
+    },
+    {
+      "client_table_index": 83,
+      "race_name": "Kobold",
+      "registration_arg": "6",
+      "visual_prefix": "kobold",
+      "normalized_prefix": "kobold",
+      "male_animation": "KOBOLD",
+      "female_animation": "",
+      "sound_package": "KoboldSounds"
+    },
+    {
+      "client_table_index": 84,
+      "race_name": "Djinn",
+      "registration_arg": "5",
+      "visual_prefix": "djinn",
+      "normalized_prefix": "djinn",
+      "male_animation": "DJINN",
+      "female_animation": "",
+      "sound_package": "DjinnSounds"
+    },
+    {
+      "client_table_index": 85,
+      "race_name": "WingedEye",
+      "registration_arg": "9",
+      "visual_prefix": "wingedEye",
+      "normalized_prefix": "wingedeye",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "WingedEyeSounds"
+    },
+    {
+      "client_table_index": 86,
+      "race_name": "Vinewalker",
+      "registration_arg": "10",
+      "visual_prefix": "Vinewalker",
+      "normalized_prefix": "vinewalker",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "VineWalkerSounds"
+    },
+    {
+      "client_table_index": 87,
+      "race_name": "Pangolin",
+      "registration_arg": "8",
+      "visual_prefix": "pangolin",
+      "normalized_prefix": "pangolin",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "PangolinSounds"
+    },
+    {
+      "client_table_index": 88,
+      "race_name": "Wyvern",
+      "registration_arg": "6",
+      "visual_prefix": "wyvern",
+      "normalized_prefix": "wyvern",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "WyvernSounds"
+    },
+    {
+      "client_table_index": 89,
+      "race_name": "RiftWalker",
+      "registration_arg": "10",
+      "visual_prefix": "chupacabra",
+      "normalized_prefix": "chupacabra",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "RiftWalkerSounds"
+    },
+    {
+      "client_table_index": 90,
+      "race_name": "Manphibian",
+      "registration_arg": "10",
+      "visual_prefix": "manphibian",
+      "normalized_prefix": "manphibian",
+      "male_animation": "MANPHIBIAN",
+      "female_animation": "",
+      "sound_package": "ManphibianSounds"
+    },
+    {
+      "client_table_index": 91,
+      "race_name": "Salamander",
+      "registration_arg": "10",
+      "visual_prefix": "salamander",
+      "normalized_prefix": "salamander",
+      "male_animation": "SALAMANDER_M",
+      "female_animation": "",
+      "sound_package": "SalamanderSounds"
+    },
+    {
+      "client_table_index": 92,
+      "race_name": "UndeadConstruct",
+      "registration_arg": "0xf",
+      "visual_prefix": "undeadConstruct",
+      "normalized_prefix": "undeadconstruct",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "UndeadConstructSounds"
+    },
+    {
+      "client_table_index": 93,
+      "race_name": "Scorpion",
+      "registration_arg": "8",
+      "visual_prefix": "scorpion",
+      "normalized_prefix": "scorpion",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "ScorpionSounds"
+    },
+    {
+      "client_table_index": 94,
+      "race_name": "ShamblingMound",
+      "registration_arg": "0xe",
+      "visual_prefix": "shamblingMound",
+      "normalized_prefix": "shamblingmound",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "ShamblingMoundSounds"
+    },
+    {
+      "client_table_index": 95,
+      "race_name": "Skeleton",
+      "registration_arg": "",
+      "visual_prefix": "skeleton",
+      "normalized_prefix": "skeleton",
+      "male_animation": "ZOMBIE_M",
+      "female_animation": "ZOMBIE_F",
+      "sound_package": "SkeletonMaleSounds"
+    },
+    {
+      "client_table_index": 96,
+      "race_name": "PlayerSkeleton",
+      "registration_arg": "",
+      "visual_prefix": "skeleton",
+      "normalized_prefix": "skeleton",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "SkeletonMaleSounds"
+    },
+    {
+      "client_table_index": 97,
+      "race_name": "PlayerWraith",
+      "registration_arg": "",
+      "visual_prefix": "wraith",
+      "normalized_prefix": "wraith",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "SkeletonMaleSounds"
+    },
+    {
+      "client_table_index": 98,
+      "race_name": "PlayerZombie",
+      "registration_arg": "",
+      "visual_prefix": "skeleton",
+      "normalized_prefix": "skeleton",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "SkeletonMaleSounds"
+    },
+    {
+      "client_table_index": 99,
+      "race_name": "PlayerGhost",
+      "registration_arg": "",
+      "visual_prefix": "skeleton",
+      "normalized_prefix": "skeleton",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "SkeletonMaleSounds"
+    },
+    {
+      "client_table_index": 100,
+      "race_name": "PlayerMummy",
+      "registration_arg": "",
+      "visual_prefix": "skeleton",
+      "normalized_prefix": "skeleton",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "SkeletonMaleSounds"
+    },
+    {
+      "client_table_index": 101,
+      "race_name": "PlayerDeathKnight",
+      "registration_arg": "",
+      "visual_prefix": "deathknight",
+      "normalized_prefix": "deathknight",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "DeathKnightSounds"
+    },
+    {
+      "client_table_index": 102,
+      "race_name": "Lich",
+      "registration_arg": "",
+      "visual_prefix": "lich",
+      "normalized_prefix": "lich",
+      "male_animation": "ZOMBIE_M",
+      "female_animation": "ZOMBIE_F",
+      "sound_package": "LichMaleSounds"
+    },
+    {
+      "client_table_index": 103,
+      "race_name": "PlayerLich",
+      "registration_arg": "",
+      "visual_prefix": "lich",
+      "normalized_prefix": "lich",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "LichMaleSounds"
+    },
+    {
+      "client_table_index": 104,
+      "race_name": "DeathKnight",
+      "registration_arg": "",
+      "visual_prefix": "deathKnight",
+      "normalized_prefix": "deathknight",
+      "male_animation": "ZOMBIE_M",
+      "female_animation": "ZOMBIE_F",
+      "sound_package": "DeathKnightSounds"
+    },
+    {
+      "client_table_index": 105,
+      "race_name": "Demilich",
+      "registration_arg": "",
+      "visual_prefix": "demilich",
+      "normalized_prefix": "demilich",
+      "male_animation": "HUMAN",
+      "female_animation": "",
+      "sound_package": "DemiLichSounds"
+    },
+    {
+      "client_table_index": 106,
+      "race_name": "Zombie",
+      "registration_arg": "",
+      "visual_prefix": "zombie",
+      "normalized_prefix": "zombie",
+      "male_animation": "ZOMBIE_M",
+      "female_animation": "ZOMBIE_F",
+      "sound_package": "ZombieMaleSounds"
+    },
+    {
+      "client_table_index": 107,
+      "race_name": "Ghoul",
+      "registration_arg": "",
+      "visual_prefix": "ghoul",
+      "normalized_prefix": "ghoul",
+      "male_animation": "GHOUL",
+      "female_animation": "",
+      "sound_package": "GhoulSounds"
+    },
+    {
+      "client_table_index": 108,
+      "race_name": "MoleShark",
+      "registration_arg": "",
+      "visual_prefix": "moleShark",
+      "normalized_prefix": "moleshark",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "MoleSharkSounds"
+    },
+    {
+      "client_table_index": 109,
+      "race_name": "Chicken",
+      "registration_arg": "",
+      "visual_prefix": "chicken",
+      "normalized_prefix": "chicken",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "ChickenSounds"
+    },
+    {
+      "client_table_index": 110,
+      "race_name": "Sheep",
+      "registration_arg": "",
+      "visual_prefix": "sheep",
+      "normalized_prefix": "sheep",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "SheepSounds"
+    },
+    {
+      "client_table_index": 111,
+      "race_name": "Undead",
+      "registration_arg": "",
+      "visual_prefix": "undead",
+      "normalized_prefix": "undead",
+      "male_animation": "ZOMBIE_M",
+      "female_animation": "ZOMBIE_F",
+      "sound_package": "ZombieMaleSounds"
+    },
+    {
+      "client_table_index": 112,
+      "race_name": "Wraith",
+      "registration_arg": "",
+      "visual_prefix": "wraith",
+      "normalized_prefix": "wraith",
+      "male_animation": "ZOMBIE_M",
+      "female_animation": "ZOMBIE_F",
+      "sound_package": "SkeletonMaleSounds"
+    },
+    {
+      "client_table_index": 113,
+      "race_name": "TreeTangleleaf",
+      "registration_arg": "",
+      "visual_prefix": "treeTangleleaf",
+      "normalized_prefix": "treetangleleaf",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 114,
+      "race_name": "SoulSlasher",
+      "registration_arg": "",
+      "visual_prefix": "soulSlasher",
+      "normalized_prefix": "soulslasher",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "SoulSlasherSounds"
+    },
+    {
+      "client_table_index": 115,
+      "race_name": "Crab",
+      "registration_arg": "",
+      "visual_prefix": "crab",
+      "normalized_prefix": "crab",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "CrabSounds"
+    },
+    {
+      "client_table_index": 116,
+      "race_name": "SpiderWolf",
+      "registration_arg": "",
+      "visual_prefix": "spiderWolf",
+      "normalized_prefix": "spiderwolf",
+      "male_animation": "SPIDERWOLF",
+      "female_animation": "",
+      "sound_package": "SpiderWolfSounds"
+    },
+    {
+      "client_table_index": 117,
+      "race_name": "Snake",
+      "registration_arg": "",
+      "visual_prefix": "snake",
+      "normalized_prefix": "snake",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "SnakeSounds"
+    },
+    {
+      "client_table_index": 118,
+      "race_name": "Coralwalker",
+      "registration_arg": "",
+      "visual_prefix": "coralwalker",
+      "normalized_prefix": "coralwalker",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "CoralWalkerSounds"
+    },
+    {
+      "client_table_index": 119,
+      "race_name": "SpiderGiant",
+      "registration_arg": "",
+      "visual_prefix": "spiderBlackWidow",
+      "normalized_prefix": "spiderblackwidow",
+      "male_animation": "SPIDERBLACKWIDOW",
+      "female_animation": "SPIDERBLACKWIDOW",
+      "sound_package": "GiantSpiderSounds"
+    },
+    {
+      "client_table_index": 120,
+      "race_name": "Sandrunner",
+      "registration_arg": "",
+      "visual_prefix": "sandrunner",
+      "normalized_prefix": "sandrunner",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "SwordbeakSounds"
+    },
+    {
+      "client_table_index": 121,
+      "race_name": "Stirge",
+      "registration_arg": "",
+      "visual_prefix": "stirge",
+      "normalized_prefix": "stirge",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "StirgSounds"
+    },
+    {
+      "client_table_index": 122,
+      "race_name": "SwampBrute",
+      "registration_arg": "",
+      "visual_prefix": "swampBrute",
+      "normalized_prefix": "swampbrute",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "SwampBruteSounds"
+    },
+    {
+      "client_table_index": 123,
+      "race_name": "Swordbeak",
+      "registration_arg": "",
+      "visual_prefix": "Swordbeak",
+      "normalized_prefix": "swordbeak",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "SwordbeakSounds"
+    },
+    {
+      "client_table_index": 124,
+      "race_name": "Yukionna",
+      "registration_arg": "",
+      "visual_prefix": "",
+      "normalized_prefix": "",
+      "male_animation": "",
+      "female_animation": "YUKIONNA",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 125,
+      "race_name": "SwamphibianBaby",
+      "registration_arg": "",
+      "visual_prefix": "swamphibianBaby",
+      "normalized_prefix": "swamphibianbaby",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "SwamphibianBabySounds"
+    },
+    {
+      "client_table_index": 126,
+      "race_name": "SwamphibianBoss",
+      "registration_arg": "",
+      "visual_prefix": "swamphibianBoss",
+      "normalized_prefix": "swamphibianboss",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "SwamphibianBossSounds"
+    },
+    {
+      "client_table_index": 127,
+      "race_name": "SwamphibianFlyer",
+      "registration_arg": "",
+      "visual_prefix": "swamphibianFlyer",
+      "normalized_prefix": "swamphibianflyer",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "SwamphibianFlyerSounds"
+    },
+    {
+      "client_table_index": 128,
+      "race_name": "Toad",
+      "registration_arg": "",
+      "visual_prefix": "toad",
+      "normalized_prefix": "toad",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "ToadSounds"
+    },
+    {
+      "client_table_index": 129,
+      "race_name": "Treant",
+      "registration_arg": "",
+      "visual_prefix": "treant",
+      "normalized_prefix": "treant",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "TreantSounds"
+    },
+    {
+      "client_table_index": 130,
+      "race_name": "Troglodyte",
+      "registration_arg": "",
+      "visual_prefix": "troglodyte",
+      "normalized_prefix": "troglodyte",
+      "male_animation": "TROGLODYTE_M",
+      "female_animation": "",
+      "sound_package": "TroglodyteSounds"
+    },
+    {
+      "client_table_index": 131,
+      "race_name": "Troll",
+      "registration_arg": "",
+      "visual_prefix": "troll",
+      "normalized_prefix": "troll",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "TrollSounds"
+    },
+    {
+      "client_table_index": 132,
+      "race_name": "Minotaur",
+      "registration_arg": "",
+      "visual_prefix": "minotaur",
+      "normalized_prefix": "minotaur",
+      "male_animation": "MINOTAUR",
+      "female_animation": "",
+      "sound_package": "MinotaurSounds"
+    },
+    {
+      "client_table_index": 133,
+      "race_name": "Ogre",
+      "registration_arg": "",
+      "visual_prefix": "ogre",
+      "normalized_prefix": "ogre",
+      "male_animation": "OGRE",
+      "female_animation": "",
+      "sound_package": "OgreSounds"
+    },
+    {
+      "client_table_index": 134,
+      "race_name": "Giant",
+      "registration_arg": "",
+      "visual_prefix": "giant",
+      "normalized_prefix": "giant",
+      "male_animation": "GIANT",
+      "female_animation": "",
+      "sound_package": "GiantSounds"
+    },
+    {
+      "client_table_index": 135,
+      "race_name": "Narcanos",
+      "registration_arg": "",
+      "visual_prefix": "Narcanos",
+      "normalized_prefix": "narcanos",
+      "male_animation": "NARCANOS",
+      "female_animation": "",
+      "sound_package": "GiantSounds"
+    },
+    {
+      "client_table_index": 136,
+      "race_name": "Turtle",
+      "registration_arg": "",
+      "visual_prefix": "turtle",
+      "normalized_prefix": "turtle",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "TurtleSounds"
+    },
+    {
+      "client_table_index": 137,
+      "race_name": "Ulvari",
+      "registration_arg": "",
+      "visual_prefix": "Oni",
+      "normalized_prefix": "oni",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "UlvariSounds"
+    },
+    {
+      "client_table_index": 138,
+      "race_name": "UlvariMinor",
+      "registration_arg": "",
+      "visual_prefix": "oni_Minor",
+      "normalized_prefix": "oni_minor",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "UlvariMinorSounds"
+    },
+    {
+      "client_table_index": 139,
+      "race_name": "Dragonfly",
+      "registration_arg": "",
+      "visual_prefix": "dragonfly",
+      "normalized_prefix": "dragonfly",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "DragonflySounds"
+    },
+    {
+      "client_table_index": 140,
+      "race_name": "Moth",
+      "registration_arg": "",
+      "visual_prefix": "moth",
+      "normalized_prefix": "moth",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "MothSounds"
+    },
+    {
+      "client_table_index": 141,
+      "race_name": "Wolf",
+      "registration_arg": "",
+      "visual_prefix": "wolf",
+      "normalized_prefix": "wolf",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "WolfSounds"
+    },
+    {
+      "client_table_index": 142,
+      "race_name": "WolfZombie",
+      "registration_arg": "",
+      "visual_prefix": "wolfUndead",
+      "normalized_prefix": "wolfundead",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "WolfUndeadSounds"
+    },
+    {
+      "client_table_index": 143,
+      "race_name": "WolfSkeleton",
+      "registration_arg": "",
+      "visual_prefix": "wolfUndead",
+      "normalized_prefix": "wolfundead",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "WolfUndeadSounds"
+    },
+    {
+      "client_table_index": 144,
+      "race_name": "WolfDire",
+      "registration_arg": "",
+      "visual_prefix": "wolfDire",
+      "normalized_prefix": "wolfdire",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "WolfDireSounds"
+    },
+    {
+      "client_table_index": 145,
+      "race_name": "Wolverine",
+      "registration_arg": "",
+      "visual_prefix": "wolverine",
+      "normalized_prefix": "wolverine",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "WolverineSounds"
+    },
+    {
+      "client_table_index": 146,
+      "race_name": "WormGiant",
+      "registration_arg": "",
+      "visual_prefix": "worm",
+      "normalized_prefix": "worm",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "GiantWormSounds"
+    },
+    {
+      "client_table_index": 147,
+      "race_name": "Scarab",
+      "registration_arg": "",
+      "visual_prefix": "scarab",
+      "normalized_prefix": "scarab",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "ScarabSounds"
+    },
+    {
+      "client_table_index": 148,
+      "race_name": "SpiderBlackWidow",
+      "registration_arg": "",
+      "visual_prefix": "spiderBlackWidow",
+      "normalized_prefix": "spiderblackwidow",
+      "male_animation": "SPIDERBLACKWIDOW",
+      "female_animation": "SPIDERBLACKWIDOW",
+      "sound_package": "GiantSpiderSounds"
+    },
+    {
+      "client_table_index": 149,
+      "race_name": "Mantodea",
+      "registration_arg": "",
+      "visual_prefix": "mantodea",
+      "normalized_prefix": "mantodea",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "MantodeaSounds"
+    },
+    {
+      "client_table_index": 150,
+      "race_name": "ThestranTree1",
+      "registration_arg": "",
+      "visual_prefix": "thestranTree1",
+      "normalized_prefix": "thestrantree1",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 151,
+      "race_name": "Manticore",
+      "registration_arg": "",
+      "visual_prefix": "manticore",
+      "normalized_prefix": "manticore",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "ManticoreSounds"
+    },
+    {
+      "client_table_index": 152,
+      "race_name": "Deer",
+      "registration_arg": "",
+      "visual_prefix": "deer",
+      "normalized_prefix": "deer",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "ElkSounds"
+    },
+    {
+      "client_table_index": 153,
+      "race_name": "Gorgon",
+      "registration_arg": "",
+      "visual_prefix": "",
+      "normalized_prefix": "",
+      "male_animation": "",
+      "female_animation": "GORGON_F",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 154,
+      "race_name": "TentacleLord",
+      "registration_arg": "",
+      "visual_prefix": "tentacleLord",
+      "normalized_prefix": "tentaclelord",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "XennumetSounds"
+    },
+    {
+      "client_table_index": 155,
+      "race_name": "SandGiant",
+      "registration_arg": "",
+      "visual_prefix": "giantSand",
+      "normalized_prefix": "giantsand",
+      "male_animation": "GIANTSAND_M",
+      "female_animation": "",
+      "sound_package": "GiantSounds"
+    },
+    {
+      "client_table_index": 156,
+      "race_name": "Ooze",
+      "registration_arg": "",
+      "visual_prefix": "ooze",
+      "normalized_prefix": "ooze",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "OozeSounds"
+    },
+    {
+      "client_table_index": 157,
+      "race_name": "Yeti",
+      "registration_arg": "",
+      "visual_prefix": "yeti",
+      "normalized_prefix": "yeti",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "YetiSounds"
+    },
+    {
+      "client_table_index": 158,
+      "race_name": "HorseDraft",
+      "registration_arg": "",
+      "visual_prefix": "horseDraft",
+      "normalized_prefix": "horsedraft",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "QuarterHorseSounds"
+    },
+    {
+      "client_table_index": 159,
+      "race_name": "HorseQuarter",
+      "registration_arg": "",
+      "visual_prefix": "horseQuarter",
+      "normalized_prefix": "horsequarter",
+      "male_animation": "HORSEQUARTER_M",
+      "female_animation": "",
+      "sound_package": "QuarterHorseSounds"
+    },
+    {
+      "client_table_index": 160,
+      "race_name": "HorseShetland",
+      "registration_arg": "",
+      "visual_prefix": "horseShetland",
+      "normalized_prefix": "horseshetland",
+      "male_animation": "HORSESHETLAND_M",
+      "female_animation": "",
+      "sound_package": "QuarterHorseSounds"
+    },
+    {
+      "client_table_index": 161,
+      "race_name": "HorseShire",
+      "registration_arg": "",
+      "visual_prefix": "horseShire",
+      "normalized_prefix": "horseshire",
+      "male_animation": "HORSESHIRE_M",
+      "female_animation": "",
+      "sound_package": "QuarterHorseSounds"
+    },
+    {
+      "client_table_index": 162,
+      "race_name": "EarthElemental",
+      "registration_arg": "",
+      "visual_prefix": "elementalEarth",
+      "normalized_prefix": "elementalearth",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "ElementalEarthSounds"
+    },
+    {
+      "client_table_index": 163,
+      "race_name": "FireElemental",
+      "registration_arg": "",
+      "visual_prefix": "elementalFire",
+      "normalized_prefix": "elementalfire",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "FireElementalSounds"
+    },
+    {
+      "client_table_index": 164,
+      "race_name": "MetalGolem",
+      "registration_arg": "",
+      "visual_prefix": "golemMetal",
+      "normalized_prefix": "golemmetal",
+      "male_animation": "GOLEMMETAL",
+      "female_animation": "",
+      "sound_package": "MetalGolemSounds"
+    },
+    {
+      "client_table_index": 165,
+      "race_name": "PlayerMetalGolem",
+      "registration_arg": "",
+      "visual_prefix": "golemMetal",
+      "normalized_prefix": "golemmetal",
+      "male_animation": "GOLEMMETAL",
+      "female_animation": "",
+      "sound_package": "MetalGolemSounds"
+    },
+    {
+      "client_table_index": 166,
+      "race_name": "ForgeQalia",
+      "registration_arg": "",
+      "visual_prefix": "forgeQalian",
+      "normalized_prefix": "forgeqalian",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 167,
+      "race_name": "ForgeThestra",
+      "registration_arg": "",
+      "visual_prefix": "forgeThestra",
+      "normalized_prefix": "forgethestra",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 168,
+      "race_name": "ForgeKojan",
+      "registration_arg": "",
+      "visual_prefix": "forgeKojan",
+      "normalized_prefix": "forgekojan",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 169,
+      "race_name": "SmelterQalia",
+      "registration_arg": "",
+      "visual_prefix": "smelterQalian",
+      "normalized_prefix": "smelterqalian",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 170,
+      "race_name": "SmelterThestra",
+      "registration_arg": "",
+      "visual_prefix": "smelterThestra",
+      "normalized_prefix": "smelterthestra",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 171,
+      "race_name": "SmelterKojan",
+      "registration_arg": "",
+      "visual_prefix": "smelterKojan",
+      "normalized_prefix": "smelterkojan",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 172,
+      "race_name": "FinishingTableThestra",
+      "registration_arg": "",
+      "visual_prefix": "finishingtableThestra",
+      "normalized_prefix": "finishingtablethestra",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 173,
+      "race_name": "FinishingTableKojan",
+      "registration_arg": "",
+      "visual_prefix": "finishingtableKojan",
+      "normalized_prefix": "finishingtablekojan",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 174,
+      "race_name": "FinishingTableQalia",
+      "registration_arg": "",
+      "visual_prefix": "finishingtableQalia",
+      "normalized_prefix": "finishingtableqalia",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 175,
+      "race_name": "SawTableThestra",
+      "registration_arg": "",
+      "visual_prefix": "sawtableThestra",
+      "normalized_prefix": "sawtablethestra",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 176,
+      "race_name": "SawTableKojan",
+      "registration_arg": "",
+      "visual_prefix": "sawTableKojan",
+      "normalized_prefix": "sawtablekojan",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 177,
+      "race_name": "SawTableQalia",
+      "registration_arg": "",
+      "visual_prefix": "sawtableQalia",
+      "normalized_prefix": "sawtableqalia",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 178,
+      "race_name": "TextileTableThestra",
+      "registration_arg": "",
+      "visual_prefix": "textiletableThestra",
+      "normalized_prefix": "textiletablethestra",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 179,
+      "race_name": "TextileTableKojan",
+      "registration_arg": "",
+      "visual_prefix": "textileTableKojan",
+      "normalized_prefix": "textiletablekojan",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 180,
+      "race_name": "TextileTableQalia",
+      "registration_arg": "",
+      "visual_prefix": "textiletableQalia",
+      "normalized_prefix": "textiletableqalia",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 181,
+      "race_name": "SewingTableThestra",
+      "registration_arg": "",
+      "visual_prefix": "SewingTableThestra",
+      "normalized_prefix": "sewingtablethestra",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 182,
+      "race_name": "SewingTableKojan",
+      "registration_arg": "",
+      "visual_prefix": "sewingtableKojan",
+      "normalized_prefix": "sewingtablekojan",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 183,
+      "race_name": "SewingTableQalia",
+      "registration_arg": "",
+      "visual_prefix": "sewingtableQalia",
+      "normalized_prefix": "sewingtableqalia",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 184,
+      "race_name": "CraftingDungeon",
+      "registration_arg": "",
+      "visual_prefix": "craftingDungeon",
+      "normalized_prefix": "craftingdungeon",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 185,
+      "race_name": "Crocodile",
+      "registration_arg": "",
+      "visual_prefix": "crocodile",
+      "normalized_prefix": "crocodile",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "CrocodileSounds"
+    },
+    {
+      "client_table_index": 186,
+      "race_name": "KomodoDragon",
+      "registration_arg": "",
+      "visual_prefix": "komodoDragon",
+      "normalized_prefix": "komododragon",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "KomodoDragonSounds"
+    },
+    {
+      "client_table_index": 187,
+      "race_name": "ChasmLizard",
+      "registration_arg": "",
+      "visual_prefix": "lizardChasm",
+      "normalized_prefix": "lizardchasm",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "KomodoDragonSounds"
+    },
+    {
+      "client_table_index": 188,
+      "race_name": "EyeLord",
+      "registration_arg": "",
+      "visual_prefix": "eyeLord",
+      "normalized_prefix": "eyelord",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "EyeLordSounds"
+    },
+    {
+      "client_table_index": 189,
+      "race_name": "TreePine",
+      "registration_arg": "",
+      "visual_prefix": "treePine",
+      "normalized_prefix": "treepine",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 190,
+      "race_name": "TreeAsh",
+      "registration_arg": "",
+      "visual_prefix": "treeAsh",
+      "normalized_prefix": "treeash",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 191,
+      "race_name": "TreeAspen",
+      "registration_arg": "",
+      "visual_prefix": "treeAspen",
+      "normalized_prefix": "treeaspen",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 192,
+      "race_name": "TreeBeech",
+      "registration_arg": "",
+      "visual_prefix": "treeBeech",
+      "normalized_prefix": "treebeech",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 193,
+      "race_name": "TreeCottonwood",
+      "registration_arg": "",
+      "visual_prefix": "treeCottonwood",
+      "normalized_prefix": "treecottonwood",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 194,
+      "race_name": "TreeOak",
+      "registration_arg": "",
+      "visual_prefix": "treeOak",
+      "normalized_prefix": "treeoak",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 195,
+      "race_name": "Cyclops",
+      "registration_arg": "",
+      "visual_prefix": "cyclops",
+      "normalized_prefix": "cyclops",
+      "male_animation": "CYCLOPS_M",
+      "female_animation": "",
+      "sound_package": "CyclopsSounds"
+    },
+    {
+      "client_table_index": 196,
+      "race_name": "Dryad",
+      "registration_arg": "",
+      "visual_prefix": "",
+      "normalized_prefix": "",
+      "male_animation": "",
+      "female_animation": "DRYAD_F",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 197,
+      "race_name": "RockOre",
+      "registration_arg": "",
+      "visual_prefix": "rockOre",
+      "normalized_prefix": "rockore",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 198,
+      "race_name": "Beetle",
+      "registration_arg": "",
+      "visual_prefix": "beetle",
+      "normalized_prefix": "beetle",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "ScarabSounds"
+    },
+    {
+      "client_table_index": 199,
+      "race_name": "PlantAlchemical",
+      "registration_arg": "",
+      "visual_prefix": "PlantAlchemical",
+      "normalized_prefix": "plantalchemical",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 200,
+      "race_name": "PlantTextile",
+      "registration_arg": "",
+      "visual_prefix": "PlantTextile",
+      "normalized_prefix": "planttextile",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 201,
+      "race_name": "RockMineral",
+      "registration_arg": "",
+      "visual_prefix": "rockMineral",
+      "normalized_prefix": "rockmineral",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 202,
+      "race_name": "Brownie",
+      "registration_arg": "",
+      "visual_prefix": "brownie",
+      "normalized_prefix": "brownie",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "BrownieSounds"
+    },
+    {
+      "client_table_index": 203,
+      "race_name": "BearZombie",
+      "registration_arg": "",
+      "visual_prefix": "bearUndead",
+      "normalized_prefix": "bearundead",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "BearUndeadSounds"
+    },
+    {
+      "client_table_index": 204,
+      "race_name": "BearSkeleton",
+      "registration_arg": "",
+      "visual_prefix": "bearUndead",
+      "normalized_prefix": "bearundead",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "BearUndeadSounds"
+    },
+    {
+      "client_table_index": 205,
+      "race_name": "BearDire",
+      "registration_arg": "",
+      "visual_prefix": "bearDire",
+      "normalized_prefix": "beardire",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "BearDireSounds"
+    },
+    {
+      "client_table_index": 206,
+      "race_name": "DressTest",
+      "registration_arg": "",
+      "visual_prefix": "human",
+      "normalized_prefix": "human",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "Human_Male_T_ASounds"
+    },
+    {
+      "client_table_index": 207,
+      "race_name": "RockCaveIn",
+      "registration_arg": "",
+      "visual_prefix": "RockCaveIn",
+      "normalized_prefix": "rockcavein",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 208,
+      "race_name": "Willowisp",
+      "registration_arg": "",
+      "visual_prefix": "willowisp",
+      "normalized_prefix": "willowisp",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "WillowispSounds"
+    },
+    {
+      "client_table_index": 209,
+      "race_name": "WillowispFlyer",
+      "registration_arg": "",
+      "visual_prefix": "willowisp",
+      "normalized_prefix": "willowisp",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "WillowispSounds"
+    },
+    {
+      "client_table_index": 210,
+      "race_name": "IODWisp",
+      "registration_arg": "",
+      "visual_prefix": "IODWisp",
+      "normalized_prefix": "iodwisp",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "WillowispSounds"
+    },
+    {
+      "client_table_index": 211,
+      "race_name": "BlockingIODWisp",
+      "registration_arg": "",
+      "visual_prefix": "IODWisp",
+      "normalized_prefix": "iodwisp",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "WillowispSounds"
+    },
+    {
+      "client_table_index": 212,
+      "race_name": "StormElemental",
+      "registration_arg": "",
+      "visual_prefix": "elementalStorm",
+      "normalized_prefix": "elementalstorm",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "StormElementalSounds"
+    },
+    {
+      "client_table_index": 213,
+      "race_name": "AntLion",
+      "registration_arg": "",
+      "visual_prefix": "antLion",
+      "normalized_prefix": "antlion",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "AntLionSounds"
+    },
+    {
+      "client_table_index": 214,
+      "race_name": "Jackal",
+      "registration_arg": "",
+      "visual_prefix": "jackal",
+      "normalized_prefix": "jackal",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "JackalSounds"
+    },
+    {
+      "client_table_index": 215,
+      "race_name": "Mantis",
+      "registration_arg": "",
+      "visual_prefix": "mantis",
+      "normalized_prefix": "mantis",
+      "male_animation": "MANTIS_M",
+      "female_animation": "MANTIS_F",
+      "sound_package": "MantisSounds"
+    },
+    {
+      "client_table_index": 216,
+      "race_name": "WispElemental",
+      "registration_arg": "",
+      "visual_prefix": "elementalWisp",
+      "normalized_prefix": "elementalwisp",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "WillowispSounds"
+    },
+    {
+      "client_table_index": 217,
+      "race_name": "BlockingWispElemental",
+      "registration_arg": "",
+      "visual_prefix": "elementalWisp",
+      "normalized_prefix": "elementalwisp",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "WillowispSounds"
+    },
+    {
+      "client_table_index": 218,
+      "race_name": "MistElemental",
+      "registration_arg": "",
+      "visual_prefix": "elementalMist",
+      "normalized_prefix": "elementalmist",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "WillowispSounds"
+    },
+    {
+      "client_table_index": 219,
+      "race_name": "HorseUndead",
+      "registration_arg": "",
+      "visual_prefix": "horseUndead",
+      "normalized_prefix": "horseundead",
+      "male_animation": "HORSEQUARTER_M",
+      "female_animation": "",
+      "sound_package": "HorseUndeadSounds"
+    },
+    {
+      "client_table_index": 220,
+      "race_name": "HorseSkeleton",
+      "registration_arg": "",
+      "visual_prefix": "horseSkeleton",
+      "normalized_prefix": "horseskeleton",
+      "male_animation": "HORSEQUARTER_M",
+      "female_animation": "",
+      "sound_package": "HorseUndeadSounds"
+    },
+    {
+      "client_table_index": 221,
+      "race_name": "Ghast",
+      "registration_arg": "",
+      "visual_prefix": "ghoul",
+      "normalized_prefix": "ghoul",
+      "male_animation": "GHOUL",
+      "female_animation": "",
+      "sound_package": "GhoulSounds"
+    },
+    {
+      "client_table_index": 222,
+      "race_name": "Wight",
+      "registration_arg": "",
+      "visual_prefix": "wight",
+      "normalized_prefix": "wight",
+      "male_animation": "WIGHT",
+      "female_animation": "",
+      "sound_package": "GhoulSounds"
+    },
+    {
+      "client_table_index": 223,
+      "race_name": "Mummy",
+      "registration_arg": "",
+      "visual_prefix": "mummy",
+      "normalized_prefix": "mummy",
+      "male_animation": "MUMMY",
+      "female_animation": "",
+      "sound_package": "MummySounds"
+    },
+    {
+      "client_table_index": 224,
+      "race_name": "TurtleDragon",
+      "registration_arg": "",
+      "visual_prefix": "turtleDragon",
+      "normalized_prefix": "turtledragon",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "TurtleDragonSounds"
+    },
+    {
+      "client_table_index": 225,
+      "race_name": "TurtleDragonSea",
+      "registration_arg": "",
+      "visual_prefix": "turtleDragonSea",
+      "normalized_prefix": "turtledragonsea",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "TurtleDragonSounds"
+    },
+    {
+      "client_table_index": 226,
+      "race_name": "StatueAnubis",
+      "registration_arg": "",
+      "visual_prefix": "statueAnubis",
+      "normalized_prefix": "statueanubis",
+      "male_animation": "STATUEANUBIS",
+      "female_animation": "",
+      "sound_package": "AnubisStatueSounds"
+    },
+    {
+      "client_table_index": 227,
+      "race_name": "StatueCat",
+      "registration_arg": "",
+      "visual_prefix": "statueCat",
+      "normalized_prefix": "statuecat",
+      "male_animation": "STATUECAT",
+      "female_animation": "",
+      "sound_package": "CatStatueSounds"
+    },
+    {
+      "client_table_index": 228,
+      "race_name": "JharuuWarrior",
+      "registration_arg": "",
+      "visual_prefix": "jharuuWarrior",
+      "normalized_prefix": "jharuuwarrior",
+      "male_animation": "JHARUUWARRIOR_M",
+      "female_animation": "",
+      "sound_package": "JharuuSounds"
+    },
+    {
+      "client_table_index": 229,
+      "race_name": "CatDomestic",
+      "registration_arg": "",
+      "visual_prefix": "catDomestic",
+      "normalized_prefix": "catdomestic",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "CatSounds"
+    },
+    {
+      "client_table_index": 230,
+      "race_name": "Phoenix",
+      "registration_arg": "",
+      "visual_prefix": "raptorPhoenix",
+      "normalized_prefix": "raptorphoenix",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "PhoenixSounds"
+    },
+    {
+      "client_table_index": 231,
+      "race_name": "Raven",
+      "registration_arg": "",
+      "visual_prefix": "birdRaven",
+      "normalized_prefix": "birdraven",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "RavenSounds"
+    },
+    {
+      "client_table_index": 232,
+      "race_name": "Hyena",
+      "registration_arg": "",
+      "visual_prefix": "hyena",
+      "normalized_prefix": "hyena",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "HyenaSounds"
+    },
+    {
+      "client_table_index": 233,
+      "race_name": "Camel",
+      "registration_arg": "",
+      "visual_prefix": "camel",
+      "normalized_prefix": "camel",
+      "male_animation": "CAMEL_M",
+      "female_animation": "",
+      "sound_package": "CamelSounds"
+    },
+    {
+      "client_table_index": 234,
+      "race_name": "Seagull",
+      "registration_arg": "",
+      "visual_prefix": "birdSeagull",
+      "normalized_prefix": "birdseagull",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "SeagullSounds"
+    },
+    {
+      "client_table_index": 235,
+      "race_name": "Hawk",
+      "registration_arg": "",
+      "visual_prefix": "raptorHawk",
+      "normalized_prefix": "raptorhawk",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "HawkSounds"
+    },
+    {
+      "client_table_index": 236,
+      "race_name": "Falcon",
+      "registration_arg": "",
+      "visual_prefix": "raptorFalcon",
+      "normalized_prefix": "raptorfalcon",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "HawkSounds"
+    },
+    {
+      "client_table_index": 237,
+      "race_name": "Eagle",
+      "registration_arg": "",
+      "visual_prefix": "raptorEagle",
+      "normalized_prefix": "raptoreagle",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "EagleSounds"
+    },
+    {
+      "client_table_index": 238,
+      "race_name": "Vulture",
+      "registration_arg": "",
+      "visual_prefix": "raptorVulture",
+      "normalized_prefix": "raptorvulture",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "VultureSounds"
+    },
+    {
+      "client_table_index": 239,
+      "race_name": "Abomination",
+      "registration_arg": "",
+      "visual_prefix": "abomination",
+      "normalized_prefix": "abomination",
+      "male_animation": "ABOMINATION_M",
+      "female_animation": "",
+      "sound_package": "AbominationSounds"
+    },
+    {
+      "client_table_index": 240,
+      "race_name": "Siren",
+      "registration_arg": "",
+      "visual_prefix": "",
+      "normalized_prefix": "",
+      "male_animation": "",
+      "female_animation": "SIREN_F",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 241,
+      "race_name": "Efreet",
+      "registration_arg": "",
+      "visual_prefix": "efreet",
+      "normalized_prefix": "efreet",
+      "male_animation": "EFREET_M",
+      "female_animation": "",
+      "sound_package": "EfreetSounds"
+    },
+    {
+      "client_table_index": 242,
+      "race_name": "Gazelle",
+      "registration_arg": "",
+      "visual_prefix": "gazelle",
+      "normalized_prefix": "gazelle",
+      "male_animation": "GAZELLE_M",
+      "female_animation": "",
+      "sound_package": "ElkSounds"
+    },
+    {
+      "client_table_index": 243,
+      "race_name": "GilaMonster",
+      "registration_arg": "",
+      "visual_prefix": "gilaMonster",
+      "normalized_prefix": "gilamonster",
+      "male_animation": "GILAMONSTER_M",
+      "female_animation": "",
+      "sound_package": "KomodoDragonSounds"
+    },
+    {
+      "client_table_index": 244,
+      "race_name": "MountainGoat",
+      "registration_arg": "",
+      "visual_prefix": "goatMountain",
+      "normalized_prefix": "goatmountain",
+      "male_animation": "GOATMOUNTAIN_M",
+      "female_animation": "",
+      "sound_package": "RamSounds"
+    },
+    {
+      "client_table_index": 245,
+      "race_name": "Unicorn",
+      "registration_arg": "",
+      "visual_prefix": "unicorn",
+      "normalized_prefix": "unicorn",
+      "male_animation": "UNICORN_M",
+      "female_animation": "",
+      "sound_package": "PegasusSounds"
+    },
+    {
+      "client_table_index": 246,
+      "race_name": "Hellhound",
+      "registration_arg": "",
+      "visual_prefix": "hellhound",
+      "normalized_prefix": "hellhound",
+      "male_animation": "HELLHOUND_M",
+      "female_animation": "",
+      "sound_package": "HellhoundSounds"
+    },
+    {
+      "client_table_index": 247,
+      "race_name": "Vampire",
+      "registration_arg": "",
+      "visual_prefix": "",
+      "normalized_prefix": "",
+      "male_animation": "",
+      "female_animation": "VAMPIRE_F",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 248,
+      "race_name": "FleshGolem",
+      "registration_arg": "",
+      "visual_prefix": "golemFlesh",
+      "normalized_prefix": "golemflesh",
+      "male_animation": "GOLEMFLESH_M",
+      "female_animation": "",
+      "sound_package": "FleshGolemSounds"
+    },
+    {
+      "client_table_index": 249,
+      "race_name": "Corpse",
+      "registration_arg": "",
+      "visual_prefix": "",
+      "normalized_prefix": "",
+      "male_animation": "",
+      "female_animation": "CORPSE_F",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 250,
+      "race_name": "Gargoyle",
+      "registration_arg": "",
+      "visual_prefix": "gargoyle",
+      "normalized_prefix": "gargoyle",
+      "male_animation": "GARGOYLE_M",
+      "female_animation": "",
+      "sound_package": "GargoyleSounds"
+    },
+    {
+      "client_table_index": 251,
+      "race_name": "VultureMan",
+      "registration_arg": "",
+      "visual_prefix": "vultureMan",
+      "normalized_prefix": "vultureman",
+      "male_animation": "VULTUREMAN",
+      "female_animation": "",
+      "sound_package": "VulturemanSounds"
+    },
+    {
+      "client_table_index": 252,
+      "race_name": "ShamblingShell",
+      "registration_arg": "",
+      "visual_prefix": "shamblingShell",
+      "normalized_prefix": "shamblingshell",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "ShamblingShellSounds"
+    },
+    {
+      "client_table_index": 253,
+      "race_name": "RockDervish",
+      "registration_arg": "",
+      "visual_prefix": "rockDervish",
+      "normalized_prefix": "rockdervish",
+      "male_animation": "ROCKDERVISH_M",
+      "female_animation": "",
+      "sound_package": "RockDervishSounds"
+    },
+    {
+      "client_table_index": 254,
+      "race_name": "SeaHag",
+      "registration_arg": "",
+      "visual_prefix": "",
+      "normalized_prefix": "",
+      "male_animation": "",
+      "female_animation": "SEAHAG_F",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 255,
+      "race_name": "SeaLord",
+      "registration_arg": "",
+      "visual_prefix": "seaLord",
+      "normalized_prefix": "sealord",
+      "male_animation": "SEALORD_M",
+      "female_animation": "",
+      "sound_package": "SeaHagLordSounds"
+    },
+    {
+      "client_table_index": 256,
+      "race_name": "Lizardman",
+      "registration_arg": "",
+      "visual_prefix": "lizardMan",
+      "normalized_prefix": "lizardman",
+      "male_animation": "LIZARDMAN_M",
+      "female_animation": "",
+      "sound_package": "LizardmanSounds"
+    },
+    {
+      "client_table_index": 257,
+      "race_name": "Mudman",
+      "registration_arg": "",
+      "visual_prefix": "mudman",
+      "normalized_prefix": "mudman",
+      "male_animation": "MUDMAN_M",
+      "female_animation": "",
+      "sound_package": "MudmanSounds"
+    },
+    {
+      "client_table_index": 258,
+      "race_name": "WarehouseGuardian",
+      "registration_arg": "",
+      "visual_prefix": "GuardianWarehouse",
+      "normalized_prefix": "guardianwarehouse",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "MetalGolemSounds"
+    },
+    {
+      "client_table_index": 259,
+      "race_name": "KoboldChieftain",
+      "registration_arg": "",
+      "visual_prefix": "koboldChieftain",
+      "normalized_prefix": "koboldchieftain",
+      "male_animation": "KOBOLDCHIEFTAIN_M",
+      "female_animation": "",
+      "sound_package": "KoboldChiefSounds"
+    },
+    {
+      "client_table_index": 260,
+      "race_name": "ShamblingMoundDesert",
+      "registration_arg": "",
+      "visual_prefix": "shamblingMound",
+      "normalized_prefix": "shamblingmound",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "ShamblingMoundSounds"
+    },
+    {
+      "client_table_index": 261,
+      "race_name": "VenomousFrog",
+      "registration_arg": "",
+      "visual_prefix": "venomousFrog",
+      "normalized_prefix": "venomousfrog",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "ToadSounds"
+    },
+    {
+      "client_table_index": 262,
+      "race_name": "FunnelTextile",
+      "registration_arg": "",
+      "visual_prefix": "FunnelTextile",
+      "normalized_prefix": "funneltextile",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 263,
+      "race_name": "MushroomAlchemical",
+      "registration_arg": "",
+      "visual_prefix": "MushroomAlchemical",
+      "normalized_prefix": "mushroomalchemical",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 264,
+      "race_name": "RootWood",
+      "registration_arg": "",
+      "visual_prefix": "RootWood",
+      "normalized_prefix": "rootwood",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 265,
+      "race_name": "CoastalLampray",
+      "registration_arg": "",
+      "visual_prefix": "coastallampray",
+      "normalized_prefix": "coastallampray",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "LampreySounds"
+    },
+    {
+      "client_table_index": 266,
+      "race_name": "Pegasus",
+      "registration_arg": "",
+      "visual_prefix": "pegasus",
+      "normalized_prefix": "pegasus",
+      "male_animation": "PEGASUS_M",
+      "female_animation": "",
+      "sound_package": "PegasusSounds"
+    },
+    {
+      "client_table_index": 267,
+      "race_name": "PlayerPine",
+      "registration_arg": "",
+      "visual_prefix": "treePine",
+      "normalized_prefix": "treepine",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 268,
+      "race_name": "PlayerAsh",
+      "registration_arg": "",
+      "visual_prefix": "treeAsh",
+      "normalized_prefix": "treeash",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 269,
+      "race_name": "PlayerBeech",
+      "registration_arg": "",
+      "visual_prefix": "treeBeech",
+      "normalized_prefix": "treebeech",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 270,
+      "race_name": "PlayerOak",
+      "registration_arg": "",
+      "visual_prefix": "treeOak",
+      "normalized_prefix": "treeoak",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 271,
+      "race_name": "NecroGolem",
+      "registration_arg": "",
+      "visual_prefix": "golemFlesh",
+      "normalized_prefix": "golemflesh",
+      "male_animation": "GOLEMFLESH_M",
+      "female_animation": "",
+      "sound_package": "FleshGolemSounds"
+    },
+    {
+      "client_table_index": 272,
+      "race_name": "PlagueBearer",
+      "registration_arg": "",
+      "visual_prefix": "zombie",
+      "normalized_prefix": "zombie",
+      "male_animation": "ZOMBIE_M",
+      "female_animation": "ZOMBIE_F",
+      "sound_package": "ZombieMaleSounds"
+    },
+    {
+      "client_table_index": 273,
+      "race_name": "Trap",
+      "registration_arg": "",
+      "visual_prefix": "npcHuman",
+      "normalized_prefix": "npchuman",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 274,
+      "race_name": "ZombieDwarf",
+      "registration_arg": "",
+      "visual_prefix": "zombie",
+      "normalized_prefix": "zombie",
+      "male_animation": "ZOMBIE_M",
+      "female_animation": "ZOMBIE_F",
+      "sound_package": "ZombieMaleSounds"
+    },
+    {
+      "client_table_index": 275,
+      "race_name": "ZombieGnome",
+      "registration_arg": "",
+      "visual_prefix": "zombie",
+      "normalized_prefix": "zombie",
+      "male_animation": "ZOMBIE_M",
+      "female_animation": "ZOMBIE_F",
+      "sound_package": "ZombieMaleSounds"
+    },
+    {
+      "client_table_index": 276,
+      "race_name": "TreePurpleBerry",
+      "registration_arg": "",
+      "visual_prefix": "treePurpleBerry",
+      "normalized_prefix": "treepurpleberry",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 277,
+      "race_name": "WolfOkami",
+      "registration_arg": "",
+      "visual_prefix": "wolfOkami",
+      "normalized_prefix": "wolfokami",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "OkamiSounds"
+    },
+    {
+      "client_table_index": 278,
+      "race_name": "Sahaugin",
+      "registration_arg": "",
+      "visual_prefix": "sahaugin",
+      "normalized_prefix": "sahaugin",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "AquaSalamanderSounds"
+    },
+    {
+      "client_table_index": 279,
+      "race_name": "ElementalGolem",
+      "registration_arg": "",
+      "visual_prefix": "golemElemental",
+      "normalized_prefix": "golemelemental",
+      "male_animation": "GOLEMELEMENTAL_M",
+      "female_animation": "",
+      "sound_package": "ElemGolemSounds"
+    },
+    {
+      "client_table_index": 280,
+      "race_name": "RockGolem",
+      "registration_arg": "",
+      "visual_prefix": "golemRock",
+      "normalized_prefix": "golemrock",
+      "male_animation": "GOLEMROCK_M",
+      "female_animation": "",
+      "sound_package": "ElemGolemSounds"
+    },
+    {
+      "client_table_index": 281,
+      "race_name": "FungusMan",
+      "registration_arg": "",
+      "visual_prefix": "fungusMan",
+      "normalized_prefix": "fungusman",
+      "male_animation": "FUNGUSMAN_M",
+      "female_animation": "",
+      "sound_package": "MyconidSounds"
+    },
+    {
+      "client_table_index": 282,
+      "race_name": "SharkGreatWhite",
+      "registration_arg": "",
+      "visual_prefix": "sharkGreatWhite",
+      "normalized_prefix": "sharkgreatwhite",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "GarSounds"
+    },
+    {
+      "client_table_index": 283,
+      "race_name": "FishBass",
+      "registration_arg": "",
+      "visual_prefix": "fishBass",
+      "normalized_prefix": "fishbass",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "BassSounds"
+    },
+    {
+      "client_table_index": 284,
+      "race_name": "FishGar",
+      "registration_arg": "",
+      "visual_prefix": "fishGar",
+      "normalized_prefix": "fishgar",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "GarSounds"
+    },
+    {
+      "client_table_index": 285,
+      "race_name": "WhaleHumpback",
+      "registration_arg": "",
+      "visual_prefix": "whaleHumpback",
+      "normalized_prefix": "whalehumpback",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "GarSounds"
+    },
+    {
+      "client_table_index": 286,
+      "race_name": "WhaleOrca",
+      "registration_arg": "",
+      "visual_prefix": "whaleOrca",
+      "normalized_prefix": "whaleorca",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "GarSounds"
+    },
+    {
+      "client_table_index": 287,
+      "race_name": "WhaleDolphin",
+      "registration_arg": "",
+      "visual_prefix": "whaleDolphin",
+      "normalized_prefix": "whaledolphin",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "GarSounds"
+    },
+    {
+      "client_table_index": 288,
+      "race_name": "Dragon",
+      "registration_arg": "",
+      "visual_prefix": "dragon",
+      "normalized_prefix": "dragon",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "WyrmSounds"
+    },
+    {
+      "client_table_index": 289,
+      "race_name": "DireLobster",
+      "registration_arg": "",
+      "visual_prefix": "direlobster",
+      "normalized_prefix": "direlobster",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "CrabSounds"
+    },
+    {
+      "client_table_index": 290,
+      "race_name": "DragonBlack",
+      "registration_arg": "",
+      "visual_prefix": "dragon_Black",
+      "normalized_prefix": "dragon_black",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "WyrmSounds"
+    },
+    {
+      "client_table_index": 291,
+      "race_name": "DragonSwamp",
+      "registration_arg": "",
+      "visual_prefix": "dragon_Swamp",
+      "normalized_prefix": "dragon_swamp",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "Dragon_Swamp_MSounds"
+    },
+    {
+      "client_table_index": 292,
+      "race_name": "CartheonKnight",
+      "registration_arg": "",
+      "visual_prefix": "cartheonKnight",
+      "normalized_prefix": "cartheonknight",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "DeathKnightSounds"
+    },
+    {
+      "client_table_index": 293,
+      "race_name": "Crystal",
+      "registration_arg": "",
+      "visual_prefix": "crystal",
+      "normalized_prefix": "crystal",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 294,
+      "race_name": "Sporebeast",
+      "registration_arg": "",
+      "visual_prefix": "sporebeast",
+      "normalized_prefix": "sporebeast",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "TrollSounds"
+    },
+    {
+      "client_table_index": 295,
+      "race_name": "CartheonNecromancer",
+      "registration_arg": "",
+      "visual_prefix": "cartheonNecromancer",
+      "normalized_prefix": "cartheonnecromancer",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "DeathKnightSounds"
+    },
+    {
+      "client_table_index": 296,
+      "race_name": "Banshee",
+      "registration_arg": "",
+      "visual_prefix": "",
+      "normalized_prefix": "",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 297,
+      "race_name": "Hydrospore",
+      "registration_arg": "",
+      "visual_prefix": "hydrospore",
+      "normalized_prefix": "hydrospore",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "SwamphibianBossSounds"
+    },
+    {
+      "client_table_index": 298,
+      "race_name": "Drakeling",
+      "registration_arg": "",
+      "visual_prefix": "drakeling",
+      "normalized_prefix": "drakeling",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "DrakeSounds"
+    },
+    {
+      "client_table_index": 299,
+      "race_name": "WyrmWingless",
+      "registration_arg": "",
+      "visual_prefix": "wyrmWingless",
+      "normalized_prefix": "wyrmwingless",
+      "male_animation": "",
+      "female_animation": "",
+      "sound_package": "WyrmSounds"
+    },
+    {
+      "client_table_index": 300,
+      "race_name": "Angel",
+      "registration_arg": "",
+      "visual_prefix": "AngelPantheon",
+      "normalized_prefix": "angelpantheon",
+      "male_animation": "ANGELPANTHEON_F",
+      "female_animation": "ANGELPANTHEON_F",
+      "sound_package": "FairyQueenSounds"
+    },
+    {
+      "client_table_index": 301,
+      "race_name": "Snowman",
+      "registration_arg": "",
+      "visual_prefix": "Snowman",
+      "normalized_prefix": "snowman",
+      "male_animation": "SNOWMAN_M",
+      "female_animation": "SNOWMAN_M",
+      "sound_package": "ElementalEarthSounds"
+    },
+    {
+      "client_table_index": 302,
+      "race_name": "Cannon",
+      "registration_arg": "",
+      "visual_prefix": "ParticleCannon",
+      "normalized_prefix": "particlecannon",
+      "male_animation": "ParticleCannon_M",
+      "female_animation": "ParticleCannon_M",
+      "sound_package": ""
+    },
+    {
+      "client_table_index": 303,
+      "race_name": "Gharuz",
+      "registration_arg": "",
+      "visual_prefix": "Gharuz",
+      "normalized_prefix": "gharuz",
+      "male_animation": "GHARUZ_M",
+      "female_animation": "GHARUZ_M",
+      "sound_package": "BehemothSounds"
+    },
+    {
+      "client_table_index": 304,
+      "race_name": "TargetDummy",
+      "registration_arg": "",
+      "visual_prefix": "targetDummy",
+      "normalized_prefix": "targetdummy",
+      "male_animation": "targetDummy_M",
+      "female_animation": "targetDummy_M",
+      "sound_package": ""
+    }
+  ]
+}

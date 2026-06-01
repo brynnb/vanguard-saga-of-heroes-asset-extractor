@@ -54,8 +54,8 @@ ASSETS_DIR = os.environ.get(
 UEM_DIR = os.path.join(ASSETS_DIR, "Characters", "Meshes")
 
 # OBJECT races are static meshes, not character UEM bodies. Prefer the original
-# client object-race table extracted from Ghidra, then use these spawn-name
-# overrides for DB rows where the race name is too generic or misleading.
+# client object-race lookup table, then use these spawn-name overrides for DB
+# rows where the race name is too generic or misleading.
 OBJECT_STATIC_MESH_OVERRIDES = {
     "camelliaflower": [
         "Ra8001_Foliage_Meshes/Ra8001_Foliage_smallFlowers001.gltf",

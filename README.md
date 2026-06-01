@@ -105,9 +105,11 @@ python3 vanguard.py extract-audio
 python3 vanguard.py extract-world
 ```
 
-The DB-backed NPC assembly sidecars require a local VGO Emulator `vgo_world`
-MySQL database. Include them in a full extraction run when that database is
-available:
+The NPC assembly sidecars use committed client lookup tables under
+`client_tables/` for race visual mappings. They also require a local VGO
+Emulator `vgo_world` MySQL database for spawn-level race, model, appearance,
+and attachment data. Include them in a full extraction run when that database
+is available:
 
 ```bash
 python3 vanguard.py extract-all --include-npc-assembly
