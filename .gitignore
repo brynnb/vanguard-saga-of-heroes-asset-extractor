@@ -8,6 +8,7 @@ build/
 dist/
 external/
 Vanguard EMU/
-output/
+output/*
+!output/.gitkeep
 *.log
 .env
