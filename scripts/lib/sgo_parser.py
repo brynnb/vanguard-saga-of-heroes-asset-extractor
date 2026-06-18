@@ -68,15 +68,23 @@ def read_ci(buf: bytes, pos: int) -> tuple[int, int]:
     neg = b0 & 0x80
     val = b0 & 0x3F
     if b0 & 0x40:
+        if pos >= len(buf):
+            return (-val if neg else val), pos
         b1 = buf[pos]; pos += 1
         val |= (b1 & 0x7F) << 6
         if b1 & 0x80:
+            if pos >= len(buf):
+                return (-val if neg else val), pos
             b2 = buf[pos]; pos += 1
             val |= (b2 & 0x7F) << 13
             if b2 & 0x80:
+                if pos >= len(buf):
+                    return (-val if neg else val), pos
                 b3 = buf[pos]; pos += 1
                 val |= (b3 & 0x7F) << 20
                 if b3 & 0x80:
+                    if pos >= len(buf):
+                        return (-val if neg else val), pos
                     b4 = buf[pos]; pos += 1
                     val |= b4 << 27
     return (-val if neg else val), pos
@@ -234,12 +242,117 @@ def resolve_object_ref(ci_val: int, imports: list[ImportEntry],
     return exports[i].object_name if 0 <= i < len(exports) else None
 
 
+def _outer_chain(package_idx: int, imports: list[ImportEntry],
+                 exports: list[ExportEntry] | None = None) -> list[str]:
+    """Return outer package/object names from root to leaf."""
+    chain: list[str] = []
+    seen: set[int] = set()
+    idx = package_idx
+    while idx != 0 and idx not in seen:
+        seen.add(idx)
+        if idx < 0:
+            import_index = -idx - 1
+            if not (0 <= import_index < len(imports)):
+                break
+            outer = imports[import_index]
+            if outer.object_name:
+                chain.append(outer.object_name)
+            idx = outer.package_idx
+            continue
+        if exports is None:
+            break
+        export_index = idx - 1
+        if not (0 <= export_index < len(exports)):
+            break
+        outer_export = exports[export_index]
+        if outer_export.object_name:
+            chain.append(outer_export.object_name)
+        idx = outer_export.package_idx
+    chain.reverse()
+    return chain
+
+
+def resolve_object_ref_detail(ci_val: int, imports: list[ImportEntry],
+                              exports: list[ExportEntry] | None = None
+                              ) -> dict[str, Any] | None:
+    """Resolve a CI object reference, preserving package-qualified context."""
+    if ci_val == 0:
+        return None
+    if ci_val < 0:
+        import_index = -ci_val - 1
+        if not (0 <= import_index < len(imports)):
+            return {"ci": ci_val, "kind": "unresolved"}
+        imp = imports[import_index]
+        package_chain = _outer_chain(imp.package_idx, imports, exports)
+        object_parts = [*package_chain, imp.object_name]
+        object_path = ".".join(part for part in object_parts if part)
+        package_path = ".".join(package_chain)
+        return {
+            "ci": ci_val,
+            "kind": "import",
+            "import_index": import_index,
+            "class_package": imp.class_package,
+            "class_name": imp.class_name,
+            "name": imp.object_name,
+            "package_chain": package_chain,
+            "package_path": package_path,
+            "source_package": package_chain[0] if package_chain else "",
+            "object_path": object_path,
+        }
+
+    export_index = ci_val - 1
+    if exports is None or not (0 <= export_index < len(exports)):
+        return {
+            "ci": ci_val,
+            "kind": "export",
+            "export_index": export_index,
+            "name": f"export_{ci_val}",
+            "object_path": f"export_{ci_val}",
+        }
+    exp = exports[export_index]
+    package_chain = _outer_chain(exp.package_idx, imports, exports)
+    object_parts = [*package_chain, exp.object_name]
+    object_path = ".".join(part for part in object_parts if part)
+    package_path = ".".join(package_chain)
+    return {
+        "ci": ci_val,
+        "kind": "export",
+        "export_index": export_index,
+        "class_name": exp.class_ref,
+        "name": exp.object_name,
+        "package_chain": package_chain,
+        "package_path": package_path,
+        "source_package": package_chain[0] if package_chain else "",
+        "object_path": object_path,
+    }
+
+
 # --------------------------------------------------------------------------
 # Struct decoders
 # --------------------------------------------------------------------------
 
+def _range_value(min_value: float, max_value: float) -> dict[str, float]:
+    """Return range values with both clear and legacy-compatible key names."""
+    return {
+        "min": min_value,
+        "max": max_value,
+        "a": min_value,
+        "b": max_value,
+    }
+
+
+def _range_from_props(props: dict[str, Any]) -> dict[str, float] | None:
+    min_value = props.get("Min", props.get("min", None))
+    max_value = props.get("Max", props.get("max", None))
+    if isinstance(min_value, (int, float)) and isinstance(max_value, (int, float)):
+        return _range_value(float(min_value), float(max_value))
+    return None
+
+
 def _decode_struct(struct_name: str, data: bytes,
-                   names: list[str], imports: list[ImportEntry]) -> Any:
+                   names: list[str], imports: list[ImportEntry],
+                   exports: list[ExportEntry] | None = None,
+                   depth: int = 0) -> Any:
     n = len(data)
     if struct_name == "Vector" and n >= 12:
         return {"x": struct.unpack_from("<f", data, 0)[0],
@@ -256,14 +369,31 @@ def _decode_struct(struct_name: str, data: bytes,
     if struct_name == "Quat" and n >= 16:
         x, y, z, w = struct.unpack_from("<ffff", data, 0)
         return {"x": x, "y": y, "z": z, "w": w}
-    if struct_name == "Range" and n >= 8:
-        a, b = struct.unpack_from("<ff", data, 0)
-        return {"a": a, "b": b}
-    if struct_name == "RangeVector" and n >= 24:
-        xa, xb, ya, yb, za, zb = struct.unpack_from("<ffffff", data, 0)
-        return {"x": {"a": xa, "b": xb},
-                "y": {"a": ya, "b": yb},
-                "z": {"a": za, "b": zb}}
+    if struct_name == "Range":
+        props = _decode_tagged_struct_props(data, names, imports, exports, depth + 1)
+        if props:
+            range_value = _range_from_props(props)
+            if range_value is not None:
+                return range_value
+        if n >= 8:
+            a, b = struct.unpack_from("<ff", data, 0)
+            return _range_value(a, b)
+    if struct_name == "RangeVector":
+        props = _decode_tagged_struct_props(data, names, imports, exports, depth + 1)
+        if props:
+            out: dict[str, Any] = {}
+            for axis in ("X", "Y", "Z"):
+                value = props.get(axis)
+                if isinstance(value, dict):
+                    axis_range = _range_from_props(value)
+                    out[axis.lower()] = axis_range if axis_range is not None else value
+            if all(axis in out for axis in ("x", "y", "z")):
+                return out
+        if n >= 24:
+            xa, xb, ya, yb, za, zb = struct.unpack_from("<ffffff", data, 0)
+            return {"x": _range_value(xa, xb),
+                    "y": _range_value(ya, yb),
+                    "z": _range_value(za, zb)}
     if struct_name == "Scale" and n >= 17:
         sx, sy, sz, sheer = struct.unpack_from("<ffff", data, 0)
         axis = data[16]
@@ -290,13 +420,55 @@ def _decode_struct(struct_name: str, data: bytes,
 # Array decoder
 # --------------------------------------------------------------------------
 
-def _decode_array(data: bytes) -> dict:
+def _props_to_dict(props: list["PropValue"]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    extras: dict[str, list[Any]] = {}
+    for prop in props:
+        if prop.name not in out:
+            out[prop.name] = prop.value
+            if prop.object_ref is not None:
+                out[f"{prop.name}__object_ref"] = prop.object_ref
+            continue
+        extras.setdefault(prop.name, []).append(prop.value)
+    for key, values in extras.items():
+        out[f"{key}__extra"] = values
+    return out
+
+
+def _decode_tagged_struct_props(
+    data: bytes,
+    names: list[str],
+    imports: list[ImportEntry],
+    exports: list[ExportEntry] | None = None,
+    depth: int = 0,
+) -> dict[str, Any] | None:
+    if depth > 6 or not data:
+        return None
+    try:
+        props, consumed = parse_properties(
+            data, 0, len(data), names, imports, exports, depth=depth
+        )
+    except Exception:
+        return None
+    if not props or consumed != len(data):
+        return None
+    return _props_to_dict(props)
+
+
+def _decode_array(data: bytes, names: list[str], imports: list[ImportEntry],
+                  exports: list[ExportEntry] | None = None,
+                  depth: int = 0) -> dict:
     """Decode an Array property payload as {count, element_size, raw_hex}.
 
     Without class reflection we cannot know the element type. We store:
       * count     — the CI-encoded element count
       * elem_size — (total_bytes - count_bytes) / count if evenly divisible
       * raw_hex   — the full payload so no data is lost.
+
+    Particle curves in binaryprefabs.sgo are commonly arrays of nested
+    property blocks (for example RelativeTime + Color or RelativeSize).
+    When that shape is detected, an ``elements`` list is included while the
+    original raw payload stays available for auditing.
     """
     if not data:
         return {"count": 0, "raw_hex": ""}
@@ -305,6 +477,31 @@ def _decode_array(data: bytes) -> dict:
     out: dict[str, Any] = {"count": count, "raw_hex": data.hex()}
     if count > 0 and rem >= 0 and rem % count == 0:
         out["elem_size"] = rem // count
+    if count > 0 and depth <= 6:
+        elements: list[dict[str, Any]] = []
+        elem_pos = cur
+        for _ in range(count):
+            try:
+                props, consumed = parse_properties(
+                    data,
+                    elem_pos,
+                    len(data) - elem_pos,
+                    names,
+                    imports,
+                    exports,
+                    depth=depth + 1,
+                    stop_after_first_none=True,
+                )
+            except Exception:
+                elements = []
+                break
+            if consumed <= 0 or not props:
+                elements = []
+                break
+            elements.append(_props_to_dict(props))
+            elem_pos += consumed
+        if elements and len(elements) == count and elem_pos == len(data):
+            out["elements"] = elements
     return out
 
 
@@ -322,6 +519,7 @@ class PropValue:
     size: int
     raw_hex: str
     value: Any
+    object_ref: dict[str, Any] | None = None
 
     def to_json(self) -> dict:
         out: dict[str, Any] = {
@@ -333,13 +531,17 @@ class PropValue:
         if self.array_flag:
             out["array_flag"] = True
         out["value"] = self.value
+        if self.object_ref is not None:
+            out["object_ref"] = self.object_ref
         out["raw_hex"] = self.raw_hex
         return out
 
 
 def parse_properties(buf: bytes, start: int, size: int,
                      names: list[str], imports: list[ImportEntry],
-                     exports: list[ExportEntry] | None = None
+                     exports: list[ExportEntry] | None = None,
+                     depth: int = 0,
+                     stop_after_first_none: bool = False,
                      ) -> tuple[list[PropValue], int]:
     """Parse all property-tag blocks until `size` bytes are consumed.
 
@@ -356,6 +558,8 @@ def parse_properties(buf: bytes, start: int, size: int,
         # A lone 0x00 byte is a None-terminator (CI=0); advance and continue.
         if buf[pos] == 0x00:
             pos += 1
+            if stop_after_first_none:
+                break
             continue
 
         ni, new_pos = read_ci(buf, pos)
@@ -364,6 +568,8 @@ def parse_properties(buf: bytes, start: int, size: int,
         pn = names[ni]
         if pn.lower() == "none":
             pos = new_pos
+            if stop_after_first_none:
+                break
             continue
         pos = new_pos
 
@@ -415,6 +621,7 @@ def parse_properties(buf: bytes, start: int, size: int,
 
         # --- Decode by ptype ---
         value: Any = None
+        object_ref_detail: dict[str, Any] | None = None
         if pt == PT_BOOL:
             value = bool(af)
         elif pt == PT_BYTE and psz >= 1:
@@ -425,7 +632,8 @@ def parse_properties(buf: bytes, start: int, size: int,
             value = struct.unpack_from("<f", pdata, 0)[0]
         elif pt in (PT_OBJECT, PT_CLASS) and psz >= 1:
             ref, _ = read_ci(pdata, 0)
-            value = resolve_object_ref(ref, imports, exports)
+            object_ref_detail = resolve_object_ref_detail(ref, imports, exports)
+            value = None if object_ref_detail is None else object_ref_detail.get("name")
         elif pt == PT_NAME and psz >= 1:
             ni2, _ = read_ci(pdata, 0)
             value = names[ni2] if 0 <= ni2 < len(names) else None
@@ -438,9 +646,9 @@ def parse_properties(buf: bytes, start: int, size: int,
             s, _ = read_fstr(pdata, 0)
             value = s
         elif pt == PT_STRUCT:
-            value = _decode_struct(struct_name or "", pdata, names, imports)
+            value = _decode_struct(struct_name or "", pdata, names, imports, exports, depth + 1)
         elif pt == PT_ARRAY:
-            value = _decode_array(pdata)
+            value = _decode_array(pdata, names, imports, exports, depth + 1)
         elif pt == PT_VECTOR and psz >= 12:
             x, y, z = struct.unpack_from("<fff", pdata, 0)
             value = {"x": x, "y": y, "z": z}
@@ -458,6 +666,7 @@ def parse_properties(buf: bytes, start: int, size: int,
             size=psz,
             raw_hex=pdata.hex(),
             value=value,
+            object_ref=object_ref_detail,
         ))
         pos += psz
 

@@ -23,6 +23,7 @@ import struct
 import argparse
 import math
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -1802,6 +1803,40 @@ def process_package(
     return stats
 
 
+def empty_stats() -> Dict[str, int]:
+    return {"success": 0, "error": 0, "skipped": 0, "exported": 0, "hybrid_exported": 0}
+
+
+def merge_stats(total: Dict[str, int], stats: Dict[str, int]) -> None:
+    for key in total:
+        total[key] += stats.get(key, 0)
+
+
+def process_package_worker(args) -> Tuple[str, Dict[str, int], Optional[str]]:
+    (
+        pkg_path,
+        export_gltf,
+        output_dir,
+        only_trees,
+        export_runtime_leaf_hybrids,
+    ) = args
+    try:
+        stats = process_package(
+            pkg_path,
+            None,
+            0,
+            export_gltf=export_gltf,
+            output_dir=output_dir,
+            only_trees=only_trees,
+            export_runtime_leaf_hybrids=export_runtime_leaf_hybrids,
+        )
+        return pkg_path, stats, None
+    except Exception as exc:
+        stats = empty_stats()
+        stats["error"] = 1
+        return pkg_path, stats, str(exc)
+
+
 def run_pipeline(
     file_pattern: str = None,
     export_gltf: bool = True,
@@ -1810,10 +1845,14 @@ def run_pipeline(
     silent: bool = False,
     only_trees: bool = False,
     export_runtime_leaf_hybrids: bool = False,
+    workers: int = 1,
 ):
     """
     Run the complete StaticMesh parsing pipeline.
     """
+    if workers < 1:
+        workers = os.cpu_count() or 1
+
     if not silent:
         print("=" * 60)
         print("Vanguard StaticMesh Pipeline")
@@ -1823,6 +1862,10 @@ def run_pipeline(
         print(f"Output Dir: {OUTPUT_DIR}")
         if export_only:
             print("Mode: EXPORT-ONLY (Skipping database updates)")
+        if workers > 1:
+            print(f"Workers: {workers} process(es)")
+            if not export_only:
+                print("Mode: PARALLEL EXPORT (Skipping database updates)")
         if only_trees:
             print("Filter: TREE MESHES ONLY")
         if export_runtime_leaf_hybrids:
@@ -1845,10 +1888,18 @@ def run_pipeline(
         print(f"Found {len(files)} files to process")
         print()
 
+    total_files = len(files)
+    if total_files == 0:
+        return
+
+    workers = min(workers, total_files)
+    parallel = workers > 1
+    db_enabled = not export_only and not parallel
+
     # Connect to database
     conn = None
     session_id = None
-    if not export_only:
+    if db_enabled:
         conn = sqlite3.connect(CANONICAL_DB)
         session_id = create_parse_session(conn)
         if not silent:
@@ -1856,38 +1907,66 @@ def run_pipeline(
             print()
 
     # Process files
-    total_stats = {"success": 0, "error": 0, "skipped": 0, "exported": 0, "hybrid_exported": 0}
+    total_stats = empty_stats()
 
-    total_files = len(files)
     start_time = time.time()
-    for i, pkg_path in enumerate(files):
-        filename = os.path.basename(pkg_path)
-        # Show progress bar if many files
-        if total_files > 5:
-            print_progress(i + 1, total_files, filename, start_time, total_stats)
-        elif not silent:
-            print(f"[{i+1}/{total_files}] Processing {filename}...")
-
-        try:
-            # When export_only, we don't pass conn
-            stats = process_package(
+    if parallel:
+        worker_args = [
+            (
                 pkg_path,
-                conn if not export_only else None,
-                session_id if not export_only else 0,
-                export_gltf=export_gltf,
-                output_dir=OUTPUT_DIR,
-                only_trees=only_trees,
-                export_runtime_leaf_hybrids=export_runtime_leaf_hybrids,
+                export_gltf,
+                OUTPUT_DIR,
+                only_trees,
+                export_runtime_leaf_hybrids,
             )
-            for key in total_stats:
-                total_stats[key] += stats[key]
+            for pkg_path in files
+        ]
+        completed = 0
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(process_package_worker, args) for args in worker_args]
+            for future in as_completed(futures):
+                pkg_path, stats, error = future.result()
+                completed += 1
+                merge_stats(total_stats, stats)
+                filename = os.path.basename(pkg_path)
 
-            if not silent and total_files <= 5:
-                print(f" OK ({stats['success']} meshes)")
-        except Exception as e:
-            if not silent:
-                print(f"\n  ERROR processing {os.path.basename(pkg_path)}: {e}")
-            total_stats["error"] += 1
+                if total_files > 5 and not silent:
+                    print_progress(completed, total_files, filename, start_time, total_stats)
+                elif not silent:
+                    if error:
+                        print(f"[{completed}/{total_files}] {filename}: ERROR {error}")
+                    else:
+                        print(f"[{completed}/{total_files}] {filename}: OK ({stats['success']} meshes)")
+
+                if error and total_files > 5:
+                    print(f"\n  ERROR processing {filename}: {error}")
+    else:
+        for i, pkg_path in enumerate(files):
+            filename = os.path.basename(pkg_path)
+            # Show progress bar if many files
+            if total_files > 5 and not silent:
+                print_progress(i + 1, total_files, filename, start_time, total_stats)
+            elif not silent:
+                print(f"[{i+1}/{total_files}] Processing {filename}...")
+
+            try:
+                stats = process_package(
+                    pkg_path,
+                    conn if db_enabled else None,
+                    session_id if db_enabled else 0,
+                    export_gltf=export_gltf,
+                    output_dir=OUTPUT_DIR,
+                    only_trees=only_trees,
+                    export_runtime_leaf_hybrids=export_runtime_leaf_hybrids,
+                )
+                merge_stats(total_stats, stats)
+
+                if not silent and total_files <= 5:
+                    print(f" OK ({stats['success']} meshes)")
+            except Exception as e:
+                if not silent:
+                    print(f"\n  ERROR processing {os.path.basename(pkg_path)}: {e}")
+                total_stats["error"] += 1
 
     # Update session as complete (skip if export-only mode)
     if conn is not None:
@@ -1979,6 +2058,12 @@ def main():
         action="store_true",
         help="When recovered leaf-card sidecars exist, write sibling *_runtime_leaves_hybrid.gltf assets",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Worker processes for package-level export; 0 uses all CPUs. Values above 1 skip SQLite writes.",
+    )
 
     args = parser.parse_args()
 
@@ -1990,6 +2075,7 @@ def main():
         silent=args.silent,
         only_trees=args.trees,
         export_runtime_leaf_hybrids=args.runtime_leaf_hybrids,
+        workers=args.workers,
     )
 
     manifest_count = write_mesh_manifest(OUTPUT_DIR)

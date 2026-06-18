@@ -104,12 +104,24 @@ def run_world(args: argparse.Namespace, env: dict[str, str]) -> None:
     )
     run_step("Split SGO actors by class", [sys.executable, "scripts/extractors/split_sgo_by_class.py"], env)
     run_step("Fold SGO extras into prefabs", [sys.executable, "scripts/extractors/fold_actors_into_prefabs.py"], env)
+    run_step("Extract particle texture refs", [sys.executable, "scripts/extractors/extract_particle_textures.py"], env)
+    run_step(
+        "Generate particle emitter manifest",
+        [sys.executable, "scripts/generators/generate_particle_manifest.py"],
+        env,
+    )
 
     reference_maps = Path(config.REFERENCE_MAPS_DIR)
     if reference_maps.exists() or env.get("VANGUARD_REFERENCE_MAPS_PLANNED") == "1":
         run_step(
             "Generate chunk object placement glTF files",
             [sys.executable, "scripts/generators/generate_objects_from_txt.py", "--all"],
+            env,
+            allow_fail=args.keep_going,
+        )
+        run_step(
+            "Generate particle emitter cell indexes",
+            [sys.executable, "scripts/generators/generate_particle_cell_index.py", "--all"],
             env,
             allow_fail=args.keep_going,
         )
@@ -139,8 +151,13 @@ def run_characters(args: argparse.Namespace, env: dict[str, str]) -> None:
         print(f"    Skipping customization data; missing {customization_file}")
         print("    Skipping playable facial controls; customization data is required")
 
-def run_animations(env: dict[str, str]) -> None:
-    run_step("Export EMotion FX animations", [sys.executable, "scripts/exporters/export_emfx_animations.py"], env)
+def run_animations(args: argparse.Namespace, env: dict[str, str]) -> None:
+    emfx_command = [sys.executable, "scripts/exporters/export_emfx_animations.py"]
+    if args.emfx_workers != 1:
+        emfx_command.extend(["--workers", str(args.emfx_workers)])
+    if args.clean_emfx:
+        emfx_command.append("--clean")
+    run_step("Export EMotion FX animations", emfx_command, env)
     run_step("Export UE2 skeletal animations", [sys.executable, "scripts/exporters/export_animations.py"], env)
 
 
@@ -215,6 +232,17 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--no-reset", dest="reset", action="store_false", help="Do not delete/rebuild the SQLite DB")
     parser.add_argument("--limit-meshes", type=int, default=0, help="Limit static mesh packages during testing")
+    parser.add_argument(
+        "--emfx-workers",
+        type=int,
+        default=1,
+        help="Worker processes for EMotion FX animation export; 0 uses all CPUs.",
+    )
+    parser.add_argument(
+        "--clean-emfx",
+        action="store_true",
+        help="Delete output/meshes/emfx_animations before exporting EMotion FX animations.",
+    )
     parser.add_argument("--skip-unreal-library", action="store_true", help="Skip steps that require Unreal-Library")
     parser.add_argument(
         "--include-npc-assembly",
@@ -257,7 +285,7 @@ def main() -> int:
     if "characters" in sections:
         run_characters(args, env)
     if "animations" in sections:
-        run_animations(env)
+        run_animations(args, env)
     if "npc" in sections:
         run_npc_assembly(args, env)
     if "audio" in sections:

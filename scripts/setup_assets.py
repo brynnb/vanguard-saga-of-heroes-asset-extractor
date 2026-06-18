@@ -682,18 +682,26 @@ def run_required_extractor(name, script_name, silent=False, args=None):
     )
 
 
-def terrain_args_for(chunk_name):
+def terrain_args_for(chunk_name, workers=1):
     """Build extract_all_terrain.py args for all chunks or one chunk."""
     if chunk_name:
-        return ["--chunk", chunk_name, "--silent"]
-    return ["--all", "--silent"]
+        args = ["--chunk", chunk_name, "--silent"]
+    else:
+        args = ["--all", "--silent"]
+    if workers != 1:
+        args.extend(["--workers", str(workers)])
+    return args
 
 
-def object_args_for(chunk_name):
+def object_args_for(chunk_name, workers=1):
     """Build generate_objects_from_txt.py args for all chunks or one chunk."""
     if chunk_name:
-        return [chunk_name]
-    return ["--all"]
+        args = [chunk_name]
+    else:
+        args = ["--all"]
+    if workers != 1:
+        args.extend(["--workers", str(workers)])
+    return args
 
 
 # =============================================================================
@@ -761,6 +769,24 @@ def main():
         help='Limit chunk-scoped terrain/object stages to one chunk, e.g. chunk_n25_26',
     )
     parser.add_argument('--limit', type=int, default=0, help='Limit StaticMesh package count in Stage 8c')
+    parser.add_argument(
+        '--mesh-workers',
+        type=int,
+        default=1,
+        help='Worker processes for Stage 8c StaticMesh export; 0 uses all CPUs. Values above 1 skip StaticMesh SQLite writes.',
+    )
+    parser.add_argument(
+        '--object-workers',
+        type=int,
+        default=1,
+        help='Worker processes for Stage 8e object placement generation; 0 uses all CPUs.',
+    )
+    parser.add_argument(
+        '--terrain-workers',
+        type=int,
+        default=1,
+        help='Worker threads for Stage 8b terrain all-mode heightmap and GLB generation; 0 uses all CPUs.',
+    )
     
     args = parser.parse_args()
     
@@ -871,7 +897,7 @@ def main():
             "Terrain Extraction",
             "extract_all_terrain.py",
             silent=False,
-            args=terrain_args_for(args.chunk),
+            args=terrain_args_for(args.chunk, args.terrain_workers),
         )
         print_progress_bar(1, 1, prefix='   Terrain:', suffix='Complete  ', length=40)
         run_required_script(
@@ -890,6 +916,8 @@ def main():
         mesh_args = ["--silent"]
         if args.limit > 0:
             mesh_args.extend(["--limit", str(args.limit)])
+        if args.mesh_workers != 1:
+            mesh_args.extend(["--workers", str(args.mesh_workers)])
         run_required_extractor(
             "StaticMesh Pipeline",
             "staticmesh_pipeline.py",
@@ -917,7 +945,7 @@ def main():
             "Object Placement Generation",
             os.path.join("scripts", "generators", "generate_objects_from_txt.py"),
             silent=False,
-            args=object_args_for(args.chunk),
+            args=object_args_for(args.chunk, args.object_workers),
         )
     
     # Summary

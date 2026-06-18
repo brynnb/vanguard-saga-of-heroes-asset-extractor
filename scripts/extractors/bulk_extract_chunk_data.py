@@ -19,6 +19,8 @@ Output goes to: output/reference/Maps/<chunk_name>/ by default
   - object_list.txt      (index of all objects in the chunk)
 """
 
+import argparse
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import subprocess
 import os
 import re
@@ -81,25 +83,35 @@ def decompile_object(package_path, obj_path):
     return "\n".join(lines[start_index:])
 
 
-def process_chunk(vgr_path):
+def _resolve_workers(workers):
+    if workers < 1:
+        return os.cpu_count() or 1
+    return workers
+
+
+def process_chunk(vgr_path, verbose=True):
     """Process a single .vgr chunk file and extract terrain + placement data."""
     chunk_name = os.path.splitext(os.path.basename(vgr_path))[0]
     output_dir = os.path.join(OUTPUT_BASE, chunk_name)
 
-    print(f"\n  Processing: {chunk_name}", flush=True)
+    def log(message):
+        if verbose:
+            print(message, flush=True)
+
+    log(f"\n  Processing: {chunk_name}")
 
     # Step 1: Get object list
     try:
         objects = get_object_list(vgr_path)
     except subprocess.TimeoutExpired:
-        print(f"    TIMEOUT listing objects, skipping...", flush=True)
+        log(f"    TIMEOUT listing objects, skipping...")
         return None
     except Exception as e:
-        print(f"    ERROR listing objects: {e}", flush=True)
+        log(f"    ERROR listing objects: {e}")
         return None
 
     if not objects:
-        print(f"    No objects found", flush=True)
+        log(f"    No objects found")
         return None
 
     os.makedirs(output_dir, exist_ok=True)
@@ -128,7 +140,7 @@ def process_chunk(vgr_path):
 
     # Step 2: Extract TerrainInfo (the big prize - layers and blending data)
     if terrain_infos:
-        print(f"    Extracting {len(terrain_infos)} TerrainInfo(s)...", flush=True)
+        log(f"    Extracting {len(terrain_infos)} TerrainInfo(s)...")
         terrain_output = []
         for obj_class, obj_path in terrain_infos:
             try:
@@ -141,11 +153,11 @@ def process_chunk(vgr_path):
                 stats["terrain_layers"] = max(stats["terrain_layers"], layer_count)
                 stats["tile_data_entries"] = max(stats["tile_data_entries"], tile_count)
 
-                print(f"    + TerrainInfo: {layer_count} layers, {tile_count} tile entries", flush=True)
+                log(f"    + TerrainInfo: {layer_count} layers, {tile_count} tile entries")
             except subprocess.TimeoutExpired:
-                print(f"    TIMEOUT on TerrainInfo", flush=True)
+                log(f"    TIMEOUT on TerrainInfo")
             except Exception as e:
-                print(f"    ERROR on TerrainInfo: {e}", flush=True)
+                log(f"    ERROR on TerrainInfo: {e}")
 
         if terrain_output:
             with open(os.path.join(output_dir, "terrain_info.txt"), "w") as f:
@@ -153,7 +165,7 @@ def process_chunk(vgr_path):
 
     # Step 3: Extract CompoundObject placements
     if compound_objects:
-        print(f"    Extracting {len(compound_objects)} CompoundObject(s)...", flush=True)
+        log(f"    Extracting {len(compound_objects)} CompoundObject(s)...")
         placement_output = []
         for obj_class, obj_path in compound_objects:
             try:
@@ -167,7 +179,7 @@ def process_chunk(vgr_path):
         if placement_output:
             with open(os.path.join(output_dir, "objects.txt"), "w") as f:
                 f.write("\n\n".join(placement_output))
-            print(f"    + {len(placement_output)} placements extracted", flush=True)
+            log(f"    + {len(placement_output)} placements extracted")
 
     # Step 4: Extract other actors (quick pass)
     if actors:
@@ -186,24 +198,84 @@ def process_chunk(vgr_path):
     return stats
 
 
-def main():
-    os.makedirs(OUTPUT_BASE, exist_ok=True)
+def process_chunk_worker(vgr_path):
+    """Worker entry point for chunk-level parallel extraction."""
+    try:
+        return vgr_path, process_chunk(vgr_path, verbose=False), None
+    except Exception as exc:
+        return vgr_path, None, str(exc)
 
-    vgr_files = sorted([
-        os.path.join(VANGUARD_MAPS_DIR, f)
+
+def chunk_name_from_path(path):
+    return os.path.splitext(os.path.basename(path))[0]
+
+
+def select_vgr_files(chunk_names, limit):
+    all_files = {
+        chunk_name_from_path(os.path.join(VANGUARD_MAPS_DIR, f)): os.path.join(VANGUARD_MAPS_DIR, f)
         for f in os.listdir(VANGUARD_MAPS_DIR)
         if f.endswith(".vgr")
-    ])
+    }
+    if chunk_names:
+        selected = []
+        for chunk_name in chunk_names:
+            normalized = chunk_name[:-4] if chunk_name.endswith(".vgr") else chunk_name
+            if normalized in all_files:
+                selected.append(all_files[normalized])
+            else:
+                print(f"WARNING: chunk not found: {normalized}", file=sys.stderr, flush=True)
+    else:
+        selected = [all_files[name] for name in sorted(all_files)]
+    if limit > 0:
+        selected = selected[:limit]
+    return selected
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--chunk", action="append", default=[], help="Chunk name to process.")
+    parser.add_argument("--limit", type=int, default=0, help="Limit chunk count for testing.")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Chunk worker processes; 0 uses all CPUs.",
+    )
+    args = parser.parse_args()
+
+    os.makedirs(OUTPUT_BASE, exist_ok=True)
+
+    vgr_files = select_vgr_files(args.chunk, args.limit)
+    workers = min(_resolve_workers(args.workers), len(vgr_files)) if vgr_files else 1
 
     print(f"Vanguard Chunk Data Bulk Extractor", flush=True)
     print(f"Found {len(vgr_files)} .vgr files in {VANGUARD_MAPS_DIR}", flush=True)
     print(f"Output: {OUTPUT_BASE}", flush=True)
+    print(f"Workers: {workers}", flush=True)
 
     all_stats = []
-    for vgr_path in vgr_files:
-        stats = process_chunk(vgr_path)
-        if stats:
-            all_stats.append(stats)
+    if workers > 1:
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(process_chunk_worker, vgr_path) for vgr_path in vgr_files]
+            for completed, future in enumerate(as_completed(futures), start=1):
+                vgr_path, stats, error = future.result()
+                chunk_name = chunk_name_from_path(vgr_path)
+                if stats:
+                    all_stats.append(stats)
+                    print(
+                        f"[{completed}/{len(vgr_files)}] {chunk_name}: "
+                        f"objects={stats['total_objects']} compounds={stats['compound_objects']} "
+                        f"layers={stats['terrain_layers']} tiles={stats['tile_data_entries']}",
+                        flush=True,
+                    )
+                else:
+                    detail = f": {error}" if error else ""
+                    print(f"[{completed}/{len(vgr_files)}] {chunk_name}: FAILED{detail}", flush=True)
+    else:
+        for vgr_path in vgr_files:
+            stats = process_chunk(vgr_path)
+            if stats:
+                all_stats.append(stats)
 
     # Summary
     total_layers = sum(s["terrain_layers"] for s in all_stats)

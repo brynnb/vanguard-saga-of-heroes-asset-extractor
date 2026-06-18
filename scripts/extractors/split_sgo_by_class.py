@@ -87,23 +87,39 @@ def props_to_dict(props: list[dict]) -> dict:
 
     If a property appears multiple times across override/default blocks, the
     first non-None value wins for compatibility and every additional occurrence
-    is preserved under ``<name>__extra``.
+    is preserved under ``<name>__extra``. Object-property package details are
+    preserved alongside the compatible value as ``<name>__object_ref``.
     """
     out: dict = {}
     extras: dict = defaultdict(list)
+    ref_extras: dict = defaultdict(list)
     for p in props:
         name = p["name"]
         val = p["value"]
+        object_ref = p.get("object_ref")
+        ref_key = f"{name}__object_ref"
         if name not in out:
             out[name] = val
+            if object_ref is not None:
+                out[ref_key] = object_ref
         elif out[name] is None and val is not None:
             if name in out:
                 extras[name].append(out[name])
+            if ref_key in out:
+                ref_extras[name].append(out[ref_key])
             out[name] = val
+            if object_ref is not None:
+                out[ref_key] = object_ref
+            elif ref_key in out:
+                del out[ref_key]
         else:
             extras[name].append(val)
+            if object_ref is not None:
+                ref_extras[name].append(object_ref)
     for k, v in extras.items():
         out[f"{k}__extra"] = v
+    for k, v in ref_extras.items():
+        out[f"{k}__object_ref__extra"] = v
     return out
 
 

@@ -82,6 +82,12 @@ def cmd_setup(args: argparse.Namespace) -> None:
         command.extend(["--chunk", args.chunk])
     if args.limit:
         command.extend(["--limit", str(args.limit)])
+    if args.mesh_workers != 1:
+        command.extend(["--mesh-workers", str(args.mesh_workers)])
+    if args.object_workers != 1:
+        command.extend(["--object-workers", str(args.object_workers)])
+    if args.terrain_workers != 1:
+        command.extend(["--terrain-workers", str(args.terrain_workers)])
     run("Set up database and indexes", command, env)
 
 
@@ -102,6 +108,10 @@ def cmd_extract_all(args: argparse.Namespace) -> None:
         command.append("--no-reset")
     if args.limit_meshes:
         command.extend(["--limit-meshes", str(args.limit_meshes)])
+    if args.emfx_workers != 1:
+        command.extend(["--emfx-workers", str(args.emfx_workers)])
+    if args.clean_emfx:
+        command.append("--clean-emfx")
     if args.skip_unreal_library:
         command.append("--skip-unreal-library")
     if args.include_npc_assembly:
@@ -153,6 +163,8 @@ def cmd_extract_terrain(args: argparse.Namespace) -> None:
         command.append("--tiles")
     if args.texture_only:
         command.append("--texture-only")
+    if args.workers != 1:
+        command.extend(["--workers", str(args.workers)])
     run("Extract terrain", command, env)
 
 
@@ -167,6 +179,8 @@ def cmd_export_meshes(args: argparse.Namespace) -> None:
         command.append("--trees")
     if args.runtime_leaf_hybrids:
         command.append("--runtime-leaf-hybrids")
+    if args.workers != 1:
+        command.extend(["--workers", str(args.workers)])
     run("Export static meshes", command, env)
 
 
@@ -203,7 +217,12 @@ def cmd_export_characters(args: argparse.Namespace) -> None:
 
 def cmd_export_animations(args: argparse.Namespace) -> None:
     env = build_env(args)
-    run("Export EMotion FX animations", [sys.executable, "scripts/exporters/export_emfx_animations.py"], env)
+    emfx_command = [sys.executable, "scripts/exporters/export_emfx_animations.py"]
+    if args.emfx_workers != 1:
+        emfx_command.extend(["--workers", str(args.emfx_workers)])
+    if args.clean_emfx:
+        emfx_command.append("--clean")
+    run("Export EMotion FX animations", emfx_command, env)
     run("Export UE2 skeletal animations", [sys.executable, "scripts/exporters/export_animations.py"], env)
 
 
@@ -275,11 +294,25 @@ def cmd_extract_world(args: argparse.Namespace) -> None:
     )
     run("Split SGO actors by class", [sys.executable, "scripts/extractors/split_sgo_by_class.py"], env)
     run("Fold SGO extras into prefabs", [sys.executable, "scripts/extractors/fold_actors_into_prefabs.py"], env)
+    run("Extract particle texture refs", [sys.executable, "scripts/extractors/extract_particle_textures.py"], env)
+    run(
+        "Generate particle emitter manifest",
+        [sys.executable, "scripts/generators/generate_particle_manifest.py"],
+        env,
+    )
 
     if args.generate_objects:
+        object_command = [sys.executable, "scripts/generators/generate_objects_from_txt.py", "--all"]
+        if args.object_workers != 1:
+            object_command.extend(["--workers", str(args.object_workers)])
         run(
             "Generate chunk object placement glTF files",
-            [sys.executable, "scripts/generators/generate_objects_from_txt.py", "--all"],
+            object_command,
+            env,
+        )
+        run(
+            "Generate particle emitter cell indexes",
+            [sys.executable, "scripts/generators/generate_particle_cell_index.py", "--all"],
             env,
         )
 
@@ -347,6 +380,24 @@ def build_parser() -> argparse.ArgumentParser:
     setup.add_argument("--objects", action="store_true", help="Generate object placement sidecars")
     setup.add_argument("--chunk", help="Limit chunk-scoped setup stages to one chunk")
     setup.add_argument("--limit", type=int, default=0, help="Limit StaticMesh package count")
+    setup.add_argument(
+        "--mesh-workers",
+        type=int,
+        default=1,
+        help="Worker processes for StaticMesh export; 0 uses all CPUs. Values above 1 skip StaticMesh SQLite writes.",
+    )
+    setup.add_argument(
+        "--object-workers",
+        type=int,
+        default=1,
+        help="Worker processes for object placement generation; 0 uses all CPUs.",
+    )
+    setup.add_argument(
+        "--terrain-workers",
+        type=int,
+        default=1,
+        help="Worker threads for terrain all-mode heightmap and GLB generation; 0 uses all CPUs.",
+    )
     setup.set_defaults(func=cmd_setup)
 
     extract_all = subparsers.add_parser("extract-all", help="Run the full extraction pipeline")
@@ -359,6 +410,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     extract_all.add_argument("--no-reset", action="store_true", help="Do not delete/rebuild the SQLite DB")
     extract_all.add_argument("--limit-meshes", type=int, default=0, help="Limit static mesh packages during testing")
+    extract_all.add_argument(
+        "--emfx-workers",
+        type=int,
+        default=1,
+        help="Worker processes for EMotion FX animation export; 0 uses all CPUs.",
+    )
+    extract_all.add_argument(
+        "--clean-emfx",
+        action="store_true",
+        help="Delete output/meshes/emfx_animations before exporting EMotion FX animations.",
+    )
     extract_all.add_argument("--skip-unreal-library", action="store_true", help="Skip Unreal-Library-dependent steps")
     extract_all.add_argument(
         "--include-npc-assembly",
@@ -380,6 +442,12 @@ def build_parser() -> argparse.ArgumentParser:
     terrain.add_argument("--hd", action="store_true", help="Extract high-detail stitched terrain tiles")
     terrain.add_argument("--tiles", action="store_true", help="Export HD tiles for LOD streaming")
     terrain.add_argument("--texture-only", action="store_true", help="Only extract terrain color textures")
+    terrain.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Worker threads for all-mode heightmap and GLB generation; 0 uses all CPUs.",
+    )
     terrain.set_defaults(func=cmd_extract_terrain)
 
     meshes = subparsers.add_parser("export-meshes", help="Export static meshes to glTF")
@@ -388,6 +456,12 @@ def build_parser() -> argparse.ArgumentParser:
     meshes.add_argument("--limit", type=int, default=0, help="Limit number of files to process")
     meshes.add_argument("--trees", action="store_true", help="Only process tree meshes")
     meshes.add_argument("--runtime-leaf-hybrids", action="store_true", help="Write SpeedTree runtime leaf hybrid assets")
+    meshes.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Worker processes for package-level export; 0 uses all CPUs. Values above 1 skip SQLite writes.",
+    )
     meshes.set_defaults(func=cmd_export_meshes)
 
     characters = subparsers.add_parser("export-characters", help="Export character meshes and race metadata")
@@ -397,6 +471,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     animations = subparsers.add_parser("export-animations", help="Export EMotion FX and UE2 skeletal animations")
     add_path_options(animations)
+    animations.add_argument(
+        "--workers",
+        "--emfx-workers",
+        dest="emfx_workers",
+        type=int,
+        default=1,
+        help="Worker processes for EMotion FX animation export; 0 uses all CPUs.",
+    )
+    animations.add_argument(
+        "--clean-emfx",
+        action="store_true",
+        help="Delete output/meshes/emfx_animations before exporting EMotion FX animations.",
+    )
     animations.set_defaults(func=cmd_export_animations)
 
     facial_controls = subparsers.add_parser(
@@ -424,6 +511,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--generate-objects",
         action="store_true",
         help="Also generate chunk object placement glTF files from reference text",
+    )
+    world.add_argument(
+        "--object-workers",
+        type=int,
+        default=1,
+        help="Worker processes for object placement generation; 0 uses all CPUs.",
     )
     world.set_defaults(func=cmd_extract_world)
 

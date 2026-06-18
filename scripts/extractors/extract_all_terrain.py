@@ -11,6 +11,7 @@ Usage:
 
 import numpy as np
 from PIL import Image, ImageFilter
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 import struct
 import json
 import base64
@@ -40,22 +41,31 @@ DB_PATH = config.DB_PATH
 VANGUARD_MAPS = os.path.join(config.ASSETS_PATH, "Maps")
 OUTPUT_DIR = config.TERRAIN_GRID_DIR
 
-# Pre-extracted terrain info from Unreal-Library (reliable layer/tile data)
-TERRAIN_INFO_DIR = os.path.join(
+def _configured_reference_dir(configured_path, legacy_path):
+    """Prefer this extractor's configured reference output, with old layouts as fallback."""
+    if os.path.isdir(configured_path):
+        return configured_path
+    if os.path.isdir(legacy_path):
+        return legacy_path
+    return configured_path
+
+
+_LEGACY_REFERENCE_ROOT = os.path.join(
     os.path.dirname(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     ),
     "vanguard-client",
     "reference",
-    "Maps",
 )
-SHADER_INFO_DIR = os.path.join(
-    os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    ),
-    "vanguard-client",
-    "reference",
-    "Shaders",
+
+# Pre-extracted terrain info from Unreal-Library (reliable layer/tile data)
+TERRAIN_INFO_DIR = _configured_reference_dir(
+    config.REFERENCE_MAPS_DIR,
+    os.path.join(_LEGACY_REFERENCE_ROOT, "Maps"),
+)
+SHADER_INFO_DIR = _configured_reference_dir(
+    os.path.join(config.REFERENCE_DIR, "Shaders"),
+    os.path.join(_LEGACY_REFERENCE_ROOT, "Shaders"),
 )
 
 # Vanguard-specific terrain decoding constants
@@ -73,7 +83,7 @@ TERRAIN_WEIGHT_MASK_SMOOTHING_RADIUS = 3.0
 TERRAIN_LAYER_SCHEMA = "vges_terrain_chunk_layers"
 TERRAIN_LAYER_SCHEMA_VERSION = 2
 TERRAIN_MATERIAL_LIBRARY_SCHEMA = "vges_terrain_material_library"
-TERRAIN_MATERIAL_LIBRARY_VERSION = 1
+TERRAIN_MATERIAL_LIBRARY_VERSION = 2
 TERRAIN_MATERIAL_LIBRARY_NAME = "global"
 TERRAIN_MATERIAL_LIBRARY_DIR = os.path.join(
     "terrain_material_libraries", TERRAIN_MATERIAL_LIBRARY_NAME
@@ -99,7 +109,7 @@ def print_progress_bar(
     percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
     filled_length = int(length * iteration // total)
     bar = fill * filled_length + "-" * (length - filled_length)
-    print(f"\r{prefix} |{bar}| {percent}% {suffix}", end=print_end)
+    print(f"\r{prefix} |{bar}| {percent}% {suffix}", end=print_end, flush=True)
     if iteration == total:
         print()
 
@@ -1422,13 +1432,19 @@ def _terrain_material_source_image(record, atlas_kind):
 
 
 def _save_terrain_atlas(material_names, shader_metadata_cache, atlas_kind, fill_color, path):
-    cols, _rows, _width, _height, stride = _terrain_atlas_layout(len(material_names))
+    cols, rows, _width, _height, stride = _terrain_atlas_layout(len(material_names))
     atlas = Image.new("RGB", (_width, _height), fill_color)
+    fallback_image = None
     for index, material_name in enumerate(material_names):
         record = shader_metadata_cache.get(material_name)
         source = _terrain_material_source_image(record, atlas_kind)
         image = _resize_terrain_source_image(source, fill_color)
+        if source is not None:
+            fallback_image = image
         _blit_terrain_atlas_cell(atlas, image, index, cols, stride)
+    if fallback_image is not None:
+        for index in range(len(material_names), cols * rows):
+            _blit_terrain_atlas_cell(atlas, fallback_image, index, cols, stride)
     atlas.save(path)
 
 
@@ -1441,6 +1457,8 @@ def _material_library_needs_rebuild(manifest_path, material_names):
     except Exception:
         return True
     if existing.get("schema") != TERRAIN_MATERIAL_LIBRARY_SCHEMA:
+        return True
+    if int(existing.get("version", 0)) != TERRAIN_MATERIAL_LIBRARY_VERSION:
         return True
     return list(existing.get("materials", {}).keys()) != material_names
 
@@ -2363,7 +2381,105 @@ def get_all_chunks():
     )
 
 
-def export_hd_layer_bundles(chunks, output_dir, silent=False, packages=None):
+def _resolve_workers(workers):
+    if workers < 1:
+        return os.cpu_count() or 1
+    return workers
+
+
+def load_heightmap_for_chunk(chunk):
+    vgr_path = os.path.join(VANGUARD_MAPS, f"{chunk}.vgr")
+    if not os.path.exists(vgr_path):
+        return chunk, None, None, "VGR not found"
+    try:
+        pkg = UE2Package(vgr_path)
+        heights, _grid_size = extract_g16_heightmap(pkg, chunk)
+        if heights is None:
+            return chunk, None, None, "NO HEIGHTMAP"
+        return chunk, heights, pkg, None
+    except Exception as exc:
+        return chunk, None, None, str(exc)
+
+
+def generate_stitched_terrain_for_chunk(chunk, heights, pkg, output_dir):
+    try:
+        grid_w = grid_h = heights.shape[0]
+        color_image = extract_color_texture(pkg, chunk)
+        quad_visibility = extract_quad_visibility(pkg)
+        output_path = os.path.join(output_dir, f"{chunk}_terrain.glb")
+        os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+        generate_terrain_gltf(
+            heights,
+            color_image,
+            output_path,
+            chunk,
+            grid_w,
+            grid_h,
+            quad_visibility=quad_visibility,
+        )
+        extract_grass_alpha(pkg, chunk)
+        return {
+            "chunk_name": chunk,
+            "grid_w": grid_w,
+            "grid_h": grid_h,
+            "hd": False,
+        }, None
+    except Exception as exc:
+        return None, str(exc)
+
+
+def resolve_hd_layer_chunk_for_export(chunk):
+    """Resolve a chunk's HD layer metadata without returning texture images."""
+    vgr_path = os.path.join(VANGUARD_MAPS, f"{chunk}.vgr")
+    if not os.path.exists(vgr_path):
+        return {"chunk": chunk, "status": "failed", "error": "VGR not found"}
+    try:
+        pkg = UE2Package(vgr_path)
+        resolved = _resolve_layer_textures(pkg, chunk)
+        if not resolved or not resolved[0]:
+            return {"chunk": chunk, "status": "skipped", "reason": "no HD layer data"}
+        shader_images, num_layers, all_layers, tile_layer_data = resolved
+        return {
+            "chunk": chunk,
+            "status": "resolved",
+            "material_names": sorted(shader_images.keys(), key=lambda value: value.lower()),
+            "num_layers": num_layers,
+            "all_layers": all_layers,
+            "tile_layer_data": tile_layer_data,
+        }
+    except Exception as exc:
+        return {"chunk": chunk, "status": "failed", "error": str(exc)}
+
+
+def export_hd_layer_chunk_from_resolved(chunk, output_dir, material_library, resolved_record):
+    vgr_path = os.path.join(VANGUARD_MAPS, f"{chunk}.vgr")
+    if not os.path.exists(vgr_path):
+        return {"chunk": chunk, "status": "failed", "error": "VGR not found"}
+    try:
+        material_names = resolved_record.get("material_names", [])
+        resolved_layers = (
+            {name: True for name in material_names},
+            int(resolved_record.get("num_layers", 0)),
+            resolved_record.get("all_layers", []),
+            resolved_record.get("tile_layer_data", {}),
+        )
+        pkg = UE2Package(vgr_path)
+        layers_dir = export_hd_layer_data(
+            pkg,
+            chunk,
+            output_dir,
+            material_library=material_library,
+            resolved_layers=resolved_layers,
+            silent=True,
+        )
+        if layers_dir:
+            return {"chunk": chunk, "status": "success"}
+        return {"chunk": chunk, "status": "skipped", "reason": "no HD layer data"}
+    except Exception as exc:
+        return {"chunk": chunk, "status": "failed", "error": str(exc)}
+
+
+def export_hd_layer_bundles(chunks, output_dir, silent=False, packages=None, workers=1):
     """Export Godot terrain layer chunks and their shared material library."""
     successful = []
     skipped = []
@@ -2372,48 +2488,86 @@ def export_hd_layer_bundles(chunks, output_dir, silent=False, packages=None):
     resolved_by_chunk = {}
     package_by_chunk = {}
     material_names = set()
+    workers = min(_resolve_workers(workers), len(chunks)) if chunks else 1
+    use_process_workers = workers > 1 and not packages
 
     if not silent:
-        print(f"Exporting terrain layer data for {len(chunks)} chunks...")
+        worker_note = f" with {workers} workers" if use_process_workers else ""
+        print(f"Exporting terrain layer data for {len(chunks)} chunks{worker_note}...", flush=True)
 
-    for i, chunk in enumerate(chunks):
-        vgr_path = os.path.join(VANGUARD_MAPS, f"{chunk}.vgr")
-        if chunk in packages:
-            pkg = packages[chunk]
-        elif os.path.exists(vgr_path):
+    if use_process_workers:
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(resolve_hd_layer_chunk_for_export, chunk): chunk for chunk in chunks
+            }
+            for i, future in enumerate(as_completed(futures), start=1):
+                chunk = futures[future]
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    result = {"chunk": chunk, "status": "failed", "error": str(exc)}
+                status = result.get("status", "failed")
+                if status == "resolved":
+                    resolved_by_chunk[chunk] = result
+                    material_names.update(result.get("material_names", []))
+                elif status == "skipped":
+                    skipped.append(chunk)
+                else:
+                    failed.append(chunk)
+                    if not silent:
+                        print(f"\n  {chunk}: ERROR {result.get('error', 'unknown error')}", flush=True)
+                print_progress_bar(
+                    i,
+                    len(chunks),
+                    prefix="   Terrain layers scan:",
+                    suffix=(
+                        f"({i}/{len(chunks)}) ok={len(resolved_by_chunk)} "
+                        f"skip={len(skipped)} fail={len(failed)}"
+                    ),
+                    length=40,
+                )
+    else:
+        for i, chunk in enumerate(chunks):
+            vgr_path = os.path.join(VANGUARD_MAPS, f"{chunk}.vgr")
+            if chunk in packages:
+                pkg = packages[chunk]
+            elif os.path.exists(vgr_path):
+                try:
+                    pkg = UE2Package(vgr_path)
+                except Exception as e:
+                    failed.append(chunk)
+                    if not silent:
+                        print(f"  {chunk}: ERROR {e}", flush=True)
+                    continue
+            else:
+                failed.append(chunk)
+                if not silent:
+                    print(f"  {chunk}: VGR not found", flush=True)
+                continue
+
             try:
-                pkg = UE2Package(vgr_path)
+                resolved = _resolve_layer_textures(pkg, chunk)
+                if not resolved or not resolved[0]:
+                    skipped.append(chunk)
+                    if not silent:
+                        print(f"  {chunk}: no HD layer data", flush=True)
+                    continue
+                resolved_by_chunk[chunk] = resolved
+                package_by_chunk[chunk] = pkg
+                material_names.update(resolved[0].keys())
             except Exception as e:
                 failed.append(chunk)
                 if not silent:
-                    print(f"  {chunk}: ERROR {e}")
-                continue
-        else:
-            failed.append(chunk)
-            if not silent:
-                print(f"  {chunk}: VGR not found")
-            continue
+                    print(f"  {chunk}: ERROR {e}", flush=True)
 
-        try:
-            resolved = _resolve_layer_textures(pkg, chunk)
-            if not resolved or not resolved[0]:
-                skipped.append(chunk)
-                if not silent:
-                    print(f"  {chunk}: no HD layer data")
-                continue
-            resolved_by_chunk[chunk] = resolved
-            package_by_chunk[chunk] = pkg
-            material_names.update(resolved[0].keys())
-        except Exception as e:
-            failed.append(chunk)
-            if not silent:
-                print(f"  {chunk}: ERROR {e}")
-
-        if silent:
             print_progress_bar(
-                i + 1, len(chunks),
+                i + 1,
+                len(chunks),
                 prefix="   Terrain layers scan:",
-                suffix=f"({i+1}/{len(chunks)})",
+                suffix=(
+                    f"({i+1}/{len(chunks)}) ok={len(resolved_by_chunk)} "
+                    f"skip={len(skipped)} fail={len(failed)}"
+                ),
                 length=40,
             )
 
@@ -2422,36 +2576,72 @@ def export_hd_layer_bundles(chunks, output_dir, silent=False, packages=None):
         return [], skipped, sorted(set(failed + list(resolved_by_chunk.keys())))
 
     export_chunks = list(resolved_by_chunk.keys())
-    for i, chunk in enumerate(export_chunks):
-        try:
-            layers_dir = export_hd_layer_data(
-                package_by_chunk[chunk],
-                chunk,
-                output_dir,
-                material_library=material_library,
-                resolved_layers=resolved_by_chunk[chunk],
-                silent=silent,
-            )
-            if layers_dir:
-                successful.append(chunk)
+    if use_process_workers:
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(
+                    export_hd_layer_chunk_from_resolved,
+                    chunk,
+                    output_dir,
+                    material_library,
+                    resolved_by_chunk[chunk],
+                ): chunk
+                for chunk in export_chunks
+            }
+            for i, future in enumerate(as_completed(futures), start=1):
+                chunk = futures[future]
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    result = {"chunk": chunk, "status": "failed", "error": str(exc)}
+                status = result.get("status", "failed")
+                if status == "success":
+                    successful.append(chunk)
+                elif status == "skipped":
+                    skipped.append(chunk)
+                else:
+                    failed.append(chunk)
+                    if not silent:
+                        print(f"\n  {chunk}: ERROR {result.get('error', 'unknown error')}", flush=True)
+                print_progress_bar(
+                    i,
+                    len(export_chunks),
+                    prefix="   Terrain layers write:",
+                    suffix=f"({i}/{len(export_chunks)}) ok={len(successful)} fail={len(failed)}",
+                    length=40,
+                )
+    else:
+        for i, chunk in enumerate(export_chunks):
+            try:
+                layers_dir = export_hd_layer_data(
+                    package_by_chunk[chunk],
+                    chunk,
+                    output_dir,
+                    material_library=material_library,
+                    resolved_layers=resolved_by_chunk[chunk],
+                    silent=silent,
+                )
+                if layers_dir:
+                    successful.append(chunk)
+                    if not silent:
+                        print(f"  {chunk}: OK", flush=True)
+                else:
+                    skipped.append(chunk)
+                    if not silent:
+                        print(f"  {chunk}: no HD layer data", flush=True)
+            except Exception as e:
+                failed.append(chunk)
                 if not silent:
-                    print(f"  {chunk}: OK")
-            else:
-                skipped.append(chunk)
-                if not silent:
-                    print(f"  {chunk}: no HD layer data")
-        except Exception as e:
-            failed.append(chunk)
-            if not silent:
-                print(f"  {chunk}: ERROR {e}")
+                    print(f"  {chunk}: ERROR {e}", flush=True)
 
-        if silent and export_chunks:
-            print_progress_bar(
-                i + 1, len(export_chunks),
-                prefix="   Terrain layers write:",
-                suffix=f"({i+1}/{len(export_chunks)})",
-                length=40,
-            )
+            if export_chunks:
+                print_progress_bar(
+                    i + 1,
+                    len(export_chunks),
+                    prefix="   Terrain layers write:",
+                    suffix=f"({i+1}/{len(export_chunks)}) ok={len(successful)} fail={len(failed)}",
+                    length=40,
+                )
 
     return successful, skipped, failed
 
@@ -2487,6 +2677,18 @@ def main():
         action="store_true",
         help="Skip Godot terrain layer data export during normal terrain extraction",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Chunk workers for all-mode extraction and HD layer export; 0 uses all CPUs.",
+    )
+    parser.add_argument(
+        "--limit-chunks",
+        type=int,
+        default=0,
+        help="Debug/smoke chunk limit with --all.",
+    )
     args = parser.parse_args()
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -2495,12 +2697,14 @@ def main():
 
     if args.hd_layers:
         chunks = get_all_chunks() if args.all else [args.chunk] if args.chunk else []
+        if args.limit_chunks > 0:
+            chunks = chunks[: args.limit_chunks]
         if not chunks:
             print("Usage: python extract_all_terrain.py --hd-layers --all")
             print("       python extract_all_terrain.py --hd-layers --chunk chunk_n25_26")
             return
         successful, skipped, failed = export_hd_layer_bundles(
-            chunks, OUTPUT_DIR, silent=args.silent
+            chunks, OUTPUT_DIR, silent=args.silent, workers=args.workers
         )
         if not args.silent:
             print(
@@ -2514,6 +2718,8 @@ def main():
     # Texture-only mode: just extract PNGs
     if args.texture_only:
         chunks = get_all_chunks() if args.all else [args.chunk] if args.chunk else []
+        if args.limit_chunks > 0:
+            chunks = chunks[: args.limit_chunks]
         print(f"Extracting textures for {len(chunks)} chunks...")
         for chunk in chunks:
             vgr_path = os.path.join(VANGUARD_MAPS, f"{chunk}.vgr")
@@ -2535,6 +2741,8 @@ def main():
     # Tiles mode: export individual HD tiles for LOD streaming
     if args.tiles:
         chunks = get_all_chunks() if args.all else [args.chunk] if args.chunk else []
+        if args.limit_chunks > 0:
+            chunks = chunks[: args.limit_chunks]
         print(f"Exporting HD tiles for {len(chunks)} chunks...")
         for chunk in chunks:
             vgr_path = os.path.join(VANGUARD_MAPS, f"{chunk}.vgr")
@@ -2561,11 +2769,16 @@ def main():
 
     if args.all:
         chunks = get_all_chunks()
+        if args.limit_chunks > 0:
+            chunks = chunks[: args.limit_chunks]
         if not args.silent:
             print(f"Processing {len(chunks)} chunks...")
             print()
 
         total_chunks = len(chunks)
+        workers = min(_resolve_workers(args.workers), total_chunks) if total_chunks else 1
+        if workers > 1 and not args.silent:
+            print(f"Workers: {workers}")
 
         # Two-pass extraction with edge stitching for standard terrain
         # Pass 1: Extract all raw heightmaps
@@ -2573,27 +2786,40 @@ def main():
             print("Pass 1: Extracting heightmaps...")
         all_heights = {}
         all_pkgs = {}
-        for i, chunk in enumerate(chunks):
-            vgr_path = os.path.join(VANGUARD_MAPS, f"{chunk}.vgr")
-            if not os.path.exists(vgr_path):
-                failed.append(chunk)
-                continue
-            try:
-                pkg = UE2Package(vgr_path)
-                heights, grid_size = extract_g16_heightmap(pkg, chunk)
-                if heights is not None:
+        if workers > 1:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = {executor.submit(load_heightmap_for_chunk, chunk): chunk for chunk in chunks}
+                for i, future in enumerate(as_completed(futures), start=1):
+                    chunk, heights, pkg, error = future.result()
+                    if heights is not None and pkg is not None:
+                        all_heights[chunk] = heights
+                        all_pkgs[chunk] = pkg
+                    else:
+                        failed.append(chunk)
+                        if not args.silent:
+                            print(f"  {chunk}: {error}")
+                    print_progress_bar(
+                        i, total_chunks,
+                        prefix="   Heightmaps:",
+                        suffix=f"({i}/{total_chunks})",
+                        length=40,
+                    )
+        else:
+            for i, chunk in enumerate(chunks):
+                chunk, heights, pkg, error = load_heightmap_for_chunk(chunk)
+                if heights is not None and pkg is not None:
                     all_heights[chunk] = heights
                     all_pkgs[chunk] = pkg
                 else:
                     failed.append(chunk)
-            except Exception:
-                failed.append(chunk)
-            print_progress_bar(
-                i + 1, total_chunks,
-                prefix="   Heightmaps:",
-                suffix=f"({i+1}/{total_chunks})",
-                length=40,
-            )
+                    if not args.silent:
+                        print(f"  {chunk}: {error}")
+                print_progress_bar(
+                    i + 1, total_chunks,
+                    prefix="   Heightmaps:",
+                    suffix=f"({i+1}/{total_chunks})",
+                    length=40,
+                )
 
         # Pass 2: Stitch edges
         if not args.silent:
@@ -2605,39 +2831,57 @@ def main():
 
         # Pass 3: Generate GLBs with stitched heightmaps
         gen_chunks = list(all_heights.keys())
-        for i, chunk in enumerate(gen_chunks):
-            try:
-                heights = all_heights[chunk]
-                pkg = all_pkgs[chunk]
-                grid_w = grid_h = heights.shape[0]
-                color_image = extract_color_texture(pkg, chunk)
-                quad_visibility = extract_quad_visibility(pkg)
-                output_path = os.path.join(OUTPUT_DIR, f"{chunk}_terrain.glb")
-                os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
-                generate_terrain_gltf(
-                    heights, color_image, output_path, chunk, grid_w, grid_h,
-                    quad_visibility=quad_visibility
+        if workers > 1:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = {
+                    executor.submit(
+                        generate_stitched_terrain_for_chunk,
+                        chunk,
+                        all_heights[chunk],
+                        all_pkgs[chunk],
+                        OUTPUT_DIR,
+                    ): chunk
+                    for chunk in gen_chunks
+                }
+                for i, future in enumerate(as_completed(futures), start=1):
+                    chunk = futures[future]
+                    result, error = future.result()
+                    if result:
+                        successful.append(result)
+                    else:
+                        failed.append(chunk)
+                        if not args.silent:
+                            print(f"  {chunk}: ERROR {error}")
+                    print_progress_bar(
+                        i, len(gen_chunks),
+                        prefix="   GLBs:",
+                        suffix=f"({i}/{len(gen_chunks)})",
+                        length=40,
+                    )
+        else:
+            for i, chunk in enumerate(gen_chunks):
+                result, error = generate_stitched_terrain_for_chunk(
+                    chunk,
+                    all_heights[chunk],
+                    all_pkgs[chunk],
+                    OUTPUT_DIR,
                 )
-                # Extract GrassAlpha
-                extract_grass_alpha(pkg, chunk)
-                successful.append({
-                    "chunk_name": chunk,
-                    "grid_w": grid_w,
-                    "grid_h": grid_h,
-                    "hd": False,
-                })
-            except Exception:
-                failed.append(chunk)
-            print_progress_bar(
-                i + 1, len(gen_chunks),
-                prefix="   GLBs:",
-                suffix=f"({i+1}/{len(gen_chunks)})",
-                length=40,
-            )
+                if result:
+                    successful.append(result)
+                else:
+                    failed.append(chunk)
+                    if not args.silent:
+                        print(f"  {chunk}: ERROR {error}")
+                print_progress_bar(
+                    i + 1, len(gen_chunks),
+                    prefix="   GLBs:",
+                    suffix=f"({i+1}/{len(gen_chunks)})",
+                    length=40,
+                )
 
         if not args.skip_hd_layers:
             hd_successful, hd_skipped, hd_failed = export_hd_layer_bundles(
-                gen_chunks, OUTPUT_DIR, silent=args.silent, packages=all_pkgs
+                gen_chunks, OUTPUT_DIR, silent=args.silent, packages=all_pkgs, workers=args.workers
             )
             hd_successful_set = set(hd_successful)
             for entry in successful:

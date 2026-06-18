@@ -13,7 +13,14 @@ Output:
 
 The manifest maps mesh package names to their animation files.
 """
-import os, sys, json, glob, traceback
+import argparse
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import glob
+import json
+import os
+import shutil
+import sys
+import traceback
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
@@ -28,7 +35,6 @@ from vanguard_emfxmesh import parse_emfxmesh_export
 MESH_DIR = os.path.join(config.ASSETS_PATH, "Characters", "Meshes")
 ANIM_DIR = os.path.join(config.ASSETS_PATH, "Characters", "Animations")
 OUT_DIR = os.path.join(ROOT, "output", "meshes", "emfx_animations")
-os.makedirs(OUT_DIR, exist_ok=True)
 
 
 def extract_animset_from_uem(uem_path):
@@ -104,7 +110,165 @@ def extract_mesh_bind_positions(uem_path):
     return None
 
 
-def main():
+def extract_mesh_bind_pose(uem_path):
+    """Extract per-bone bind rotations and positions from a .uem mesh package."""
+    try:
+        pkg = UE2Package(uem_path)
+    except Exception:
+        return None, None
+
+    for exp in pkg.exports:
+        class_name = exp.get("class_name", "")
+        if class_name != "EMFXMesh":
+            continue
+        try:
+            data = pkg.get_export_data(exp)
+            mesh = parse_emfxmesh_export(data)
+            if mesh and mesh.nodes:
+                return (
+                    {node.name: node.rotation for node in mesh.nodes},
+                    {node.name: node.position for node in mesh.nodes},
+                )
+        except Exception:
+            continue
+    return None, None
+
+
+def _resolve_worker_count(value):
+    if value <= 0:
+        return max(1, os.cpu_count() or 1)
+    return max(1, value)
+
+
+def _scan_uem_animset_job(uem_path):
+    pkg_name = os.path.splitext(os.path.basename(uem_path))[0]
+    return {
+        "pkg_name": pkg_name,
+        "uem_path": uem_path,
+        "uea_names": extract_animset_from_uem(uem_path),
+    }
+
+
+def _extract_mesh_bind_pose_job(job):
+    mesh_name, uem_path = job
+    bind_rots, bind_pos = extract_mesh_bind_pose(uem_path)
+    return {
+        "mesh_name": mesh_name,
+        "bind_rots": bind_rots,
+        "bind_pos": bind_pos,
+    }
+
+
+def _export_uea_package_job(job):
+    uea_name, uea_path, bind_rots, bind_pos, out_dir = job
+    result = {
+        "uea_name": uea_name,
+        "clips": [],
+        "exported": 0,
+        "failed": 0,
+        "errors": [],
+    }
+    try:
+        pkg = UE2Package(uea_path)
+    except Exception as exc:
+        result["failed"] += 1
+        result["errors"].append(f"SKIP {uea_name}: failed to open package: {exc}")
+        return result
+
+    pkg_out_dir = os.path.join(out_dir, uea_name)
+    os.makedirs(pkg_out_dir, exist_ok=True)
+    for exp in pkg.exports:
+        class_name = exp.get("class_name", "")
+        if class_name != "EMFXAnim":
+            continue
+
+        obj_name = exp.get("object_name", "unknown")
+        try:
+            data = pkg.get_export_data(exp)
+            anim = parse_emfxanim_export(data)
+            if not anim.submotions:
+                continue
+
+            out_path = os.path.join(pkg_out_dir, f"{obj_name}.gltf")
+            export_result = export_emfxanim_gltf(
+                anim,
+                obj_name,
+                out_path,
+                mesh_bind_rotations=bind_rots,
+                mesh_bind_positions=bind_pos,
+            )
+            if export_result:
+                rel_path = f"{uea_name}/{obj_name}.gltf"
+                result["clips"].append(
+                    {
+                        "name": obj_name,
+                        "path": rel_path,
+                        "bones": len(anim.submotions),
+                        "duration": anim.duration,
+                    }
+                )
+                result["exported"] += 1
+            else:
+                result["failed"] += 1
+        except Exception:
+            result["failed"] += 1
+            result["errors"].append(
+                f"{uea_name}/{obj_name}: {traceback.format_exc().strip()}"
+            )
+    return result
+
+
+def _run_jobs(label, jobs, worker_count, job_func, progress_every):
+    if not jobs:
+        return []
+    if worker_count == 1:
+        results = []
+        for index, job in enumerate(jobs, 1):
+            results.append(job_func(job))
+            if progress_every > 0 and (index == len(jobs) or index % progress_every == 0):
+                print(f"  {label}: {index}/{len(jobs)}")
+        return results
+
+    results = []
+    with ProcessPoolExecutor(max_workers=worker_count) as executor:
+        futures = [executor.submit(job_func, job) for job in jobs]
+        for index, future in enumerate(as_completed(futures), 1):
+            results.append(future.result())
+            if progress_every > 0 and (index == len(jobs) or index % progress_every == 0):
+                print(f"  {label}: {index}/{len(jobs)}")
+    return results
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Worker processes for UEM scanning and UEA package export; 0 uses all CPUs.",
+    )
+    parser.add_argument(
+        "--progress-every",
+        type=int,
+        default=25,
+        help="Print progress after this many completed jobs; 0 disables progress messages.",
+    )
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Delete output/meshes/emfx_animations before exporting.",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    worker_count = _resolve_worker_count(args.workers)
+    if args.clean and os.path.isdir(OUT_DIR):
+        shutil.rmtree(OUT_DIR)
+    os.makedirs(OUT_DIR, exist_ok=True)
+    print(f"Using {worker_count} EMFX worker process{'es' if worker_count != 1 else ''}")
+
     # --- Phase 1: Scan all .uem files to build mesh → UEA mapping ---
     uem_files = sorted(glob.glob(os.path.join(MESH_DIR, "*.uem")))
     print(f"Scanning {len(uem_files)} .uem files for AnimSet references...")
@@ -112,9 +276,16 @@ def main():
     mesh_to_uea = {}  # mesh_pkg_name -> [uea_pkg_names]
     all_uea_names = set()
 
-    for uem_path in uem_files:
-        pkg_name = os.path.splitext(os.path.basename(uem_path))[0]
-        uea_names = extract_animset_from_uem(uem_path)
+    scan_results = _run_jobs(
+        "Scanned UEM packages",
+        uem_files,
+        worker_count,
+        _scan_uem_animset_job,
+        args.progress_every,
+    )
+    for result in sorted(scan_results, key=lambda item: item["pkg_name"].lower()):
+        pkg_name = result["pkg_name"]
+        uea_names = result["uea_names"]
         if uea_names:
             mesh_to_uea[pkg_name] = uea_names
             all_uea_names.update(uea_names)
@@ -142,16 +313,24 @@ def main():
     # Map each UEA package to the bind rotations/positions from its first referencing mesh.
     uea_to_bind_rots = {}  # uea_pkg_name -> {bone_name: (qx,qy,qz,qw)}
     uea_to_bind_pos = {}   # uea_pkg_name -> {bone_name: (px,py,pz)}
-    mesh_bind_cache = {}   # uem_path -> (rots, pos)
+    bind_jobs = [
+        (mesh_name, os.path.join(MESH_DIR, mesh_name + ".uem"))
+        for mesh_name in mesh_to_uea.keys()
+    ]
+    bind_results = _run_jobs(
+        "Loaded mesh bind poses",
+        bind_jobs,
+        worker_count,
+        _extract_mesh_bind_pose_job,
+        args.progress_every,
+    )
+    bind_by_mesh = {
+        result["mesh_name"]: (result["bind_rots"], result["bind_pos"])
+        for result in bind_results
+    }
 
     for mesh_name, uea_names in mesh_to_uea.items():
-        uem_path = os.path.join(MESH_DIR, mesh_name + ".uem")
-        if uem_path not in mesh_bind_cache:
-            mesh_bind_cache[uem_path] = (
-                extract_mesh_bind_rotations(uem_path),
-                extract_mesh_bind_positions(uem_path),
-            )
-        bind_rots, bind_pos = mesh_bind_cache[uem_path]
+        bind_rots, bind_pos = bind_by_mesh.get(mesh_name, (None, None))
         if bind_rots:
             for uea_name in uea_names:
                 uea_to_bind_rots.setdefault(uea_name, bind_rots)
@@ -168,48 +347,35 @@ def main():
     total_failed = 0
     exported_uea = {}  # uea_name -> [{clip_name, rel_path}]
 
-    for uea_name in sorted(found):
-        uea_path = uea_files_on_disk[uea_name]
-        try:
-            pkg = UE2Package(uea_path)
-        except Exception as e:
-            print(f"  SKIP {uea_name}: failed to open package: {e}")
-            total_failed += 1
-            continue
+    export_jobs = [
+        (
+            uea_name,
+            uea_files_on_disk[uea_name],
+            uea_to_bind_rots.get(uea_name),
+            uea_to_bind_pos.get(uea_name),
+            OUT_DIR,
+        )
+        for uea_name in sorted(found)
+    ]
+    export_results = _run_jobs(
+        "Exported UEA packages",
+        export_jobs,
+        worker_count,
+        _export_uea_package_job,
+        args.progress_every,
+    )
+    export_errors = []
+    for result in sorted(export_results, key=lambda item: item["uea_name"].lower()):
+        total_exported += int(result["exported"])
+        total_failed += int(result["failed"])
+        if result["clips"]:
+            exported_uea[result["uea_name"]] = result["clips"]
+        export_errors.extend(result["errors"])
 
-        pkg_out_dir = os.path.join(OUT_DIR, uea_name)
-        clip_entries = []
-        bind_rots = uea_to_bind_rots.get(uea_name)
-        bind_pos = uea_to_bind_pos.get(uea_name)
-
-        for exp in pkg.exports:
-            class_name = exp.get("class_name", "")
-            if class_name != "EMFXAnim":
-                continue
-
-            obj_name = exp.get("object_name", "unknown")
-            try:
-                data = pkg.get_export_data(exp)
-                anim = parse_emfxanim_export(data)
-                if not anim.submotions:
-                    continue
-
-                out_path = os.path.join(pkg_out_dir, f"{obj_name}.gltf")
-                result = export_emfxanim_gltf(anim, obj_name, out_path, mesh_bind_rotations=bind_rots, mesh_bind_positions=bind_pos)
-                if result:
-                    rel_path = f"{uea_name}/{obj_name}.gltf"
-                    clip_entries.append({"name": obj_name, "path": rel_path,
-                                        "bones": len(anim.submotions),
-                                        "duration": anim.duration})
-                    total_exported += 1
-                else:
-                    total_failed += 1
-            except Exception as e:
-                total_failed += 1
-                traceback.print_exc()
-
-        if clip_entries:
-            exported_uea[uea_name] = clip_entries
+    for error in export_errors[:20]:
+        print(f"  {error}")
+    if len(export_errors) > 20:
+        print(f"  ... {len(export_errors) - 20} more export errors omitted")
 
     # --- Phase 4: Build manifest ---
     for mesh_name, uea_names in mesh_to_uea.items():

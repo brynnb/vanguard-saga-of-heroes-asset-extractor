@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -29,9 +31,63 @@ NEIGHBOR_OBJECT_NO_CULL_MIN_RADIUS = 20000.0
 NEIGHBOR_OBJECT_MAX_MESH_DETAIL_LEVEL = 1
 
 
+_NEIGHBOR_WORKER_CONTEXT: dict[str, Any] = {}
+
+
+def _resolve_workers(workers: int) -> int:
+    if workers < 1:
+        return os.cpu_count() or 1
+    return workers
+
+
+def discover_chunks(output_root: Path) -> list[str]:
+    terrain_root = output_root / "terrain/terrain_grid"
+    return sorted(
+        path.name.removesuffix("_objects.gltf")
+        for path in terrain_root.glob("chunk_*_objects.gltf")
+    )
+
+
+def init_neighbor_worker(output_root: str, runtime_root: str, static_mesh_tab: str) -> None:
+    global _NEIGHBOR_WORKER_CONTEXT
+    _NEIGHBOR_WORKER_CONTEXT = {
+        "output_root": Path(output_root),
+        "runtime_root": Path(runtime_root),
+        "metadata": StaticMeshMetadata(Path(static_mesh_tab)),
+    }
+
+
+def neighbor_chunk_worker(task: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+    try:
+        context = _NEIGHBOR_WORKER_CONTEXT
+        result = build_neighbor_object_index(
+            chunk=str(task["chunk"]),
+            output_root=context["output_root"],
+            runtime_root=context["runtime_root"],
+            metadata=context["metadata"],
+            include_hidden=bool(task["include_hidden"]),
+            dry_run=bool(task["dry_run"]),
+        )
+        return result, None
+    except Exception as exc:  # noqa: BLE001 - worker reports chunk failures to parent.
+        return None, str(exc)
+
+
+def print_neighbor_summary(result: dict[str, Any], dry_run: bool) -> None:
+    label = "DRY RUN" if dry_run else "WROTE"
+    print(
+        f"{label}: {result['chunk']} neighbor candidates="
+        f"{result['candidate_node_count']}/{result['total_node_count']} "
+        f"components={result['candidate_component_count']} "
+        f"meshes={result['candidate_mesh_count']} "
+        f"index={result['index_path']}"
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--chunk", action="append", default=[], help="Chunk to index.")
+    parser.add_argument("--all", action="store_true", help="Index every chunk with generated object placements.")
     parser.add_argument("--center", action="append", default=[], help="Generate neighbors around center chunk.")
     parser.add_argument("--radius", type=int, default=1, help="Neighbor radius for --center.")
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
@@ -39,38 +95,73 @@ def main() -> int:
     parser.add_argument("--static-mesh-tab", type=Path, default=DEFAULT_STATIC_MESH_TAB)
     parser.add_argument("--include-hidden", action="store_true", help="Include hidden SGO components.")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--limit-chunks", type=int, default=0, help="Debug/smoke chunk limit with --all.")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Chunk worker processes; 0 uses all CPUs.",
+    )
     args = parser.parse_args()
 
     chunks: list[str] = [normalize_chunk_name(chunk) for chunk in args.chunk]
+    if args.all:
+        chunks.extend(discover_chunks(args.output_root.resolve()))
     for center in args.center:
         chunks.extend(neighbor_chunk_names(normalize_chunk_name(center), args.radius))
     chunks = sorted(set(chunks))
+    if args.limit_chunks > 0:
+        chunks = chunks[: args.limit_chunks]
     if not chunks:
-        parser.error("provide at least one --chunk or --center")
+        parser.error("provide at least one --chunk, --center, or --all")
 
     metadata = StaticMeshMetadata(args.static_mesh_tab)
     failures = 0
-    for chunk in chunks:
-        try:
-            result = build_neighbor_object_index(
-                chunk=chunk,
-                output_root=args.output_root.resolve(),
-                runtime_root=args.runtime_root.resolve(),
-                metadata=metadata,
-                include_hidden=args.include_hidden,
-                dry_run=args.dry_run,
-            )
-            label = "DRY RUN" if args.dry_run else "WROTE"
-            print(
-                f"{label}: {chunk} neighbor candidates="
-                f"{result['candidate_node_count']}/{result['total_node_count']} "
-                f"components={result['candidate_component_count']} "
-                f"meshes={result['candidate_mesh_count']} "
-                f"index={result['index_path']}"
-            )
-        except Exception as exc:  # noqa: BLE001 - CLI should continue across chunks.
-            failures += 1
-            print(f"ERROR: {chunk}: {exc}", file=sys.stderr)
+    workers = min(_resolve_workers(args.workers), len(chunks))
+    if workers > 1:
+        print(f"Workers: {workers}")
+        tasks = [
+            {
+                "chunk": chunk,
+                "include_hidden": args.include_hidden,
+                "dry_run": args.dry_run,
+            }
+            for chunk in chunks
+        ]
+        with ProcessPoolExecutor(
+            max_workers=workers,
+            initializer=init_neighbor_worker,
+            initargs=(
+                str(args.output_root.resolve()),
+                str(args.runtime_root.resolve()),
+                str(args.static_mesh_tab),
+            ),
+        ) as executor:
+            futures = {executor.submit(neighbor_chunk_worker, task): task["chunk"] for task in tasks}
+            for completed, future in enumerate(as_completed(futures), start=1):
+                chunk = futures[future]
+                result, error = future.result()
+                if result is None:
+                    failures += 1
+                    print(f"ERROR: {chunk}: {error}", file=sys.stderr)
+                    continue
+                print(f"[{completed}/{len(chunks)}]", end=" ")
+                print_neighbor_summary(result, args.dry_run)
+    else:
+        for chunk in chunks:
+            try:
+                result = build_neighbor_object_index(
+                    chunk=chunk,
+                    output_root=args.output_root.resolve(),
+                    runtime_root=args.runtime_root.resolve(),
+                    metadata=metadata,
+                    include_hidden=args.include_hidden,
+                    dry_run=args.dry_run,
+                )
+                print_neighbor_summary(result, args.dry_run)
+            except Exception as exc:  # noqa: BLE001 - CLI should continue across chunks.
+                failures += 1
+                print(f"ERROR: {chunk}: {exc}", file=sys.stderr)
     return 1 if failures else 0
 
 

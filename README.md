@@ -99,10 +99,110 @@ python3 vanguard.py extract-terrain
 python3 vanguard.py export-meshes
 python3 vanguard.py export-characters
 python3 vanguard.py export-animations
+python3 vanguard.py export-animations --workers 8 --clean-emfx
 python3 vanguard.py export-facial-controls
 python3 vanguard.py export-npc-assembly
 python3 vanguard.py extract-audio
 python3 vanguard.py extract-world
+```
+
+Generate Godot runtime mesh packs for the viewer. The default layout stores
+shared mesh assets once under `output/godot_runtime/assets/` and lets each chunk
+manifest reference that global library with lightweight `mesh_assets` refs:
+
+When the Godot viewer repo is available, prefer its orchestrator so runtime
+mesh generation, native `.scn` packing, v4 object-cell indexing, and strict
+audit run as one pipeline:
+
+```bash
+python3 ../vanguard-eternal-sagas/godot-viewer/scripts/tools/build_runtime_pack.py \
+  --extractor-root "$PWD" \
+  --chunk chunk_n25_26 \
+  --workers 8
+```
+
+`--workers 8` is passed through to the runtime generator, the Godot native scene
+packer, and object-cell indexing. Use `--workers 0` for all CPUs, or tune stages
+individually with `--runtime-workers`, `--scene-workers`, and
+`--object-cell-workers`.
+
+The Godot native scene packer now writes the fast `.scn` files under
+`output/godot_runtime/assets/scenes/` while also externalizing repeated material
+and texture resources under `assets/materials/` and `assets/textures/`.
+
+The lower-level generator can still be run directly:
+
+```bash
+python3 scripts/generators/generate_godot_runtime_chunk.py --chunk chunk_n25_26
+```
+
+The legacy chunk-local cache layout is still available for debugging:
+
+```bash
+python3 scripts/generators/generate_godot_runtime_chunk.py \
+  --chunk chunk_n25_26 \
+  --asset-storage chunk
+```
+
+The older full shared manifest shape is also available with
+`--manifest-layout full`, but the default `thin` layout keeps chunks small and
+uses `output/godot_runtime/assets/manifest.json` as the authoritative asset
+index.
+
+For long neighborhood or full-world runs, pass multiple chunks or `--all` so the
+generator can actually use those worker processes:
+
+```bash
+python3 scripts/generators/generate_godot_runtime_chunk.py \
+  --all \
+  --workers 8
+```
+
+Generate compact cell indexes for streamed object placement planning:
+
+```bash
+python3 scripts/generators/generate_object_cell_index.py \
+  --chunk chunk_n25_26 \
+  --chunk chunk_n25_27 \
+  --workers 8
+```
+
+These indexes live under `output/godot_runtime/chunks/<chunk>/object_cells.json`.
+They keep chunk data lightweight by storing cell bounds, centers, compact
+placement arrays, a string table, and a per-chunk asset table separately from
+the global mesh/material/texture library. Godot can build streamed object cells
+from those records without reading the source placement glTF/SGO files at
+runtime. Like the runtime-pack generator, this indexer is chunk-parallel:
+repeated `--chunk` values or `--all` are what let `--workers 8` speed up a long
+run.
+
+Generate normalized SGO particle emitter data and chunk placement indexes:
+
+```bash
+python3 scripts/extractors/extract_particle_textures.py
+python3 scripts/generators/generate_particle_manifest.py
+python3 scripts/generators/generate_particle_cell_index.py --chunk chunk_n25_26
+```
+
+The manifest lives at `output/data/particle_emitters.json` and keeps decoded
+particle ranges, curves, package-qualified texture refs, unresolved texture
+audits, and the source properties for every SGO emitter template.
+`extract_particle_textures.py` reads `Texture__object_ref` metadata from
+`sgo_emitters.json`, opens the matching UTX package, and writes package-qualified
+PNGs under `output/textures/`. Per-chunk placement indexes live at
+`output/godot_runtime/chunks/<chunk>/particle_cells.json`; the Godot viewer uses
+those when available and falls back to the chunk SGO sidecar.
+
+If you rebuild an older chunk-local runtime root in place, the Godot repo has a
+safe cleanup tool for stale generated chunk-local cache directories:
+
+```bash
+python3 ../vanguard-eternal-sagas/godot-viewer/scripts/tools/prune_runtime_chunk_assets.py \
+  --runtime-root "$PWD/output/godot_runtime"
+python3 ../vanguard-eternal-sagas/godot-viewer/scripts/tools/prune_runtime_chunk_assets.py \
+  --runtime-root "$PWD/output/godot_runtime" \
+  --delete \
+  --yes-delete-generated-cache
 ```
 
 The NPC assembly sidecars use committed client lookup tables under

@@ -13,6 +13,7 @@ Override paths with environment variables when needed:
     VANGUARD_EMU_PATH="/path/to/Vanguard EMU"
     VANGUARD_ASSETS_PATH="/path/to/Vanguard EMU/Assets"
     UNREAL_LIBRARY_DLL=/path/to/Eliot.UELib.CLI.dll
+    DOTNET=/path/to/dotnet
 """
 
 from __future__ import annotations
@@ -69,19 +70,31 @@ REFERENCE_DIR = os.path.expanduser(
 )
 REFERENCE_MAPS_DIR = os.path.join(REFERENCE_DIR, "Maps")
 
-UNREAL_LIBRARY_DLL = os.path.expanduser(
-    os.environ.get(
-        "UNREAL_LIBRARY_DLL",
-        str(
-            PROJECT_ROOT
-            / "external"
-            / "Unreal-Library"
-            / "CLI"
-            / "bin"
-            / "Debug"
-            / "net8.0"
-            / "Eliot.UELib.CLI.dll"
-        ),
-    )
+UNREAL_LIBRARY_DLL_CANDIDATES = [
+    PROJECT_ROOT
+    / "external"
+    / "Unreal-Library"
+    / "CLI"
+    / "bin"
+    / "Debug"
+    / framework
+    / "Eliot.UELib.CLI.dll"
+    for framework in ("net10.0", "net8.0")
+]
+DEFAULT_UNREAL_LIBRARY_DLL = next(
+    (path for path in UNREAL_LIBRARY_DLL_CANDIDATES if path.exists()),
+    UNREAL_LIBRARY_DLL_CANDIDATES[-1],
 )
-DOTNET = os.environ.get("DOTNET", "dotnet")
+UNREAL_LIBRARY_DLL = os.path.expanduser(
+    os.environ.get("UNREAL_LIBRARY_DLL", str(DEFAULT_UNREAL_LIBRARY_DLL))
+)
+DOTNET_CANDIDATES = [
+    Path("~/.dotnet/dotnet").expanduser(),
+    Path("/usr/local/bin/dotnet"),
+    Path("/usr/bin/dotnet"),
+]
+DEFAULT_DOTNET = next(
+    (path for path in DOTNET_CANDIDATES if path.exists()),
+    Path("dotnet"),
+)
+DOTNET = os.path.expanduser(os.environ.get("DOTNET", str(DEFAULT_DOTNET)))

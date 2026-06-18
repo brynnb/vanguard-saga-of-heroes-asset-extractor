@@ -394,6 +394,52 @@ def _first_float_property(props: list[dict[str, Any]], name: str) -> float | Non
     return None
 
 
+def _target_preference_text(*targets: MaterialTarget | None) -> str:
+    parts: list[str] = []
+    for target in targets:
+        if target is None:
+            continue
+        for value in (
+            target.full_path,
+            target.package_name,
+            target.object_name,
+            target.class_name,
+        ):
+            if value:
+                parts.append(str(value))
+    return " ".join(parts).lower()
+
+
+def _combiner_diffuse_score(
+    combiner: MaterialTarget,
+    candidate: MaterialTarget | None,
+    resolved: MaterialTarget | None,
+) -> int:
+    if candidate is None:
+        return -100
+    score = 0
+    text = _target_preference_text(candidate, resolved)
+    combiner_package = (combiner.package_name or "").lower()
+    candidate_package = (candidate.package_name or "").lower()
+    resolved_package = (resolved.package_name if resolved is not None else "") or ""
+    if candidate_package and candidate_package == combiner_package:
+        score += 3
+    if resolved_package.lower() == combiner_package:
+        score += 2
+    if resolved is not None:
+        score += 1
+    if "overlay" in text:
+        score -= 4
+    if re.search(r"\b(dirt|crud|grime|nasty|stain|smudge|scum)\b", text):
+        score -= 3
+    if re.search(
+        r"\b(metal|bronze|iron|steel|stone|brick|wood|cloth|leather|glass|bone|tile|roof|trim)\b",
+        text,
+    ):
+        score += 2
+    return score
+
+
 def _looks_truthy(value: Any) -> bool:
     if isinstance(value, bool):
         return value
@@ -1344,6 +1390,41 @@ class MaterialMemoryResolver:
                     targets.append(target)
         return targets
 
+    def _combiner_property_targets(
+        self, pkg: UE2Package, props: list[dict[str, Any]]
+    ) -> list[MaterialTarget]:
+        targets: list[MaterialTarget] = []
+        seen: set[str] = set()
+        for name in ("Material1", "Material2", "Material"):
+            for prop in props:
+                if prop.get("name") != name:
+                    continue
+                target = self._property_target(pkg, prop)
+                if target is None:
+                    continue
+                key = self._target_cache_key(target)
+                if key in seen:
+                    continue
+                seen.add(key)
+                targets.append(target)
+        return targets
+
+    def _ordered_combiner_texture_targets(
+        self,
+        combiner: MaterialTarget,
+        pkg: UE2Package,
+        props: list[dict[str, Any]],
+        visited: set[str],
+        depth: int,
+    ) -> list[MaterialTarget]:
+        ranked: list[tuple[int, int, MaterialTarget]] = []
+        for index, candidate in enumerate(self._combiner_property_targets(pkg, props)):
+            resolved = self._resolve_texture_target(candidate, set(visited), depth + 1)
+            score = _combiner_diffuse_score(combiner, candidate, resolved)
+            ranked.append((score, -index, candidate))
+        ranked.sort(reverse=True)
+        return [candidate for _score, _order, candidate in ranked]
+
     def _resolve_texture_target(
         self,
         target: MaterialTarget | None,
@@ -1382,10 +1463,21 @@ class MaterialMemoryResolver:
             self._resolved_texture_target_cache[key] = None
             return None
 
+        if class_name == "combiner":
+            for next_target in self._ordered_combiner_texture_targets(
+                target, pkg, props, visited, depth
+            ):
+                resolved = self._resolve_texture_target(
+                    next_target, set(visited), depth + 1
+                )
+                if resolved is not None:
+                    self._resolved_texture_target_cache[key] = resolved
+                    return resolved
+            self._resolved_texture_target_cache[key] = None
+            return None
+
         if class_name == "shader":
             field_order = ("Diffuse", "Material")
-        elif class_name == "combiner":
-            field_order = ("Material1", "Material2", "Material")
         elif class_name in {
             "texscaler",
             "texpanner",
@@ -1701,7 +1793,7 @@ class MaterialMemoryResolver:
         if image is None:
             return None
         if not png_path.exists():
-            image.save(png_path)
+            _save_png_if_missing(image, png_path)
         return self._texture_asset_record(target, output_dir, asset_name)
 
     def _ensure_texture_png(
@@ -1777,6 +1869,24 @@ def _normal_strength(bump_scale: float | None) -> float:
     return max(0.35, min(4.0, float(bump_scale) / 4.0))
 
 
+def _save_png_if_missing(image: Image.Image, output_path: Path) -> None:
+    """Publish a PNG without clobbering another worker's completed output."""
+    if output_path.exists():
+        return
+    tmp_path = output_path.with_name(f".{output_path.name}.{os.getpid()}.tmp")
+    image.save(tmp_path, format="PNG")
+    try:
+        try:
+            os.link(tmp_path, output_path)
+        except FileExistsError:
+            pass
+    finally:
+        try:
+            tmp_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
 def _write_height_to_normal_png(
     image: Image.Image, output_path: Path, strength: float
 ) -> None:
@@ -1791,7 +1901,7 @@ def _write_height_to_normal_png(
     length = np.sqrt(nx * nx + ny * ny + nz * nz)
     normal = np.stack((nx / length, ny / length, nz / length), axis=2)
     rgb = ((normal * 0.5 + 0.5) * 255.0).clip(0, 255).astype(np.uint8)
-    Image.fromarray(rgb, "RGB").save(output_path)
+    _save_png_if_missing(Image.fromarray(rgb, "RGB"), output_path)
 
 
 def _decode_palette_export(

@@ -162,6 +162,45 @@ BODY_STYLE_INDEX_OVERRIDES = {
     ("Vulmane", "F"): [10],
 }
 
+LEGACY_FLESH_SHADER_REFS = {
+    # Some playable modular packages do not have UTX_*_char body/head CLR
+    # exports. Their original skin atlases are present through the older
+    # Thestran*Flesh shader packages; map those textures onto the modular
+    # runtime material names instead of falling back to optimized meshes.
+    ("Dwarf", "M"): {
+        "body": "ThestranMaleDwarfFlesh.Shader.shdThestranMaleDwarfBody",
+        "head": "ThestranMaleDwarfFlesh.Shader.shdThestranMaleDwarfHead",
+    },
+    ("Dwarf", "F"): {
+        "body": "ThestranFemaleDwarfFlesh.Shader.shdThestranFemaleDwarfBody",
+        "head": "ThestranFemaleDwarfFlesh.Shader.shdThestranFemaleDwarfHead",
+    },
+    ("LesserGiant", "M"): {
+        "body": "ThestranMaleHalfGiantFlesh.Shader.shdThestranMaleHalfGiantBody",
+        "head": "ThestranMaleHalfGiantFlesh.Shader.shdThestranMaleHalfGiantHead",
+    },
+    ("LesserGiant", "F"): {
+        "body": "ThestranFemaleHalfGiantFlesh.Shader.shdThestranFemaleHalfGiantBody",
+        "head": "ThestranFemaleHalfGiantFlesh.Shader.shdThestranFemaleHalfGiantHead",
+    },
+    ("Halfling", "M"): {
+        "body": "ThestranMaleHalflingFlesh.Shader.shdThestranMaleHalflingBody",
+        "head": "ThestranMaleHalflingFlesh.Shader.shdThestranMaleHalflingHead",
+    },
+    ("Halfling", "F"): {
+        "body": "ThestranFemaleHalflingFlesh.Shader.shdThestranFemaleHalflingBody",
+        "head": "ThestranFemaleHalflingFlesh.Shader.shdThestranFemaleHalflingHead",
+    },
+    ("Vulmane", "M"): {
+        "body": "ThestranMaleVulmaneFlesh.Shader.shdThestranMaleVulmaneBody",
+        "head": "ThestranMaleVulmaneFlesh.Shader.shdThestranMaleVulmaneHead",
+    },
+    ("Vulmane", "F"): {
+        "body": "ThestranFemaleVulmaneFlesh.Shader.shdThestranFemaleVulmaneBody",
+        "head": "ThestranFemaleVulmaneFlesh.Shader.shdThestranFemaleVulmaneHead",
+    },
+}
+
 
 # ---------------------------------------------------------------------------
 # Skin variant discovery
@@ -275,6 +314,41 @@ def _skin_texture_record(material_name: str, texture_url: str) -> dict:
     }
 
 
+def _texture_url_from_material_ref(source_ref: str) -> str | None:
+    manifest_entry = _load_material_manifest().get(source_ref)
+    if not isinstance(manifest_entry, dict):
+        return None
+    base_color = manifest_entry.get("base_color")
+    if not isinstance(base_color, dict):
+        return None
+    asset_path = base_color.get("asset_path")
+    if not asset_path:
+        return None
+    absolute_path = os.path.join(ROOT_DIR, str(asset_path))
+    if not os.path.exists(absolute_path):
+        return None
+    return "/" + str(asset_path).lstrip("/")
+
+
+def _legacy_flesh_urls(race: str, gender: str) -> dict[str, str]:
+    shader_refs = LEGACY_FLESH_SHADER_REFS.get((race, gender), {})
+    result: dict[str, str] = {}
+    for channel, source_ref in shader_refs.items():
+        url = _texture_url_from_material_ref(source_ref)
+        if url:
+            result[channel] = url
+    return result
+
+
+def _repeat_to_count(urls: list[str], target_count: int) -> list[str]:
+    if target_count <= 0 or not urls:
+        return []
+    result = list(urls[:target_count])
+    while len(result) < target_count:
+        result.append(result[-1])
+    return result
+
+
 def _gltf_material_names(gltf_path: str) -> list[str]:
     """Return list of material names from a gltf file (or [] on error)."""
     try:
@@ -291,6 +365,11 @@ def _texture_url(stem: str, idx: int) -> str | None:
     path = os.path.join(TEX_DIR, fname)
     if os.path.exists(path):
         return f"/output/textures/{fname}"
+    suffix = f"__{stem}_{idx}_CLR.png".lower()
+    if os.path.isdir(TEX_DIR):
+        for candidate in os.listdir(TEX_DIR):
+            if candidate.lower().endswith(suffix):
+                return f"/output/textures/{candidate}"
     return None
 
 
@@ -298,7 +377,9 @@ def _texture_indices(stem: str) -> list[int]:
     """Return exact primary CLR indices for a texture stem."""
     if not os.path.isdir(TEX_DIR):
         return []
-    pattern = re.compile(rf'^{re.escape(stem)}_(\d+)_CLR\.png$', re.IGNORECASE)
+    pattern = re.compile(
+        rf'^(?:.*__)?{re.escape(stem)}_(\d+)_CLR\.png$', re.IGNORECASE
+    )
     indices: list[int] = []
     for fname in os.listdir(TEX_DIR):
         m = pattern.match(fname)
@@ -309,6 +390,14 @@ def _texture_indices(stem: str) -> list[int]:
             continue
         indices.append(idx)
     return sorted(set(indices))
+
+
+def _first_texture_url(stem: str) -> str | None:
+    for idx in _texture_indices(stem):
+        url = _texture_url(stem, idx)
+        if url:
+            return url
+    return None
 
 
 def _style_indices_for_entry(race: str, gender: str, pkg: str, head_idx: int) -> list[int]:
@@ -334,10 +423,11 @@ def _head_urls_for_styles(pkg: str, gender: str, style_indices: list[int]) -> li
     stem = f"{pkg}_{gender}_char_head"
     urls: list[str] = []
     last_url: str | None = None
+    fallback_url = _first_texture_url(stem)
     for idx in style_indices:
         url = _texture_url(stem, idx)
         if url is None:
-            url = last_url or _texture_url(stem, 0)
+            url = last_url or _texture_url(stem, 0) or fallback_url
         if url is None:
             continue
         urls.append(url)
@@ -368,6 +458,10 @@ def _body_url_for_style(
             url = _texture_url(stem, idx)
             if url:
                 return url
+    for stem in stems:
+        url = _first_texture_url(stem)
+        if url:
+            return url
     return None
 
 
@@ -416,14 +510,25 @@ def skin_tones_for_entry(
     style_indices = _style_indices_for_entry(race, gender, pkg, head_idx)
     head_urls = _head_urls_for_styles(pkg, gender, style_indices)
     body_urls = _body_urls_for_styles(race, gender, pkg, style_indices, head_idx)
-    if not head_urls or not body_urls:
+    legacy_urls = _legacy_flesh_urls(race, gender)
+    legacy_head_url = legacy_urls.get("head")
+    legacy_body_url = legacy_urls.get("body")
+    if not head_urls and legacy_head_url:
+        head_urls = [legacy_head_url]
+    if not body_urls and legacy_body_url:
+        body_urls = [legacy_body_url]
+    if not head_urls and not body_urls:
         return None
+    if not head_urls:
+        head_urls = list(body_urls)
+    if not body_urls:
+        body_urls = list(head_urls)
 
-    tone_count = min(len(head_urls), len(body_urls))
+    tone_count = max(len(head_urls), len(body_urls))
     if tone_count <= 0:
         return None
-    head_urls = head_urls[:tone_count]
-    body_urls = body_urls[:tone_count]
+    head_urls = _repeat_to_count(head_urls, tone_count)
+    body_urls = _repeat_to_count(body_urls, tone_count)
 
     tones: dict[str, list[str]] = {}
     body_material = f"human_{gender}_char_body_0_SHD"

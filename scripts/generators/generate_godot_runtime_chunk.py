@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""Build a per-chunk Godot runtime mesh pack.
+"""Build Godot runtime mesh packs for streamed object loading.
 
 The source extraction output stays authoritative. This script creates a smaller
-Godot-facing cache for one chunk at a time under output/godot_runtime/ so the
-viewer can prefer prepacked GLB meshes while keeping the raw glTF fallback.
+Godot-facing cache under output/godot_runtime/ so the viewer can prefer
+prepacked GLB/native scene meshes while keeping the raw glTF fallback. The
+default layout stores mesh assets once in a global shared asset library and keeps
+chunk directories as lightweight manifests.
 """
 
 from __future__ import annotations
 
 import argparse
 import base64
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import hashlib
 import json
 import mimetypes
 import os
@@ -37,7 +41,8 @@ GLB_MAGIC = 0x46546C67
 GLB_JSON_CHUNK = 0x4E4F534A
 GLB_BIN_CHUNK = 0x004E4942
 RUNTIME_PACK_VERSION = 2
-NATIVE_SCENE_PACK_VERSION = 2
+NATIVE_SCENE_PACK_VERSION = 3
+SHARED_ASSET_LIBRARY_VERSION = 1
 
 
 @dataclass
@@ -249,9 +254,67 @@ class StaticMeshSourceIndex:
         return f"{package}/{name}"
 
 
+_RUNTIME_WORKER_CONTEXT: dict[str, Any] = {}
+
+
+def _resolve_workers(workers: int) -> int:
+    if workers < 1:
+        return os.cpu_count() or 1
+    return workers
+
+
+def discover_chunks(output_root: Path) -> list[str]:
+    terrain_root = output_root / "terrain/terrain_grid"
+    return sorted(
+        path.name.removesuffix("_objects.gltf")
+        for path in terrain_root.glob("chunk_*_objects.gltf")
+    )
+
+
+def init_runtime_worker(
+    output_root: str,
+    runtime_root: str,
+    static_mesh_tab: str,
+    static_mesh_source_index: str,
+) -> None:
+    global _RUNTIME_WORKER_CONTEXT
+    _RUNTIME_WORKER_CONTEXT = {
+        "output_root": Path(output_root),
+        "runtime_root": Path(runtime_root),
+        "metadata": StaticMeshMetadata(Path(static_mesh_tab)),
+        "source_index": StaticMeshSourceIndex(Path(static_mesh_source_index)),
+    }
+
+
+def runtime_chunk_worker(task: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+    try:
+        context = _RUNTIME_WORKER_CONTEXT
+        result = build_runtime_chunk(
+            chunk=str(task["chunk"]),
+            output_root=context["output_root"],
+            runtime_root=context["runtime_root"],
+            mode=str(task["mode"]),
+            asset_storage=str(task["asset_storage"]),
+            manifest_layout=str(task["manifest_layout"]),
+            metadata=context["metadata"],
+            source_index=context["source_index"],
+            include_lods=bool(task["include_lods"]),
+            neighbor_index_only=bool(task["neighbor_index_only"]),
+            include_hidden=bool(task["include_hidden"]),
+            dry_run=bool(task["dry_run"]),
+            force=bool(task["force"]),
+            limit_meshes=int(task["limit_meshes"]),
+            reserve_bytes=int(task["reserve_bytes"]),
+        )
+        return result, None
+    except Exception as exc:  # noqa: BLE001 - worker reports chunk failures to parent.
+        return None, str(exc)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--chunk", action="append", required=True, help="Chunk name, e.g. chunk_n25_26.")
+    parser.add_argument("--chunk", action="append", default=[], help="Chunk name, e.g. chunk_n25_26.")
+    parser.add_argument("--all", action="store_true", help="Pack every chunk with generated object placements.")
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--runtime-root", type=Path, default=DEFAULT_RUNTIME_ROOT)
     parser.add_argument(
@@ -259,6 +322,26 @@ def main() -> int:
         choices=["glb", "hardlink", "copy"],
         default="glb",
         help="How to materialize referenced meshes. glb is the runtime-oriented default.",
+    )
+    parser.add_argument(
+        "--asset-storage",
+        choices=["chunk", "shared"],
+        default="shared",
+        help=(
+            "Where runtime meshes are stored. shared is the default deduplicated "
+            "runtime asset library under godot_runtime/assets/; chunk preserves "
+            "the legacy per-chunk cache."
+        ),
+    )
+    parser.add_argument(
+        "--manifest-layout",
+        choices=["thin", "full"],
+        default="thin",
+        help=(
+            "Chunk manifest shape for shared storage. thin writes lightweight "
+            "mesh->asset refs and uses assets/manifest.json as the authority; "
+            "full preserves legacy repeated per-mesh entries."
+        ),
     )
     parser.add_argument("--static-mesh-tab", type=Path, default=DEFAULT_STATIC_MESH_TAB)
     parser.add_argument(
@@ -277,6 +360,13 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="Print estimate without writing files.")
     parser.add_argument("--force", action="store_true", help="Overwrite existing runtime mesh files.")
     parser.add_argument("--limit-meshes", type=int, default=0, help="Debug/smoke limit.")
+    parser.add_argument("--limit-chunks", type=int, default=0, help="Debug/smoke chunk limit with --all.")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Chunk worker processes; 0 uses all CPUs. Use a small value for GLB writes.",
+    )
     parser.add_argument(
         "--free-space-reserve-gb",
         type=float,
@@ -290,29 +380,85 @@ def main() -> int:
     metadata = StaticMeshMetadata(args.static_mesh_tab)
     source_index = StaticMeshSourceIndex(args.static_mesh_source_index)
     chunks = [normalize_chunk_name(chunk) for chunk in args.chunk]
+    if args.all:
+        chunks.extend(discover_chunks(output_root))
+    chunks = sorted(set(chunks))
+    if args.limit_chunks > 0:
+        chunks = chunks[: args.limit_chunks]
+    if not chunks:
+        parser.error("provide at least one --chunk or --all")
 
     failures = 0
-    for chunk in chunks:
-        try:
-            result = build_runtime_chunk(
-                chunk=chunk,
-                output_root=output_root,
-                runtime_root=runtime_root,
-                mode=args.mode,
-                metadata=metadata,
-                source_index=source_index,
-                include_lods=not args.no_lods,
-                neighbor_index_only=args.neighbor_index_only,
-                include_hidden=args.include_hidden,
-                dry_run=args.dry_run,
-                force=args.force,
-                limit_meshes=args.limit_meshes,
-                reserve_bytes=int(args.free_space_reserve_gb * 1024**3),
-            )
-            print_runtime_summary(result, dry_run=args.dry_run)
-        except Exception as exc:  # noqa: BLE001 - command-line tool should report all chunk failures.
-            failures += 1
-            print(f"ERROR: {chunk}: {exc}", file=sys.stderr)
+    workers = min(_resolve_workers(args.workers), len(chunks))
+    reserve_bytes = int(args.free_space_reserve_gb * 1024**3)
+    results: list[dict[str, Any]] = []
+    if workers > 1:
+        print(f"Workers: {workers}")
+        tasks = [
+            {
+                "chunk": chunk,
+                "mode": args.mode,
+                "asset_storage": args.asset_storage,
+                "manifest_layout": args.manifest_layout,
+                "include_lods": not args.no_lods,
+                "neighbor_index_only": args.neighbor_index_only,
+                "include_hidden": args.include_hidden,
+                "dry_run": args.dry_run,
+                "force": args.force,
+                "limit_meshes": args.limit_meshes,
+                "reserve_bytes": reserve_bytes,
+            }
+            for chunk in chunks
+        ]
+        with ProcessPoolExecutor(
+            max_workers=workers,
+            initializer=init_runtime_worker,
+            initargs=(
+                str(output_root),
+                str(runtime_root),
+                str(args.static_mesh_tab),
+                str(args.static_mesh_source_index),
+            ),
+        ) as executor:
+            futures = {executor.submit(runtime_chunk_worker, task): task["chunk"] for task in tasks}
+            for completed, future in enumerate(as_completed(futures), start=1):
+                chunk = futures[future]
+                result, error = future.result()
+                if result is None:
+                    failures += 1
+                    print(f"ERROR: {chunk}: {error}", file=sys.stderr)
+                    continue
+                results.append(result)
+                print(f"[{completed}/{len(chunks)}]", end=" ")
+                print_runtime_summary(result, dry_run=args.dry_run)
+    else:
+        for chunk in chunks:
+            try:
+                result = build_runtime_chunk(
+                    chunk=chunk,
+                    output_root=output_root,
+                    runtime_root=runtime_root,
+                    mode=args.mode,
+                    asset_storage=args.asset_storage,
+                    manifest_layout=args.manifest_layout,
+                    metadata=metadata,
+                    source_index=source_index,
+                    include_lods=not args.no_lods,
+                    neighbor_index_only=args.neighbor_index_only,
+                    include_hidden=args.include_hidden,
+                    dry_run=args.dry_run,
+                    force=args.force,
+                    limit_meshes=args.limit_meshes,
+                    reserve_bytes=reserve_bytes,
+                )
+                results.append(result)
+                print_runtime_summary(result, dry_run=args.dry_run)
+            except Exception as exc:  # noqa: BLE001 - command-line tool should report all chunk failures.
+                failures += 1
+                print(f"ERROR: {chunk}: {exc}", file=sys.stderr)
+    if args.asset_storage == "shared" and not args.dry_run:
+        write_shared_asset_manifest(runtime_root, results, mode=args.mode)
+    print_total_runtime_summary(results, failures=failures, dry_run=args.dry_run)
     return 1 if failures else 0
 
 
@@ -322,6 +468,8 @@ def build_runtime_chunk(
     output_root: Path,
     runtime_root: Path,
     mode: str,
+    asset_storage: str,
+    manifest_layout: str,
     metadata: StaticMeshMetadata,
     source_index: StaticMeshSourceIndex,
     include_lods: bool,
@@ -361,6 +509,9 @@ def build_runtime_chunk(
         )
     if limit_meshes > 0:
         refs = dict(sorted(refs.items())[:limit_meshes])
+    effective_manifest_layout = (
+        "thin_shared" if asset_storage == "shared" and manifest_layout == "thin" else "full"
+    )
 
     chunk_root = runtime_root / "chunks" / chunk
     mesh_output_root = chunk_root / "meshes"
@@ -370,8 +521,12 @@ def build_runtime_chunk(
         previous_manifest.get("meshes", {}) if isinstance(previous_manifest, dict) else {}
     )
     previous_meshes = previous_meshes_value if isinstance(previous_meshes_value, dict) else {}
+    previous_shared_assets = (
+        shared_asset_manifest_entries(runtime_root) if asset_storage == "shared" else {}
+    )
 
     mesh_entries: dict[str, dict[str, Any]] = {}
+    shared_asset_entries: dict[str, dict[str, Any]] = {}
     missing: list[str] = []
     invalid_triangle_meshes: list[str] = []
     source_bytes = 0
@@ -413,19 +568,53 @@ def build_runtime_chunk(
             entry["status"] = "skipped_invalid_triangles"
             mesh_entries[mesh_path] = entry
             continue
-        runtime_relative = Path("chunks") / chunk / "meshes" / runtime_mesh_relative_path(safe_path, mode)
+        runtime_relative = runtime_relative_path_for_asset(
+            chunk,
+            safe_path,
+            mode=mode,
+            asset_storage=asset_storage,
+            source_signature=str(source_info["source_signature"]),
+        )
         runtime_path = runtime_root / runtime_relative
         native_scene_relative = native_scene_relative_path(runtime_relative)
         native_scene_path = runtime_root / native_scene_relative
+        entry["asset_storage"] = asset_storage
         entry["runtime_relative_path"] = runtime_relative.as_posix()
+        if asset_storage == "shared":
+            entry["asset_id"] = shared_asset_id(
+                mesh_path,
+                mode=mode,
+                source_signature=str(source_info["source_signature"]),
+            )
         previous_entry_value = previous_meshes.get(mesh_path, {})
         previous_entry = previous_entry_value if isinstance(previous_entry_value, dict) else {}
+        previous_shared_entry_value = previous_shared_assets.get(str(entry.get("asset_id", "")), {})
+        previous_shared_entry = (
+            previous_shared_entry_value if isinstance(previous_shared_entry_value, dict) else {}
+        )
+        if previous_shared_entry:
+            entry = preserve_shared_native_fields(entry, previous_shared_entry)
+        previous_native_entry = previous_entry
+        if (
+            previous_shared_entry
+            and str(previous_shared_entry.get("source_signature", ""))
+            == str(entry.get("source_signature", ""))
+        ):
+            previous_native_entry = previous_shared_entry
         runtime_fresh = runtime_entry_is_fresh(
             previous_entry,
             entry,
             runtime_path,
             mode,
         )
+        if (
+            not runtime_fresh
+            and asset_storage == "shared"
+            and not force
+            and runtime_path.exists()
+            and runtime_path.stat().st_size > 0
+        ):
+            runtime_fresh = True
         write_required = force or not runtime_fresh
         entry["_write_required"] = write_required
         if runtime_path.exists() and not write_required:
@@ -441,21 +630,27 @@ def build_runtime_chunk(
         else:
             estimated_write_bytes += estimate_runtime_size(source_size, mode)
         if native_scene_path.exists() and not force:
-            if native_scene_entry_is_fresh(previous_entry, entry, native_scene_path):
+            if native_scene_entry_is_fresh(previous_native_entry, entry, native_scene_path):
                 entry["native_scene_relative_path"] = native_scene_relative.as_posix()
                 entry["native_scene_bytes"] = native_scene_path.stat().st_size
                 entry["native_scene_status"] = "existing"
                 entry["native_scene_pack_version"] = int(
-                    previous_entry.get("native_scene_pack_version", NATIVE_SCENE_PACK_VERSION)
+                    previous_native_entry.get(
+                        "native_scene_pack_version", NATIVE_SCENE_PACK_VERSION
+                    )
                 )
                 entry["native_scene_runtime_pack_version"] = int(
-                    previous_entry.get("native_scene_runtime_pack_version", RUNTIME_PACK_VERSION)
+                    previous_native_entry.get(
+                        "native_scene_runtime_pack_version", RUNTIME_PACK_VERSION
+                    )
                 )
                 entry["native_scene_source_signature"] = str(
-                    previous_entry.get("native_scene_source_signature", entry["source_signature"])
+                    previous_native_entry.get(
+                        "native_scene_source_signature", entry["source_signature"]
+                    )
                 )
                 entry["native_scene_runtime_signature"] = str(
-                    previous_entry.get("native_scene_runtime_signature", "")
+                    previous_native_entry.get("native_scene_runtime_signature", "")
                 )
             else:
                 stale_native_scene_count += 1
@@ -466,10 +661,16 @@ def build_runtime_chunk(
             entry["native_scene_bytes"] = native_scene_path.stat().st_size
             entry["native_scene_status"] = "stale_force"
         mesh_entries[mesh_path] = entry
+        if asset_storage == "shared":
+            shared_asset_entries[str(entry["asset_id"])] = shared_asset_manifest_entry(
+                mesh_path,
+                entry,
+            )
 
     if not dry_run:
         assert_free_space(runtime_root, estimated_write_bytes, reserve_bytes)
-        mesh_output_root.mkdir(parents=True, exist_ok=True)
+        if asset_storage == "chunk":
+            mesh_output_root.mkdir(parents=True, exist_ok=True)
         for mesh_path, entry in mesh_entries.items():
             if not entry.get("valid_triangle_indices", True):
                 continue
@@ -491,10 +692,18 @@ def build_runtime_chunk(
 
         manifest = {
             "version": RUNTIME_PACK_VERSION,
+            "manifest_layout": effective_manifest_layout,
             "generated_by": "scripts/generators/generate_godot_runtime_chunk.py",
             "generated_at_unix": int(time.time()),
             "chunk": chunk,
             "mode": mode,
+            "asset_storage": asset_storage,
+            "shared_asset_library_version": (
+                SHARED_ASSET_LIBRARY_VERSION if asset_storage == "shared" else 0
+            ),
+            "shared_asset_manifest_relative_path": (
+                "assets/manifest.json" if asset_storage == "shared" else ""
+            ),
             "neighbor_index_only": neighbor_index_only,
             "source_output_root": str(output_root),
             "runtime_root": str(runtime_root),
@@ -519,14 +728,26 @@ def build_runtime_chunk(
             "stale_runtime_count": stale_runtime_count,
             "stale_runtime_bytes": stale_runtime_bytes,
             "stale_native_scene_count": stale_native_scene_count,
-            "meshes": mesh_entries,
         }
+        if effective_manifest_layout == "thin_shared":
+            manifest["mesh_assets"] = thin_mesh_asset_refs(mesh_entries)
+        else:
+            manifest["meshes"] = mesh_entries
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
         manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    if asset_storage == "shared":
+        shared_asset_entries = {
+            str(entry["asset_id"]): shared_asset_manifest_entry(mesh_path, entry)
+            for mesh_path, entry in mesh_entries.items()
+            if entry.get("asset_id")
+        }
 
     return {
         "chunk": chunk,
         "mode": mode,
+        "asset_storage": asset_storage,
+        "manifest_layout": effective_manifest_layout,
         "mesh_count": len(mesh_entries),
         "missing_mesh_count": len(missing),
         "invalid_triangle_mesh_count": len(invalid_triangle_meshes),
@@ -541,6 +762,7 @@ def build_runtime_chunk(
         "source_index_miss_count": source_index_miss_count,
         "manifest_path": manifest_path,
         "runtime_root": runtime_root,
+        "shared_asset_entries": shared_asset_entries,
     }
 
 
@@ -692,8 +914,20 @@ def native_scene_entry_is_fresh(
 
 
 def materialize_mesh(source_path: Path, runtime_path: Path, mode: str) -> None:
-    if runtime_path.exists():
-        runtime_path.unlink()
+    temp_path = runtime_path.with_name(
+        f".{runtime_path.name}.{os.getpid()}.{time.time_ns()}.tmp"
+    )
+    if temp_path.exists():
+        temp_path.unlink()
+    try:
+        materialize_mesh_to_path(source_path, temp_path, mode)
+        os.replace(temp_path, runtime_path)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+
+
+def materialize_mesh_to_path(source_path: Path, runtime_path: Path, mode: str) -> None:
     if mode == "glb":
         convert_gltf_to_glb(source_path, runtime_path)
         return
@@ -845,6 +1079,35 @@ def runtime_mesh_relative_path(path: Path, mode: str) -> Path:
     return path.with_suffix(".glb") if mode == "glb" else path
 
 
+def runtime_relative_path_for_asset(
+    chunk: str,
+    safe_path: Path,
+    *,
+    mode: str,
+    asset_storage: str,
+    source_signature: str,
+) -> Path:
+    mesh_relative = runtime_mesh_relative_path(safe_path, mode)
+    if asset_storage == "chunk":
+        return Path("chunks") / chunk / "meshes" / mesh_relative
+    if asset_storage != "shared":
+        raise ValueError(f"unsupported asset storage: {asset_storage}")
+    digest = shared_asset_digest(safe_path.as_posix(), mode=mode, source_signature=source_signature)
+    file_name = f"{mesh_relative.stem}.{digest}{mesh_relative.suffix}"
+    return Path("assets") / "meshes" / mesh_relative.parent / file_name
+
+
+def shared_asset_digest(mesh_path: str, *, mode: str, source_signature: str) -> str:
+    payload = f"{mesh_path}\0{mode}\0{source_signature}".encode("utf-8", errors="replace")
+    return hashlib.sha1(payload).hexdigest()[:16]
+
+
+def shared_asset_id(mesh_path: str, *, mode: str, source_signature: str) -> str:
+    safe_path = safe_relative_path(mesh_path)
+    digest = shared_asset_digest(safe_path.as_posix(), mode=mode, source_signature=source_signature)
+    return f"{safe_path.with_suffix('').as_posix()}#{digest}"
+
+
 def native_scene_relative_path(runtime_relative: Path) -> Path:
     parts = list(runtime_relative.parts)
     try:
@@ -884,6 +1147,8 @@ def print_runtime_summary(result: dict[str, Any], *, dry_run: bool) -> None:
     label = "DRY RUN" if dry_run else "WROTE"
     print(
         f"{label}: {result['chunk']} mode={result['mode']} "
+        f"asset_storage={result.get('asset_storage', 'chunk')} "
+        f"manifest_layout={result.get('manifest_layout', 'full')} "
         f"meshes={result['mesh_count']} missing={result['missing_mesh_count']} "
         f"invalid_triangles={result['invalid_triangle_mesh_count']} "
         f"native_scenes={result['native_scene_count']}"
@@ -910,6 +1175,186 @@ def print_runtime_summary(result: dict[str, Any], *, dry_run: bool) -> None:
             f"misses={int(result.get('source_index_miss_count', 0))}"
         )
     print(f"  manifest: {result['manifest_path']}")
+
+
+def print_total_runtime_summary(
+    results: list[dict[str, Any]],
+    *,
+    failures: int,
+    dry_run: bool,
+) -> None:
+    label = "DRY RUN TOTAL" if dry_run else "RUNTIME PACK TOTAL"
+    print()
+    print("=" * 60)
+    print(label)
+    print("=" * 60)
+    print(f"Chunks processed: {len(results)}")
+    print(f"Failures: {failures}")
+    print(f"Meshes: {sum(int(result.get('mesh_count', 0)) for result in results)}")
+    print(f"Missing meshes: {sum(int(result.get('missing_mesh_count', 0)) for result in results)}")
+    print(
+        "Invalid triangle meshes: "
+        f"{sum(int(result.get('invalid_triangle_mesh_count', 0)) for result in results)}"
+    )
+    print(
+        "StaticMeshAsync source index: "
+        f"hits={sum(int(result.get('source_index_hit_count', 0)) for result in results)} "
+        f"misses={sum(int(result.get('source_index_miss_count', 0)) for result in results)}"
+    )
+    print(
+        "Source mesh bytes: "
+        f"{format_bytes(sum(int(result.get('source_bytes', 0)) for result in results))}"
+    )
+    print(
+        "Estimated new write: "
+        f"{format_bytes(sum(int(result.get('estimated_write_bytes', 0)) for result in results))}"
+    )
+    print(
+        "Existing runtime bytes: "
+        f"{format_bytes(sum(int(result.get('existing_runtime_bytes', 0)) for result in results))}"
+    )
+    shared_assets: dict[str, dict[str, Any]] = {}
+    for result in results:
+        entries = result.get("shared_asset_entries", {})
+        if isinstance(entries, dict):
+            shared_assets.update(entries)
+    if shared_assets:
+        print(f"Unique shared runtime assets: {len(shared_assets)}")
+
+
+def shared_asset_manifest_entry(mesh_path: str, entry: dict[str, Any]) -> dict[str, Any]:
+    result = {
+        "asset_id": str(entry.get("asset_id", "")),
+        "mesh_path": mesh_path,
+        "mode": str(entry.get("mode", "")),
+        "runtime_pack_version": int(entry.get("runtime_pack_version", RUNTIME_PACK_VERSION)),
+        "runtime_relative_path": str(entry.get("runtime_relative_path", "")),
+        "source_relative_path": str(entry.get("source_relative_path", "")),
+        "source_signature": str(entry.get("source_signature", "")),
+        "source_bytes": int(entry.get("source_bytes", 0)),
+        "source_mtime_unix": int(entry.get("source_mtime_unix", 0)),
+        "source_mtime_ns": int(entry.get("source_mtime_ns", 0)),
+        "valid_triangle_indices": bool(entry.get("valid_triangle_indices", True)),
+    }
+    for optional_key in [
+        "runtime_bytes",
+        "native_scene_relative_path",
+        "native_scene_bytes",
+        "native_scene_pack_version",
+        "native_scene_runtime_pack_version",
+        "native_scene_source_signature",
+        "native_scene_runtime_signature",
+        "native_scene_status",
+        "externalized_texture_count",
+        "externalized_texture_reuse_count",
+        "externalized_texture_failed_count",
+        "externalized_material_count",
+        "externalized_material_reuse_count",
+        "externalized_material_failed_count",
+        "staticmesh_async_asset_ref",
+        "staticmesh_async_package",
+        "staticmesh_async_object_name",
+        "staticmesh_async_package_object_key",
+        "staticmesh_async_record_index",
+        "staticmesh_async_record_offset",
+        "staticmesh_async_serial_offset",
+        "staticmesh_async_serial_size",
+    ]:
+        if optional_key in entry:
+            result[optional_key] = entry[optional_key]
+    return result
+
+
+def thin_mesh_asset_refs(mesh_entries: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    refs: dict[str, dict[str, Any]] = {}
+    for mesh_path, entry in mesh_entries.items():
+        ref: dict[str, Any] = {
+            "mesh_name": str(entry.get("mesh_name", "")),
+            "reason": str(entry.get("reason", "")),
+            "reference_count": int(entry.get("reference_count", 0)),
+            "valid_triangle_indices": bool(entry.get("valid_triangle_indices", True)),
+        }
+        asset_id = str(entry.get("asset_id", "")).strip()
+        if asset_id:
+            ref["asset_id"] = asset_id
+        if "status" in entry:
+            ref["status"] = entry["status"]
+        refs[mesh_path] = ref
+    return refs
+
+
+def write_shared_asset_manifest(
+    runtime_root: Path,
+    results: list[dict[str, Any]],
+    *,
+    mode: str,
+) -> None:
+    manifest_path = runtime_root / "assets" / "manifest.json"
+    previous = read_json_if_exists(manifest_path)
+    previous_assets_value = previous.get("assets", {}) if isinstance(previous, dict) else {}
+    assets = previous_assets_value if isinstance(previous_assets_value, dict) else {}
+    written_count = 0
+    for result in results:
+        entries = result.get("shared_asset_entries", {})
+        if not isinstance(entries, dict):
+            continue
+        for asset_id, entry in entries.items():
+            asset_key = str(asset_id)
+            previous_entry = assets.get(asset_key, {})
+            if isinstance(previous_entry, dict):
+                entry = preserve_shared_native_fields(entry, previous_entry)
+            assets[asset_key] = entry
+            written_count += 1
+    manifest = {
+        "version": SHARED_ASSET_LIBRARY_VERSION,
+        "runtime_pack_version": RUNTIME_PACK_VERSION,
+        "native_scene_pack_version": NATIVE_SCENE_PACK_VERSION,
+        "generated_by": "scripts/generators/generate_godot_runtime_chunk.py",
+        "generated_at_unix": int(time.time()),
+        "mode": mode,
+        "asset_count": len(assets),
+        "updated_asset_count": written_count,
+        "assets": assets,
+    }
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"Shared asset manifest: {manifest_path} assets={len(assets)} updated={written_count}")
+
+
+def shared_asset_manifest_entries(runtime_root: Path) -> dict[str, dict[str, Any]]:
+    manifest = read_json_if_exists(runtime_root / "assets" / "manifest.json")
+    if not isinstance(manifest, dict):
+        return {}
+    assets = manifest.get("assets", {})
+    if not isinstance(assets, dict):
+        return {}
+    return {str(key): value for key, value in assets.items() if isinstance(value, dict)}
+
+
+def preserve_shared_native_fields(
+    entry: dict[str, Any], previous_entry: dict[str, Any]
+) -> dict[str, Any]:
+    if str(entry.get("source_signature", "")) != str(previous_entry.get("source_signature", "")):
+        return entry
+    preserved = dict(entry)
+    for key in [
+        "native_scene_relative_path",
+        "native_scene_bytes",
+        "native_scene_pack_version",
+        "native_scene_runtime_pack_version",
+        "native_scene_source_signature",
+        "native_scene_runtime_signature",
+        "native_scene_status",
+        "externalized_texture_count",
+        "externalized_texture_reuse_count",
+        "externalized_texture_failed_count",
+        "externalized_material_count",
+        "externalized_material_reuse_count",
+        "externalized_material_failed_count",
+    ]:
+        if key not in preserved and key in previous_entry:
+            preserved[key] = previous_entry[key]
+    return preserved
 
 
 def safe_relative_path(value: str) -> Path:

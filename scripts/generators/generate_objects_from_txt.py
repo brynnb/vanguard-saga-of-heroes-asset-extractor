@@ -35,9 +35,9 @@ import json
 import math
 import os
 import re
-import struct
 import sys
 import base64
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import numpy as np
 from pathlib import Path
 
@@ -46,6 +46,13 @@ PROJECT_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
 sys.path.insert(0, PROJECT_ROOT)
+
+from scripts.lib.terraininfo_native import (
+    import_name_lookup,
+    iter_decoinstance_records,
+    parse_terraininfo_native,
+    static_mesh_import_names,
+)
 
 try:
     import config
@@ -64,107 +71,22 @@ except ImportError:
 SGO_PREFABS_JSON = os.path.join(PROJECT_ROOT, "output/data/sgo_prefabs.json")
 
 
-def _read_compact_index(data, pos):
-    """Read a UE2 compact index from binary data."""
-    b0 = data[pos]; pos += 1
-    neg = b0 & 0x80
-    more = b0 & 0x40
-    val = b0 & 0x3F
-    shift = 6
-    while more:
-        b = data[pos]; pos += 1
-        more = b & 0x80
-        val |= (b & 0x7F) << shift
-        shift += 7
-    if neg:
-        val = -val
-    return val, pos
-
-
-def _parse_mesh_lookup_table(ti_data, import_names):
-    """Parse the MeshIndex → StaticMesh lookup table from native body.
-
-    The native body contains a serialized array of 0x68-byte structs at
-    ATerrainInfo::this+0x658.  Each struct's offset +4 holds a UObject*
-    compact index pointing to the actual StaticMesh import.  The array is
-    serialized AFTER DecoLayers and BEFORE DecoInstances.
-
-    Returns dict mapping mesh_index (int) → mesh_name (str), or empty dict on failure.
-    """
-    total = len(ti_data)
-
-    # Find native body start: int32=1 followed by int32=256 (Sectors count)
-    nb_start = None
-    for off in range(35000, min(55000, total - 8)):
-        v1 = struct.unpack_from('<I', ti_data, off)[0]
-        v2 = struct.unpack_from('<I', ti_data, off + 4)[0]
-        if v1 == 1 and v2 == 256:
-            nb_start = off
-            break
-    if nb_start is None:
-        return {}
-
-    nb = ti_data[nb_start:]
-    pos = 4  # skip int32=1
-
-    # Skip Sectors TArray<UObject*>
-    count = struct.unpack_from('<i', nb, pos)[0]; pos += 4
-    for _ in range(count):
-        _, pos = _read_compact_index(nb, pos)
-
-    pos += 8   # SectorsX, SectorsY
-    pos += 96  # 2x FCoords
-    pos += 8   # HeightmapX, HeightmapY
-
-    # UObject* + TArray<float>
-    _, pos = _read_compact_index(nb, pos)
-    fcount = struct.unpack_from('<i', nb, pos)[0]; pos += 4
-    pos += fcount * 4
-
-    pos += 4  # int32 (this+0x16cc)
-
-    # Skip DecoLayers
-    dl_count = struct.unpack_from('<i', nb, pos)[0]; pos += 4
-    for _ in range(dl_count):
-        pos += 12 + 12 + 4 + 25  # 3 int32 + FVector + float + FBox
-        arr12 = struct.unpack_from('<i', nb, pos)[0]; pos += 4
-        pos += arr12 * 12
-        arr32 = struct.unpack_from('<i', nb, pos)[0]; pos += 4
-        pos += arr32 * 4
-        pos += 25 + 4  # FBox + int32
-
-    # Now at the mesh lookup table
-    mesh_count = struct.unpack_from('<i', nb, pos)[0]; pos += 4
-    if mesh_count < 0 or mesh_count > 500:
-        return {}
-
-    mapping = {}
-    for i in range(mesh_count):
-        pos += 4  # float at offset 0
-        obj_ref, pos = _read_compact_index(nb, pos)  # UObject* at offset +4
-
-        if obj_ref < 0:
-            name = import_names.get(obj_ref, f"import_{obj_ref}")
-        elif obj_ref > 0:
-            name = f"export_{obj_ref}"
-        else:
-            name = "None"
-
-        # Skip remaining fields of the 0x68-byte element:
-        # TArray<36B>
-        sub_count = struct.unpack_from('<i', nb, pos)[0]; pos += 4
-        pos += sub_count * 36
-        # int32
-        pos += 4
-        # TArray<int16> + int32
-        i16_count = struct.unpack_from('<i', nb, pos)[0]; pos += 4
-        pos += i16_count * 2
-        # 2x int32
-        pos += 8
-
-        mapping[i] = name
-
-    return mapping
+DECOINSTANCE_EXTRA_KEYS = (
+    "deco_instance_index",
+    "deco_native_offset",
+    "deco_array_offset",
+    "deco_count_offset",
+    "deco_mesh_index",
+    "deco_mesh_lookup_offset",
+    "deco_mesh_lookup_object_ref",
+    "deco_mesh_lookup_draw_distance",
+    "deco_flag1",
+    "deco_flag2",
+    "deco_yaw_byte",
+    "deco_flag3",
+    "deco_native_body_offset",
+    "deco_validation_ratio",
+)
 
 
 def extract_decoinstances(vgr_path, by_name, by_base):
@@ -203,121 +125,42 @@ def extract_decoinstances(vgr_path, by_name, by_base):
 
     ti_data = pkg.get_export_data(ti_export)
 
-    total = len(ti_data)
+    native_parse = parse_terraininfo_native(ti_data, import_name_lookup(pkg.imports))
+    mesh_mapping = native_parse.mesh_mapping
 
-    # Build import name lookup (by compact index value)
-    import_names = {}
-    for imp in pkg.imports:
-        idx = imp['index']  # negative compact index
-        import_names[idx] = imp.get('object_name', '')
+    # Build direct import list for diagnostics only. MeshIndex values do not
+    # reliably index this table; using it as a fallback can assign thousands of
+    # terrain-deco placements to the wrong mesh.
+    mesh_imports = static_mesh_import_names(pkg.imports)
 
-    # Parse the mesh lookup table from native body.
-    # MeshIndex does NOT directly index the import table.  It indexes an array
-    # of 0x68-byte structs (at this+0x658) that each contain a UObject* compact
-    # index reference to the actual StaticMesh.  This table is serialized in the
-    # native body AFTER DecoLayers and BEFORE DecoInstances.
-    mesh_mapping = _parse_mesh_lookup_table(ti_data, import_names)
-
-    # Fallback: build direct import list if lookup table parsing fails
-    mesh_imports = []
-    for i, imp in enumerate(pkg.imports):
-        if imp.get("class_name") == "StaticMesh":
-            mesh_imports.append((i, imp.get("object_name", "")))
-
-    if not mesh_imports and not mesh_mapping:
+    if not mesh_mapping:
+        detail = "; ".join(native_parse.warnings[:3])
+        detail_text = f" ({detail})" if detail else ""
+        print(
+            f"  Warning: DecoInstance mesh lookup table was not parsed for {os.path.basename(vgr_path)}; "
+            f"skipping native vegetation placements ({len(mesh_imports)} StaticMesh imports available){detail_text}"
+        )
         return []
 
-    # n_mesh for validation: prefer lookup table count
-    n_mesh = len(mesh_mapping) if mesh_mapping else len(mesh_imports)
-    # produces valid data with bounded types, positions, and scales.
-    # Scan every 2 bytes because the native body uses compact indices that
-    # can cause int32 fields to fall at non-4-byte-aligned offsets.
-    best = None
-    n_mesh = len(mesh_imports)
-    for off in range(0, total - 26, 2):
-        count = struct.unpack_from("<i", ti_data, off)[0]
-        if count < 50 or count > 30000:
-            continue
-
-        array_start = off + 4
-        array_end = array_start + count * 22
-        if array_end > total:
-            continue
-
-        # Quick pre-check: validate first and last few instances
-        sample_ok = 0
-        sample_total = 0
-        for ci in list(range(min(5, count))) + list(range(max(0, count - 5), count)):
-            ioff = array_start + ci * 22
-            mesh_idx = struct.unpack_from("<h", ti_data, ioff)[0]
-            scale = struct.unpack_from("<f", ti_data, ioff + 18)[0]
-            sample_total += 1
-            if 0 <= mesh_idx < n_mesh and 0.0 <= scale < 50:
-                sample_ok += 1
-        if sample_total == 0 or sample_ok / sample_total < 0.8:
-            continue
-
-        # Full validation on promising candidates
-        max_type = 0
-        valid = 0
-        for ci in range(count):
-            ioff = array_start + ci * 22
-            if ioff + 22 > total:
-                break
-            mesh_idx = struct.unpack_from("<h", ti_data, ioff)[0]
-            px, py, pz = struct.unpack_from("<3f", ti_data, ioff + 2)
-            scale = struct.unpack_from("<f", ti_data, ioff + 18)[0]
-            max_type = max(max_type, mesh_idx)
-
-            # Null entries (all zeros) count as valid — they're just empty slots
-            if px == 0 and py == 0 and pz == 0 and scale == 0:
-                valid += 1
-                continue
-
-            if (
-                abs(px) < 200000
-                and abs(py) < 200000
-                and abs(pz) < 200000
-                and 0.0 <= scale < 50
-                and 0 <= mesh_idx < n_mesh
-            ):
-                valid += 1
-
-        ratio = valid / count if count > 0 else 0
-        if ratio >= 0.95 and max_type < n_mesh:
-            if (
-                best is None
-                or ratio > best[3]
-                or (ratio == best[3] and count > best[1])
-            ):
-                best = (array_start, count, max_type, ratio)
-
-    if not best:
+    if native_parse.deco_array is None:
+        print(
+            f"  Warning: DecoInstance array was not found for {os.path.basename(vgr_path)} "
+            f"({native_parse.mesh_lookup_count} lookup meshes, {len(mesh_imports)} StaticMesh imports)"
+        )
         return []
-
-    array_start, count, max_type, _ratio = best
 
     # Parse all instances and resolve mesh references
     objects = []
     resolved = 0
-    for ci in range(count):
-        ioff = array_start + ci * 22
-        mesh_idx = struct.unpack_from("<h", ti_data, ioff)[0]
-        px, py, pz = struct.unpack_from("<3f", ti_data, ioff + 2)
-        yaw_byte = ti_data[ioff + 16]
-        scale = struct.unpack_from("<f", ti_data, ioff + 18)[0]
-
-        # Skip null entries (pos=0,0,0 and scale=0)
-        if px == 0 and py == 0 and pz == 0 and scale == 0:
-            continue
-
-        # Map mesh index to StaticMesh import name via lookup table
-        if mesh_mapping and mesh_idx in mesh_mapping:
-            mesh_import_name = mesh_mapping[mesh_idx]
-        elif mesh_idx < len(mesh_imports):
-            mesh_import_name = mesh_imports[mesh_idx][1]  # fallback
-        else:
-            continue  # Unknown type, skip
+    for record in iter_decoinstance_records(
+        ti_data, native_parse.deco_array, native_parse.mesh_lookup
+    ):
+        mesh_idx = int(record["mesh_index"])
+        lookup_record = record["mesh_lookup"]
+        mesh_import_name = lookup_record.mesh_name
+        px, py, pz = record["position"]
+        yaw_byte = int(record["yaw_byte"])
+        scale = float(record["scale"])
 
         # Resolve mesh file path
         name_lower = mesh_import_name.lower()
@@ -336,7 +179,7 @@ def extract_decoinstances(vgr_path, by_name, by_base):
         yaw_ue2 = yaw_byte * 256
 
         obj = {
-            "name": f"TREE_{mesh_import_name}_{ci}",
+            "name": f"TREE_{mesh_import_name}_{record['instance_index']}",
             "class": "DecoInstance",
             "location": (px, py, pz),
             "prefab_name": mesh_import_name,
@@ -344,13 +187,30 @@ def extract_decoinstances(vgr_path, by_name, by_base):
             "mesh_path": mesh_path,
             "deco_scale": scale,
             "deco_yaw": yaw_ue2,
+            "deco_instance_index": int(record["instance_index"]),
+            "deco_native_offset": int(record["native_offset"]),
+            "deco_array_offset": int(native_parse.deco_array.array_offset),
+            "deco_count_offset": int(native_parse.deco_array.count_offset),
+            "deco_mesh_index": mesh_idx,
+            "deco_mesh_lookup_offset": int(lookup_record.native_offset),
+            "deco_mesh_lookup_object_ref": int(lookup_record.object_ref),
+            "deco_mesh_lookup_draw_distance": float(lookup_record.draw_distance),
+            "deco_flag1": int(record["flag1"]),
+            "deco_flag2": int(record["flag2"]),
+            "deco_yaw_byte": yaw_byte,
+            "deco_flag3": int(record["flag3"]),
+            "deco_validation_ratio": float(native_parse.deco_array.validation_ratio),
         }
+        if native_parse.native_body_offset is not None:
+            obj["deco_native_body_offset"] = int(native_parse.native_body_offset)
         if mesh_path:
             resolved += 1
         objects.append(obj)
 
     print(
-        f"  DecoInstance: {len(objects)} placements ({resolved} resolved, {max_type + 1} types, {len(mesh_imports)} mesh imports)"
+        f"  DecoInstance: {len(objects)} placements ({resolved} resolved, "
+        f"{native_parse.deco_array.max_mesh_index + 1} types, {len(mesh_imports)} mesh imports, "
+        f"native={native_parse.native_body_offset}, array={native_parse.deco_array.array_offset})"
     )
     return objects
 
@@ -583,6 +443,12 @@ def load_mesh_manifest():
             data = json.load(f)
         return data.get("meshes", [])
     return []
+
+
+def _resolve_workers(workers):
+    if workers < 1:
+        return os.cpu_count() or 1
+    return workers
 
 
 # Singleton SGO prefab data (loaded once from JSON)
@@ -1128,6 +994,9 @@ def generate_objects_gltf(objects, output_path, chunk_name):
                 "is_prefab": False,
                 "vang_location": vang_location,
             }
+            for key in DECOINSTANCE_EXTRA_KEYS:
+                if key in obj:
+                    extras[key] = obj[key]
             if mesh_path:
                 extras["mesh_path"] = mesh_path
                 resolved_count += 1
@@ -1336,6 +1205,86 @@ def generate_objects_gltf(objects, output_path, chunk_name):
     return len(objects), resolved_count, unresolved_prefabs
 
 
+def process_chunk_objects(chunk_name, by_name, by_base):
+    txt_path = os.path.join(REFERENCE_MAPS_DIR, chunk_name, "objects.txt")
+    if not os.path.exists(txt_path):
+        return {
+            "chunk": chunk_name,
+            "status": "missing_objects_txt",
+            "count": 0,
+            "resolved": 0,
+            "unresolved": [],
+        }
+
+    objects = parse_objects_txt(txt_path)
+
+    # Extract DecoInstance tree/vegetation placements from .vgr binary
+    vgr_path = os.path.join(MAPS_DIR, f"{chunk_name}.vgr")
+    if os.path.exists(vgr_path):
+        deco_objects = extract_decoinstances(vgr_path, by_name, by_base)
+        if deco_objects:
+            objects.extend(deco_objects)
+
+    if not objects:
+        return {
+            "chunk": chunk_name,
+            "status": "no_placeable_objects",
+            "count": 0,
+            "resolved": 0,
+            "unresolved": [],
+        }
+
+    output_path = os.path.join(OUTPUT_DIR, f"{chunk_name}_objects.gltf")
+    count, resolved, unresolved = generate_objects_gltf(objects, output_path, chunk_name)
+    return {
+        "chunk": chunk_name,
+        "status": "ok",
+        "count": count,
+        "resolved": resolved,
+        "unresolved": sorted(unresolved),
+    }
+
+
+def process_chunk_objects_worker(args):
+    chunk_name, by_name, by_base = args
+    try:
+        return process_chunk_objects(chunk_name, by_name, by_base)
+    except Exception as exc:
+        return {
+            "chunk": chunk_name,
+            "status": "error",
+            "error": str(exc),
+            "count": 0,
+            "resolved": 0,
+            "unresolved": [],
+        }
+
+
+def print_chunk_result(result, prefix=""):
+    chunk_name = result["chunk"]
+    status = result.get("status", "")
+    if status == "ok":
+        count = int(result["count"])
+        resolved = int(result["resolved"])
+        unresolved = result.get("unresolved", [])
+        print(
+            f"{prefix}{chunk_name}: {count} objects "
+            f"({resolved} resolved, {count-resolved} unresolved)"
+        )
+        if unresolved:
+            for prefab in unresolved[:5]:
+                print(f"  ? {prefab}")
+            if len(unresolved) > 5:
+                print(f"  ... and {len(unresolved)-5} more")
+    elif status == "missing_objects_txt":
+        print(f"{prefix}{chunk_name}: No objects.txt")
+    elif status == "no_placeable_objects":
+        print(f"{prefix}{chunk_name}: No placeable objects found")
+    else:
+        detail = result.get("error", "unknown error")
+        print(f"{prefix}{chunk_name}: ERROR {detail}")
+
+
 def main():
     import argparse
 
@@ -1349,6 +1298,12 @@ def main():
         type=int,
         default=0,
         help="Limit chunk count when used with --all",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Chunk worker processes; 0 uses all CPUs.",
     )
     args = parser.parse_args()
 
@@ -1368,44 +1323,30 @@ def main():
     # Pre-load mesh manifest for DecoInstance resolution
     mesh_manifest = load_mesh_manifest()
     by_name, by_base, _by_tail = build_mesh_lookups(mesh_manifest)
+    workers = min(_resolve_workers(args.workers), len(chunks)) if chunks else 1
 
     total_objects = 0
-    for chunk_name in chunks:
-        txt_path = os.path.join(REFERENCE_MAPS_DIR, chunk_name, "objects.txt")
-        if not os.path.exists(txt_path):
-            print(f"{chunk_name}: No objects.txt")
-            continue
+    successful_chunks = 0
+    if workers > 1:
+        print(f"Workers: {workers}")
+        worker_args = [(chunk_name, by_name, by_base) for chunk_name in chunks]
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(process_chunk_objects_worker, item) for item in worker_args]
+            for completed, future in enumerate(as_completed(futures), start=1):
+                result = future.result()
+                print_chunk_result(result, prefix=f"[{completed}/{len(chunks)}] ")
+                if result.get("status") == "ok":
+                    successful_chunks += 1
+                    total_objects += int(result["count"])
+    else:
+        for chunk_name in chunks:
+            result = process_chunk_objects(chunk_name, by_name, by_base)
+            print_chunk_result(result)
+            if result.get("status") == "ok":
+                successful_chunks += 1
+                total_objects += int(result["count"])
 
-        objects = parse_objects_txt(txt_path)
-
-        # Extract DecoInstance tree/vegetation placements from .vgr binary
-        vgr_path = os.path.join(MAPS_DIR, f"{chunk_name}.vgr")
-        if os.path.exists(vgr_path):
-            deco_objects = extract_decoinstances(vgr_path, by_name, by_base)
-            if deco_objects:
-                objects.extend(deco_objects)
-
-        if not objects:
-            print(f"{chunk_name}: No placeable objects found")
-            continue
-
-        output_path = os.path.join(OUTPUT_DIR, f"{chunk_name}_objects.gltf")
-        count, resolved, unresolved = generate_objects_gltf(
-            objects, output_path, chunk_name
-        )
-
-        print(
-            f"{chunk_name}: {count} objects ({resolved} resolved, {count-resolved} unresolved)"
-        )
-        if unresolved:
-            for p in sorted(unresolved)[:5]:
-                print(f"  ? {p}")
-            if len(unresolved) > 5:
-                print(f"  ... and {len(unresolved)-5} more")
-
-        total_objects += count
-
-    print(f"\nTotal: {total_objects} objects across {len(chunks)} chunks")
+    print(f"\nTotal: {total_objects} objects across {successful_chunks}/{len(chunks)} chunks")
 
 
 if __name__ == "__main__":
