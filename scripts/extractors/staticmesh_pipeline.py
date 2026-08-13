@@ -28,6 +28,8 @@ from datetime import datetime
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
+from PIL import Image
+
 from typing import List, Optional, Dict, Any, Tuple
 
 
@@ -638,6 +640,13 @@ def _load_texture_image_b64(texture_name):
     for fname in os.listdir(tex_dir) if os.path.isdir(tex_dir) else []:
         if fname.lower() == texture_name.lower() + ".png":
             fpath = os.path.join(tex_dir, fname)
+            try:
+                with Image.open(fpath) as image:
+                    if image.format != "PNG":
+                        raise ValueError(f"not PNG data: {fpath}")
+                    image.verify()
+            except (OSError, ValueError) as exc:
+                raise ValueError(f"refusing to embed corrupt texture {fpath}: {exc}") from exc
             with open(fpath, "rb") as f:
                 b64 = base64.b64encode(f.read()).decode("utf-8")
             return f"data:image/png;base64,{b64}", "image/png"

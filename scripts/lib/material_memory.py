@@ -1787,13 +1787,12 @@ class MaterialMemoryResolver:
         output_path.mkdir(parents=True, exist_ok=True)
         asset_name = _target_asset_name(target, prefix=prefix)
         png_path = output_path / f"{asset_name}.png"
-        if png_path.exists():
+        if _is_valid_png(png_path):
             return self._texture_asset_record(target, output_dir, asset_name)
         image = self._load_texture_image(target)
         if image is None:
             return None
-        if not png_path.exists():
-            _save_png_if_missing(image, png_path)
+        _publish_valid_png(image, png_path, replace_invalid=png_path.exists())
         return self._texture_asset_record(target, output_dir, asset_name)
 
     def _ensure_texture_png(
@@ -1869,22 +1868,52 @@ def _normal_strength(bump_scale: float | None) -> float:
     return max(0.35, min(4.0, float(bump_scale) / 4.0))
 
 
-def _save_png_if_missing(image: Image.Image, output_path: Path) -> None:
-    """Publish a PNG without clobbering another worker's completed output."""
-    if output_path.exists():
+def _is_valid_png(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    try:
+        with Image.open(path) as image:
+            if image.format != "PNG":
+                return False
+            image.verify()
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def _publish_valid_png(
+    image: Image.Image, output_path: Path, *, replace_invalid: bool = False
+) -> None:
+    """Atomically publish a verified PNG, replacing only a corrupt old file."""
+    if output_path.exists() and not replace_invalid:
         return
     tmp_path = output_path.with_name(f".{output_path.name}.{os.getpid()}.tmp")
     image.save(tmp_path, format="PNG")
+    if not _is_valid_png(tmp_path):
+        tmp_path.unlink(missing_ok=True)
+        raise ValueError(f"failed to encode a valid PNG: {output_path}")
     try:
-        try:
-            os.link(tmp_path, output_path)
-        except FileExistsError:
-            pass
+        if replace_invalid:
+            os.replace(tmp_path, output_path)
+        else:
+            try:
+                os.link(tmp_path, output_path)
+            except FileExistsError:
+                pass
     finally:
         try:
             tmp_path.unlink()
         except FileNotFoundError:
             pass
+
+
+def _save_png_if_missing(image: Image.Image, output_path: Path) -> None:
+    """Publish a valid PNG without clobbering another worker's valid output."""
+    _publish_valid_png(
+        image,
+        output_path,
+        replace_invalid=output_path.exists() and not _is_valid_png(output_path),
+    )
 
 
 def _write_height_to_normal_png(
