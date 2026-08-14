@@ -33,7 +33,7 @@ This is a fan-made preservation and recreation project and is not affiliated wit
 
 The original Vanguard client data is spread across UE2 package files, Vanguard-specific mesh and animation formats, terrain chunks, audio archives, prefab/object archives, text resources, and several one-off binary formats. This project currently extracts:
 
-- Terrain from `.vgr` chunk files, including heightmaps, layer masks, terrain textures, and chunk transforms.
+- Terrain from `.vgr` chunk files, including heightmaps, layer masks, terrain textures, baked vegetation-shadow masks, and chunk transforms.
 - Static meshes from UE2 package data, exported to glTF.
 - Character meshes, playable race metadata, customization data, and item attachment references.
 - EMotion FX and UE2 skeletal animations, including static hand/finger pose clips and playable facial-control sidecars.
@@ -278,6 +278,17 @@ Current tables include:
 - `prefabs`: resolved prefab component records.
 
 Several commands also write JSON sidecars under `output/data/`, such as texture databases, playable race data, SGO prefab data, and audio cue manifests.
+
+Terrain layer extraction writes each chunk's reusable material inputs under
+`output/terrain/terrain_grid/<chunk>_terrain_layers/`. In addition to base
+color, weight maps, and material-slot data, chunks that contain one now export
+`chunk_shadow.png`: the original 512x512 L8 `ChunkShadowMap`. White means no
+baked shadow and darker values primarily represent precomputed tree and
+vegetation footprints. Vanguard's shipped version-129 chunks do not contain
+UE2's legacy `TerrainInfo.VertexColors`; do not reinterpret `chunk_shadow.png`
+as vertex color or a terrain paint weight. `tile_map.json` records the shadow
+file, dimensions, source export, package association, and semantic meaning so a
+future renderer can stream it without repeating the reverse engineering.
 
 ## Areas Remaining
 

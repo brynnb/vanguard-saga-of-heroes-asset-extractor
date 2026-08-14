@@ -285,6 +285,61 @@ def extract_grass_alpha(pkg, chunk_name):
     return None
 
 
+def extract_chunk_shadow_map(pkg, chunk_name):
+    """Decode Vanguard's baked per-chunk vegetation shadow mask.
+
+    Modern Vanguard chunks do not serialize UE2's legacy ``VertexColors``
+    array. Their equivalent cooked terrain-lighting input is a 512x512 L8
+    texture whose export name starts with ``ChunkShadow_``. Some packages keep
+    a stale object-name suffix copied from another chunk, so the containing VGR
+    package—not that suffix—is the authoritative chunk association.
+
+    Returns:
+        ``(image, metadata)`` where image is an 8-bit grayscale PIL image, or
+        ``(None, None)`` when the package has no usable chunk-shadow texture.
+    """
+    from ue2.texture import Texture
+
+    candidates = [
+        exp
+        for exp in pkg.exports
+        if exp["class_name"] == "Texture"
+        and exp["object_name"].lower().startswith("chunkshadow_")
+    ]
+    if not candidates:
+        return None, None
+
+    expected_name = f"ChunkShadow_{chunk_name}Height".lower()
+    candidates.sort(
+        key=lambda exp: 0 if exp["object_name"].lower() == expected_name else 1
+    )
+    for exp in candidates:
+        try:
+            texture = Texture(pkg.get_export_data(exp), pkg.names)
+            image = texture.get_image(0)
+            if image is None:
+                continue
+            if image.mode != "L":
+                image = image.convert("L")
+            return image, {
+                "file": "chunk_shadow.png",
+                "format": "l8",
+                "size": [image.width, image.height],
+                "source_export": exp["object_name"],
+                "source_chunk": chunk_name,
+                "association": "containing_vgr_package",
+                "semantic": "baked_vegetation_shadow_mask",
+                "unshadowed_value": 255,
+                "note": (
+                    "This is not vertex color or a terrain paint weight; darker "
+                    "values are baked vegetation/tree shadows."
+                ),
+            }
+        except Exception:
+            continue
+    return None, None
+
+
 def extract_g16_heightmap(pkg, chunk_name):
     """Extract and decode G16 heightmap from VGR package (Low Detail 512x512)."""
     from ue2.texture import Texture
@@ -1630,6 +1685,10 @@ def export_hd_layer_data(
     if base_img:
         base_img.convert("RGB").save(os.path.join(layers_dir, "basecolor.png"))
 
+    chunk_shadow, chunk_shadow_metadata = extract_chunk_shadow_map(pkg, chunk_name)
+    if chunk_shadow is not None:
+        chunk_shadow.save(os.path.join(layers_dir, "chunk_shadow.png"))
+
     wmap_01, wmap_23, tile_coords = _decode_hd_layer_weight_maps(
         pkg, TILE_PIX, FULL_SIZE, SLOT_TO_BIT
     )
@@ -1734,6 +1793,8 @@ def export_hd_layer_data(
         },
         "tile_map": tile_map,
         "has_basecolor": base_img is not None,
+        "chunk_shadow": chunk_shadow_metadata,
+        "has_chunk_shadow": chunk_shadow is not None,
     }
 
     with open(os.path.join(layers_dir, "tile_map.json"), "w") as f:
