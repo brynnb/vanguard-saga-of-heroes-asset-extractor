@@ -107,8 +107,10 @@ python3 vanguard.py extract-world
 ```
 
 `export-characters` also rebuilds the authoritative appearance sidecars:
-`item_appearance_catalog.json` retains package-qualified item identities and
-their skin/layer/tint/hiding rules, while `attachment_group_catalog.json`
+`item_appearance_catalog.json` is a small package index; its generated
+`item_appearances/*.json` payloads retain package-qualified item identities and
+their skin/layer/tint/hiding rules without forcing runtimes to parse the whole
+wardrobe at startup. `attachment_group_catalog.json`
 decodes the 17 original `.sag` template packages. These replace the obsolete
 attachment-index-only lookup; consumers must never resolve an appearance from
 `attachment_index` without its `package_index` and actor visual profile.

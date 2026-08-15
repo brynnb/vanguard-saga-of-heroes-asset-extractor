@@ -8,7 +8,14 @@ and introduced false mesh edges. This generator instead retains every source
 ITEMS package, follows only ``Item Template -> Item Components`` references,
 preserves appearance semantics, and publishes only proven package mappings.
 
-Output: ``output/data/item_appearance_catalog.json``
+Outputs:
+
+* ``output/data/item_appearance_catalog.json`` — small runtime package index
+* ``output/data/item_appearances/<source-package>.json`` — package payloads
+
+The complete catalog is deliberately split because a character normally uses
+only a handful of appearance packages. Runtime consumers load and cache those
+packages by the authoritative package index.
 """
 
 from __future__ import annotations
@@ -48,6 +55,7 @@ ASSETS = Path(
 )
 ITEMS_DIR = ASSETS / "Characters" / "Meshes"
 OUTPUT_PATH = ROOT / "output" / "data" / "item_appearance_catalog.json"
+PACKAGE_DIRECTORY_NAME = "item_appearances"
 
 
 # Protocol/content constants. Unknown categories remain unmapped and therefore
@@ -316,7 +324,7 @@ def build_catalog(items_dir: Path = ITEMS_DIR) -> dict[str, Any]:
             + ", ".join(missing_sources)
         )
     return {
-        "schema": 2,
+        "schema": 3,
         "generated_by": "scripts/extractors/decode_items.py",
         "identity": ["package_index", "attachment_index"],
         "runtime_package_index_to_source": {
@@ -325,6 +333,43 @@ def build_catalog(items_dir: Path = ITEMS_DIR) -> dict[str, Any]:
         },
         "packages": packages,
     }
+
+
+def write_catalog(catalog: dict[str, Any], output_path: Path) -> None:
+    """Write an index plus independently loadable package payloads."""
+    package_directory = output_path.parent / PACKAGE_DIRECTORY_NAME
+    package_directory.mkdir(parents=True, exist_ok=True)
+
+    expected_files: set[str] = set()
+    package_index: dict[str, dict[str, Any]] = {}
+    for source_package, payload in sorted(catalog["packages"].items()):
+        filename = f"{source_package}.json"
+        expected_files.add(filename)
+        package_path = package_directory / filename
+        package_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        package_index[source_package] = {
+            "source_file": payload["source_file"],
+            "attachment_count": len(payload["attachments"]),
+            "path": f"{PACKAGE_DIRECTORY_NAME}/{filename}",
+        }
+
+    # The package directory is generator-owned. Stale package payloads must
+    # not remain silently addressable after the source set changes.
+    for stale_path in package_directory.glob("*.json"):
+        if stale_path.name not in expected_files:
+            stale_path.unlink()
+
+    index_payload = {
+        "schema": catalog["schema"],
+        "generated_by": catalog["generated_by"],
+        "identity": catalog["identity"],
+        "runtime_package_index_to_source": catalog[
+            "runtime_package_index_to_source"
+        ],
+        "packages": package_index,
+    }
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(index_payload, indent=2, sort_keys=True) + "\n")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -337,8 +382,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     catalog = build_catalog(args.items_dir)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(catalog, indent=2, sort_keys=True) + "\n")
+    write_catalog(catalog, args.output)
     attachment_count = sum(
         len(package["attachments"]) for package in catalog["packages"].values()
     )

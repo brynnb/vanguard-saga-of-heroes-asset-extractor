@@ -1,8 +1,11 @@
+import json
 import struct
+import tempfile
 import unittest
+from pathlib import Path
 
 from scripts.extractors.decode_attachment_groups import CATEGORY_ORDER
-from scripts.extractors.decode_items import RUNTIME_PACKAGE_INDEX_TO_SOURCE
+from scripts.extractors.decode_items import RUNTIME_PACKAGE_INDEX_TO_SOURCE, write_catalog
 from scripts.lib.ue2_tagged_properties import (
     TYPE_BOOL,
     TYPE_INT,
@@ -56,6 +59,40 @@ class AppearanceCatalogContractTest(unittest.TestCase):
         self.assertEqual(CATEGORY_ORDER[8], "Swords")
         self.assertEqual(CATEGORY_ORDER[-2:], ["Hair", "FacialHair"])
         self.assertEqual(len(CATEGORY_ORDER), 17)
+
+    def test_item_catalog_is_split_into_indexed_package_payloads(self) -> None:
+        catalog = {
+            "schema": 3,
+            "generated_by": "test",
+            "identity": ["package_index", "attachment_index"],
+            "runtime_package_index_to_source": {"15": "HEAD_ITEMS"},
+            "packages": {
+                "HEAD_ITEMS": {
+                    "source_file": "UEM_HEAD_ITEMS.uem",
+                    "source_package": "HEAD_ITEMS",
+                    "attachments": {"7": [{"source_export": "Helm_7"}]},
+                }
+            },
+        }
+        with tempfile.TemporaryDirectory() as temp_directory:
+            output_path = Path(temp_directory) / "item_appearance_catalog.json"
+            stale_path = Path(temp_directory) / "item_appearances" / "STALE.json"
+            stale_path.parent.mkdir(parents=True)
+            stale_path.write_text("{}")
+
+            write_catalog(catalog, output_path)
+
+            index = json.loads(output_path.read_text())
+            self.assertNotIn("attachments", index["packages"]["HEAD_ITEMS"])
+            self.assertEqual(
+                index["packages"]["HEAD_ITEMS"]["path"],
+                "item_appearances/HEAD_ITEMS.json",
+            )
+            payload = json.loads(
+                (Path(temp_directory) / index["packages"]["HEAD_ITEMS"]["path"]).read_text()
+            )
+            self.assertEqual(payload["attachments"]["7"][0]["source_export"], "Helm_7")
+            self.assertFalse(stale_path.exists())
 
 
 if __name__ == "__main__":
