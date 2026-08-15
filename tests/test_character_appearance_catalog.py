@@ -6,6 +6,7 @@ from pathlib import Path
 
 from scripts.extractors.decode_attachment_groups import CATEGORY_ORDER
 from scripts.extractors.decode_items import RUNTIME_PACKAGE_INDEX_TO_SOURCE, write_catalog
+from scripts.generators.generate_playable_races import PLAYABLE_VISUAL_SOURCE, _entry
 from scripts.lib.ue2_tagged_properties import (
     TYPE_BOOL,
     TYPE_INT,
@@ -93,6 +94,14 @@ class AppearanceCatalogContractTest(unittest.TestCase):
             )
             self.assertEqual(payload["attachments"]["7"][0]["source_export"], "Helm_7")
             self.assertFalse(stale_path.exists())
+
+    def test_playable_visual_mapping_never_borrows_another_race(self) -> None:
+        self.assertEqual(PLAYABLE_VISUAL_SOURCE["HighElf"], ("Elf", 0))
+        self.assertEqual(PLAYABLE_VISUAL_SOURCE["DarkElf"], ("Elf", 1))
+        self.assertNotIn("KojanBarbarian", PLAYABLE_VISUAL_SOURCE)
+        unsupported = _entry("KojanBarbarian", "M")
+        self.assertFalse(unsupported["visual_supported"])
+        self.assertNotIn("optimized_package", unsupported)
 
 
 if __name__ == "__main__":

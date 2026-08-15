@@ -25,10 +25,8 @@ from typing import Any
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "scripts" / "lib"))
-sys.path.insert(0, str(REPO / "scripts" / "generators"))
 
 import config  # noqa: E402
-import generate_playable_races as playable_races  # noqa: E402
 from ue2.package import UE2Package  # noqa: E402
 from ue2_property_reader import (  # noqa: E402
     BinaryReader,
@@ -160,29 +158,6 @@ CORE_HAND_REQUIRED_BONES = {
     "r_index_1",
     "l_ring_1",
     "r_ring_1",
-}
-
-OPTIMIZED_PREFIX_BY_RACE = {
-    "Dwarf": "Dwarf",
-    "DarkElf": "Elf",
-    "HighElf": "Elf",
-    "WoodElf": "Elf",
-    "Gnome": "Gnome",
-    "Goblin": "Goblin",
-    "HalfElf": "HalfElf",
-    "LesserGiant": "HalfGiant",
-    "Halfling": "Halfling",
-    "Kojani": "Human",
-    "Qaliathari": "Human",
-    "Thestran": "Human",
-    "Mordebi": "Human",
-    "KojanBarbarian": "Human",
-    "Orc": "Orc",
-    "Raki": "Raki",
-    "Vulmane": "Vulmane",
-    "Varanthari": "Barbarian",
-    "Varanjar": "Barbarian",
-    "Kurashasa": "Kura",
 }
 
 UNRESOLVED_ALIASES = {
@@ -485,23 +460,21 @@ def _resolved_component_parts(
 
 
 def _optimized_package_for_entry(entry: dict[str, Any]) -> str | None:
-    race = str(entry.get("race", ""))
-    gender = str(entry.get("gender", "M"))
-    prefix = OPTIMIZED_PREFIX_BY_RACE.get(race)
-    if not prefix:
+    if not bool(entry.get("visual_supported", False)):
         return None
-    package = f"UEM_optimized{prefix}_{gender}_char"
+    package = str(entry.get("optimized_package", ""))
+    if not package:
+        raise RuntimeError(
+            f"Supported playable entry has no optimized package: {entry!r}"
+        )
     path = SOURCE_MESH_ROOT / f"{package}.uem"
-    return package if path.exists() else None
+    if not path.exists():
+        raise RuntimeError(f"Missing optimized source package: {path}")
+    return package
 
 
 def _optimized_style_index_for_entry(entry: dict[str, Any]) -> int:
-    race = str(entry.get("race", ""))
-    gender = str(entry.get("gender", "M"))
-    override = playable_races.STYLE_INDEX_OVERRIDES.get((race, gender))
-    if override:
-        return int(override[0])
-    return int(playable_races.HEAD_STYLE_INDEX.get(race, 0))
+    return int(entry.get("optimized_style_index", 0))
 
 
 def _optimized_mesh_info(entry: dict[str, Any]) -> dict[str, Any] | None:
