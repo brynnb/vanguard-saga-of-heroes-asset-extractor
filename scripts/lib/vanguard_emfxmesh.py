@@ -31,8 +31,6 @@ class FXANode:
         "parent_index",
         "child_indices",
         "scale_rot",
-        "unk_bind_rot",
-        "unk_bind_w",
     )
 
     def __init__(self):
@@ -43,11 +41,7 @@ class FXANode:
         self.scale = (1.0, 1.0, 1.0)
         self.parent_index = -1  # resolved after all nodes parsed
         self.child_indices = []
-        # Fields at offsets 28-55 in FXA NODE v3 — currently unused.
-        # Hypothesis: these might be bind_pose_pos/bind_pose_rot like FXM has.
-        self.scale_rot = (0.0, 0.0, 0.0)       # offset 28
-        self.unk_bind_rot = (1.0, 1.0, 1.0)    # offset 40 (labeled "scale" but might be bind_rot xyz)
-        self.unk_bind_w = 0.0                    # offset 52 (might be bind_rot w)
+        self.scale_rot = (0.0, 0.0, 0.0, 1.0)
 
 
 class FXAMaterialLayer:
@@ -449,9 +443,8 @@ def _parse_node_chunk(data, version):
     Version 3 layout (68 fixed bytes + variable):
       0-11:  float3 position
       12-27: float4 quaternion (XYZW)
-      28-39: float3 scaleRotation (usually 0,0,0)
-      40-51: float3 scale (usually 1,1,1)
-      52-55: float unknown (usually 1.0)
+      28-43: float4 scaleRotation quaternion (XYZW)
+      44-55: float3 scale (usually 1,1,1)
       56-59: uint32 unknown (usually 0)
       60-63: uint32 unknown (usually 0)
       64-67: uint32 numChildren
@@ -470,11 +463,8 @@ def _parse_node_chunk(data, version):
     off = 0
     node.position, off = _read_float3(data, off)        # 0
     node.rotation, off = _read_float4(data, off)         # 12
-    node.scale_rot, off = _read_float3(data, off)        # 28
-    node.scale, off = _read_float3(data, off)            # 40
-    _unk_float, off = _read_float(data, off)             # 52
-    node.unk_bind_rot = node.scale                       # save for analysis
-    node.unk_bind_w = _unk_float                         # save for analysis
+    node.scale_rot, off = _read_float4(data, off)        # 28
+    node.scale, off = _read_float3(data, off)            # 44
     _unk1, off = _read_uint32(data, off)                 # 56
     _unk2, off = _read_uint32(data, off)                 # 60
     num_children, off = _read_uint32(data, off)          # 64

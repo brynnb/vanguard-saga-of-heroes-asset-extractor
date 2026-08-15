@@ -1012,6 +1012,44 @@ def build_payload(tolerance: float = 0.001) -> tuple[dict[str, Any], dict[str, A
                 continue
             master_skeleton_profiles[profile_id] = profile
             package_master_profile_ids.setdefault(package, []).append(profile_id)
+
+    # Optimized playable meshes carry their own authoritative skin skeleton.
+    # Its rest transforms are not interchangeable with the package's separate
+    # ``*_SKELETON`` export: several non-human packages author race proportions
+    # (head width, stature, and facial scale) directly on the rendered ``C_*``
+    # export. Record the selected rendered export as a distinct skin profile;
+    # the separate animation/reference profile remains supplemental coverage
+    # for bones and sockets absent from the rendered mesh.
+    optimized_mesh_profile_ids: dict[tuple[str, str], str] = {}
+    for entry in playable_entries:
+        package = _optimized_package_for_entry(entry)
+        mesh_info = _optimized_mesh_info(entry)
+        if not package or not mesh_info:
+            continue
+        selected_export = str(mesh_info.get("default_path", "")).rsplit("/", 1)[-1]
+        if selected_export.endswith(".gltf"):
+            selected_export = selected_export[:-5]
+        selected_record = next(
+            (
+                record
+                for record in _parse_emfx_mesh_exports(package)
+                if str(record.get("export", "")) == selected_export
+            ),
+            None,
+        )
+        if selected_record is None:
+            continue
+        profile = _master_skeleton_profile_from_record(selected_record)
+        profile_id = _profile_id(profile)
+        if not profile_id:
+            continue
+        master_skeleton_profiles[profile_id] = profile
+        package_ids = package_master_profile_ids.setdefault(package, [])
+        if profile_id not in package_ids:
+            package_ids.append(profile_id)
+        optimized_mesh_profile_ids[
+            (str(entry.get("race", "")), str(entry.get("gender", "")))
+        ] = profile_id
     for profile in master_skeleton_profiles.values():
         profile["resolved_component_parts"] = _resolved_component_parts(
             profile, master_skeleton_profiles
@@ -1075,6 +1113,7 @@ def build_payload(tolerance: float = 0.001) -> tuple[dict[str, Any], dict[str, A
                 }
             )
 
+        optimized_skin_profile_id = optimized_mesh_profile_ids.get((race, gender))
         optimized_master_profile_id = None
         if optimized_package:
             optimized_stem = optimized_package.removeprefix("UEM_")
@@ -1106,6 +1145,7 @@ def build_payload(tolerance: float = 0.001) -> tuple[dict[str, Any], dict[str, A
                 "modular_master_package": modular_package,
                 "default_modular_master_skeleton": default_master_profile_id,
                 "style_master_skeletons": style_skeletons,
+                "optimized_skin_skeleton": optimized_skin_profile_id,
                 "optimized_master_skeleton": optimized_master_profile_id,
                 "missing_slider_bones_current_assembly": missing_current,
                 "missing_slider_bones_optimized_profile": missing_optimized,
