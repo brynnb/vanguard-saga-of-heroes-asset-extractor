@@ -1,259 +1,353 @@
 #!/usr/bin/env python3
-"""
-Decode ITEMS UEM files to map attachment_index → actual mesh references.
+"""Build Vanguard's authoritative item-appearance catalog.
 
-ITEMS UEM exports are ~1KB metadata templates containing NO mesh geometry.
-They contain chains of internal cross-references:
-  NPCHUMAN_M_253000 → Item Components → [NPCHUMAN_M_261014] (export)
-  NPCHUMAN_M_261014 → Skins → [some import or more exports]
-  Eventually → import:npcHuman_M_clth_plainclothes_10_C_0
+The wire identity of an appearance is ``(package_index, attachment_index)``.
+The old extractor discarded the package and recursively interpreted every
+ArrayProperty as object references. That made most attachment IDs ambiguous
+and introduced false mesh edges. This generator instead retains every source
+ITEMS package, follows only ``Item Template -> Item Components`` references,
+preserves appearance semantics, and publishes only proven package mappings.
 
-This script recursively follows those chains to resolve each attachment_index
-to the actual _clth/_tool mesh names it references.
-
-Produces:
-  output/data/attachment_to_clth_meshes.json
+Output: ``output/data/item_appearance_catalog.json``
 """
 
-import os
-import sys
-import json
-import struct
+from __future__ import annotations
+
+import argparse
 import glob
+import json
+import os
+from pathlib import Path
+import re
+import sys
+from typing import Any
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
-sys.path.insert(0, ROOT_DIR)
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 
 import config
 from ue2.package import UE2Package
-from scripts.lib.ue2_property_reader import BinaryReader
-
-ASSETS = os.environ.get(
-    "VANGUARD_ASSETS",
-    os.environ.get("VANGUARD_ASSETS_PATH", config.ASSETS_PATH),
+from scripts.lib.ue2_tagged_properties import (
+    TYPE_ARRAY,
+    TYPE_BOOL,
+    TYPE_STRUCT,
+    TaggedProperty,
+    TaggedPropertyError,
+    decode_object_reference_array,
+    decode_scalar,
+    properties_by_name,
+    read_tagged_properties,
 )
-ITEMS_DIR = os.path.join(ASSETS, "Characters", "Meshes")
-OUTPUT_PATH = os.path.join(ROOT_DIR, "output", "data", "attachment_to_clth_meshes.json")
-
-# UE2 property type IDs
-NAME_BoolProperty = 3
-NAME_ObjectProperty = 5
-NAME_StructProperty = 10
-NAME_ArrayProperty = 9
-NAME_ByteProperty = 1
-NAME_IntProperty = 2
-NAME_FloatProperty = 4
-NAME_NameProperty = 6
 
 
-def collect_object_refs(data, names):
-    """Parse UE2 properties, return all ObjectProperty compact-index values + Array elements."""
-    reader = BinaryReader(data)
-    refs = []
-    max_pos = len(data)
-
-    def parse_props(end_pos):
-        while reader.pos < end_pos - 1:
-            try:
-                name_idx = reader.read_compact_index()
-                if name_idx < 0 or name_idx >= len(names):
-                    return
-                if names[name_idx].lower() == "none":
-                    return
-
-                info = reader.read_byte()
-                is_array = (info & 0x80) != 0
-                prop_type = info & 0x0F
-
-                if prop_type == NAME_StructProperty:
-                    reader.read_compact_index()  # struct name
-
-                size_type = (info >> 4) & 7
-                sz = {0: 1, 1: 2, 2: 4, 3: 12, 4: 16}
-                if size_type in sz:
-                    data_size = sz[size_type]
-                elif size_type == 5:
-                    data_size = reader.read_byte()
-                elif size_type == 6:
-                    data_size = reader.read_uint16()
-                elif size_type == 7:
-                    data_size = reader.read_int32()
-                else:
-                    data_size = 0
-
-                if prop_type != NAME_BoolProperty and is_array:
-                    b = reader.read_byte()
-                    if b >= 128:
-                        b2 = reader.read_byte()
-                        if b & 0x40:
-                            reader.read_byte()
-                            reader.read_byte()
-
-                if prop_type == NAME_BoolProperty:
-                    continue
-
-                if reader.pos + data_size > max_pos:
-                    return
-
-                prop_end = reader.pos + data_size
-
-                if prop_type == NAME_ObjectProperty:
-                    ref = reader.read_compact_index()
-                    if ref != 0:
-                        refs.append(ref)
-                    reader.seek(prop_end)
-                elif prop_type == NAME_ArrayProperty:
-                    if data_size >= 1:
-                        count = reader.read_compact_index()
-                        for _ in range(min(count, 50)):
-                            if reader.pos >= prop_end:
-                                break
-                            ref = reader.read_compact_index()
-                            if ref != 0:
-                                refs.append(ref)
-                    reader.seek(prop_end)
-                elif prop_type == NAME_StructProperty:
-                    parse_props(prop_end)
-                    reader.seek(prop_end)
-                else:
-                    reader.seek(prop_end)
-            except (IndexError, struct.error):
-                return
-
-    parse_props(max_pos)
-    return refs
+ASSETS = Path(
+    os.environ.get(
+        "VANGUARD_ASSETS",
+        os.environ.get("VANGUARD_ASSETS_PATH", config.ASSETS_PATH),
+    )
+)
+ITEMS_DIR = ASSETS / "Characters" / "Meshes"
+OUTPUT_PATH = ROOT / "output" / "data" / "item_appearance_catalog.json"
 
 
-def process_items_file(filepath, result_map, stats):
-    """Process one ITEMS UEM file."""
-    try:
-        pkg = UE2Package(filepath)
-    except Exception as e:
-        stats["errors"].append(f"{os.path.basename(filepath)}: {e}")
-        return
+# Protocol/content constants. Unknown categories remain unmapped and therefore
+# cannot silently resolve to the wrong package. Extend only with client evidence.
+RUNTIME_PACKAGE_INDEX_TO_SOURCE = {
+    8: "BACK_ITEMS",
+    9: "CHEST_ITEMS",
+    11: "FACE_ITEMS",
+    12: "FEET_ITEMS",
+    13: "FINGER_ITEMS",
+    14: "HAND_ITEMS",
+    15: "HEAD_ITEMS",
+    16: "LEG_ITEMS",
+    18: "SHOULDER_ITEMS",
+    19: "WAIST_ITEMS",
+    20: "WRIST_ITEMS",
+    21: "TOOL_ITEMS",
+    22: "AXE_ITEMS",
+    23: "BOW_ITEMS",
+    25: "CROSSBOW_ITEMS",
+    26: "DAGGER_ITEMS",
+    28: "HAMMER_ITEMS",
+    29: "MACE_ITEMS",
+    31: "STAFF_ITEMS",
+    33: "SWORD_ITEMS",
+    34: "SHIELD_ITEMS",
+    35: "SPEAR_ITEMS",
+    36: "FIST_ITEMS",
+    40: "MARTIALSWORD_ITEMS",
+    41: "MARTIALSTAFF_ITEMS",
+    42: "FOCUS_ITEMS",
+    43: "BARD_ITEMS",
+    500: "MOUNT_ITEMS",
+    601: "FULLSUIT_ITEMS",
+}
 
-    stats["files_processed"] += 1
 
-    # Build export index → data cache
-    export_by_idx = {}
-    for exp in pkg.exports:
-        export_by_idx[exp["index"]] = exp
+ATTACHMENT_ID_RE = re.compile(r"_(\d+)$")
+ITEM_TEMPLATE = "Item Template"
+ITEM_COMPONENTS = "Item Components"
 
-    def resolve_to_mesh_imports(exp, visited=None):
-        """Recursively follow export refs to find mesh import names."""
-        if visited is None:
-            visited = set()
-        if exp["index"] in visited:
-            return []
-        visited.add(exp["index"])
 
-        data = pkg.get_export_data(exp)
-        if not data or len(data) < 4:
-            return []
+def _source_package(path: Path) -> str:
+    return path.stem.removeprefix("UEM_")
 
-        refs = collect_object_refs(data, pkg.names)
-        mesh_names = []
 
-        for ref in refs:
-            if ref < 0:
-                # Import ref — check if it's an EMFXMesh
-                idx = -ref - 1
-                if 0 <= idx < len(pkg.imports):
-                    imp = pkg.imports[idx]
-                    if imp["class_name"] == "EMFXMesh":
-                        pkg_name = ""
-                        if imp["package"] < 0:
-                            pidx = -imp["package"] - 1
-                            if pidx < len(pkg.imports):
-                                pkg_name = pkg.imports[pidx]["object_name"]
-                        mesh_names.append((imp["object_name"], pkg_name))
-            elif ref > 0:
-                # Internal export ref — recurse
-                sub_exp = export_by_idx.get(ref)
-                if sub_exp and sub_exp["class_name"] == "EMFXMesh":
-                    mesh_names.extend(resolve_to_mesh_imports(sub_exp, visited))
+def _attachment_id(export_name: str) -> int | None:
+    match = ATTACHMENT_ID_RE.search(export_name)
+    return int(match.group(1)) if match else None
 
-        return mesh_names
 
-    # Process each EMFXMesh export
-    for exp in pkg.exports:
-        if exp["class_name"] != "EMFXMesh":
+def _reference_record(pkg: UE2Package, index: int) -> dict[str, Any]:
+    record: dict[str, Any] = {"index": index}
+    if index == 0:
+        record["kind"] = "none"
+        return record
+    if index > 0:
+        if index - 1 >= len(pkg.exports):
+            raise TaggedPropertyError(f"export reference {index} is out of range")
+        exp = pkg.exports[index - 1]
+        record.update(
+            {
+                "kind": "export",
+                "object": str(exp.get("object_name", "")),
+                "class": str(exp.get("class_name", "")),
+            }
+        )
+        return record
+
+    import_index = -index - 1
+    if import_index >= len(pkg.imports):
+        raise TaggedPropertyError(f"import reference {index} is out of range")
+    imp = pkg.imports[import_index]
+    record.update(
+        {
+            "kind": "import",
+            "object": str(imp.get("object_name", "")),
+            "class": str(imp.get("class_name", "")),
+        }
+    )
+    package_name = str(imp.get("package_name", ""))
+    if not package_name and int(imp.get("package", 0)) < 0:
+        parent_index = -int(imp["package"]) - 1
+        if 0 <= parent_index < len(pkg.imports):
+            package_name = str(pkg.imports[parent_index].get("object_name", ""))
+    if package_name:
+        record["package"] = package_name
+    return record
+
+
+def _property_map(
+    data: bytes, names: list[str], *, require_terminator: bool = True
+) -> dict[str, TaggedProperty]:
+    return properties_by_name(
+        read_tagged_properties(data, names, require_terminator=require_terminator)
+    )
+
+
+def _component_refs(template: dict[str, TaggedProperty]) -> list[int]:
+    prop = template.get(ITEM_COMPONENTS)
+    if prop is None:
+        return []
+    if prop.type_id != TYPE_ARRAY:
+        raise TaggedPropertyError(f"{ITEM_COMPONENTS!r} is not an ArrayProperty")
+    return decode_object_reference_array(prop.raw)
+
+
+def _template_from_export(pkg: UE2Package, exp: dict[str, Any]) -> dict[str, TaggedProperty]:
+    top = _property_map(pkg.get_export_data(exp), pkg.names)
+    item_template = top.get(ITEM_TEMPLATE)
+    if item_template is None:
+        return {}
+    if item_template.type_id != TYPE_STRUCT or item_template.struct_name != "ItemTemplate":
+        raise TaggedPropertyError(
+            f"{exp.get('object_name')} has an invalid {ITEM_TEMPLATE!r} property"
+        )
+    return _property_map(item_template.raw, pkg.names, require_terminator=False)
+
+
+def _resolve_component_meshes(
+    pkg: UE2Package,
+    refs: list[int],
+    visited_exports: set[int] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Follow only the authored Item Components graph."""
+    visited = visited_exports if visited_exports is not None else set()
+    source_refs: list[dict[str, Any]] = []
+    meshes: list[dict[str, Any]] = []
+    for index in refs:
+        record = _reference_record(pkg, index)
+        source_refs.append(record)
+        if record["kind"] == "none":
+            continue
+        if record["kind"] == "import":
+            if record.get("class") != "EMFXMesh":
+                raise TaggedPropertyError(
+                    f"item component {record.get('object')!r} is "
+                    f"{record.get('class')!r}, not EMFXMesh"
+                )
+            meshes.append(
+                {"package": record.get("package", ""), "mesh": record.get("object", "")}
+            )
             continue
 
-        att_idx = None
-        parts = exp["object_name"].rsplit("_", 1)
-        if len(parts) == 2 and parts[1].isdigit():
-            att_idx = parts[1]
-        if att_idx is None:
+        if index in visited:
+            raise TaggedPropertyError(f"cycle in Item Components graph at export {index}")
+        visited.add(index)
+        exp = pkg.exports[index - 1]
+        if exp.get("class_name") != "EMFXMesh":
+            raise TaggedPropertyError(
+                f"item component export {index} is {exp.get('class_name')!r}, not EMFXMesh"
+            )
+        nested_refs = _component_refs(_template_from_export(pkg, exp))
+        nested_source, nested_meshes = _resolve_component_meshes(pkg, nested_refs, visited)
+        source_refs.extend(nested_source)
+        meshes.extend(nested_meshes)
+
+    unique_meshes: list[dict[str, Any]] = []
+    seen_meshes: set[tuple[str, str]] = set()
+    for mesh in meshes:
+        identity = (str(mesh.get("package", "")), str(mesh.get("mesh", "")))
+        if identity in seen_meshes:
             continue
-
-        stats["exports_scanned"] += 1
-
-        mesh_refs = resolve_to_mesh_imports(exp)
-
-        if mesh_refs:
-            # Deduplicate
-            seen = set()
-            unique = []
-            for mesh_name, pkg_name in mesh_refs:
-                if mesh_name not in seen:
-                    seen.add(mesh_name)
-                    unique.append({"mesh": mesh_name, "package": pkg_name})
-
-            # Keep the version with more refs
-            if att_idx in result_map:
-                if len(unique) > len(result_map[att_idx]):
-                    result_map[att_idx] = unique
-            else:
-                result_map[att_idx] = unique
-            stats["resolved"] += 1
-        else:
-            stats["no_mesh_refs"] += 1
+        seen_meshes.add(identity)
+        unique_meshes.append(mesh)
+    return source_refs, unique_meshes
 
 
-def main():
-    items_files = sorted(set(glob.glob(os.path.join(ITEMS_DIR, "*ITEMS*.uem"))))
-    print(f"Found {len(items_files)} ITEMS files")
+def _bool_mask(prop: TaggedProperty | None, names: list[str]) -> list[str]:
+    if prop is None:
+        return []
+    if prop.type_id != TYPE_STRUCT:
+        raise TaggedPropertyError(f"mask {prop.name!r} is not a StructProperty")
+    enabled: list[str] = []
+    for entry in read_tagged_properties(prop.raw, names, require_terminator=False):
+        if entry.type_id != TYPE_BOOL:
+            raise TaggedPropertyError(
+                f"mask field {entry.name!r} is type {entry.type_id}, not BoolProperty"
+            )
+        if bool(decode_scalar(entry, names)):
+            enabled.append(entry.name)
+    return enabled
 
-    result_map = {}
-    stats = {
-        "files_processed": 0,
-        "exports_scanned": 0,
-        "resolved": 0,
-        "no_mesh_refs": 0,
-        "errors": [],
+
+def _scalar_or_default(
+    template: dict[str, TaggedProperty], name: str, names: list[str], default: Any
+) -> Any:
+    prop = template.get(name)
+    return default if prop is None else decode_scalar(prop, names)
+
+
+def _variant_selector(export_name: str) -> dict[str, str]:
+    """Preserve the authored model/gender qualifier embedded in export names."""
+    match = re.search(r"(?:^|_)(M|F)(?:_|$)", export_name, re.IGNORECASE)
+    if match is None:
+        return {}
+    gender = match.group(1).upper()
+    family = export_name[: match.start(1)].rstrip("_")
+    return {"gender": gender, "model_family": family}
+
+
+def _attachment_record(pkg: UE2Package, exp: dict[str, Any]) -> dict[str, Any]:
+    template = _template_from_export(pkg, exp)
+    source_refs, meshes = _resolve_component_meshes(pkg, _component_refs(template))
+    source_export = str(exp.get("object_name", ""))
+    return {
+        "source_export": source_export,
+        "selector": _variant_selector(source_export),
+        "components": source_refs,
+        "meshes": meshes,
+        "skin": _scalar_or_default(template, "Skin", pkg.names, 0),
+        "layer": _scalar_or_default(template, "Layer", pkg.names, 0),
+        "hide_armor_only": _scalar_or_default(
+            template, "Hide Armor Only", pkg.names, False
+        ),
+        "skin_children": _scalar_or_default(template, "Skin Children", pkg.names, False),
+        "tint_primary": _scalar_or_default(template, "Tint Primary", pkg.names, 0),
+        "tint_secondary": _scalar_or_default(template, "Tint Secondary", pkg.names, 0),
+        "tint_children": _scalar_or_default(template, "Tint Children", pkg.names, False),
+        "hidden_by": _bool_mask(template.get("Item Hidden By"), pkg.names),
+        "hides": _bool_mask(template.get("Item Hides"), pkg.names),
     }
 
-    for filepath in items_files:
-        prev = stats["resolved"]
-        process_items_file(filepath, result_map, stats)
-        new = stats["resolved"] - prev
-        if new > 0:
-            print(f"  {os.path.basename(filepath)}: +{new} ({stats['resolved']} total)")
 
-    os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
-    with open(OUTPUT_PATH, "w") as f:
-        json.dump(result_map, f, separators=(",", ":"))
+def decode_items_file(path: Path) -> dict[str, Any]:
+    pkg = UE2Package(str(path))
+    attachments: dict[str, list[dict[str, Any]]] = {}
+    for exp in pkg.exports:
+        if exp.get("class_name") != "EMFXMesh":
+            continue
+        attachment_id = _attachment_id(str(exp.get("object_name", "")))
+        if attachment_id is None:
+            continue
+        key = str(attachment_id)
+        record = _attachment_record(pkg, exp)
+        variants = attachments.setdefault(key, [])
+        # Some packages contain byte-identical duplicate exports. Preserve one
+        # semantic variant rather than making file order part of resolution.
+        if record not in variants:
+            variants.append(record)
+    for variants in attachments.values():
+        variants.sort(key=lambda variant: str(variant.get("source_export", "")))
+    return {
+        "source_file": path.name,
+        "source_package": _source_package(path),
+        "attachments": attachments,
+    }
 
-    print(f"\n=== Results ===")
-    print(f"  Files: {stats['files_processed']}")
-    print(f"  Exports scanned: {stats['exports_scanned']}")
-    print(f"  Resolved: {stats['resolved']}")
-    print(f"  No mesh refs: {stats['no_mesh_refs']}")
-    print(f"  Unique attachment indices: {len(result_map)}")
 
-    multi = sum(1 for v in result_map.values() if len(v) > 1)
-    print(f"  Single-mesh entries: {len(result_map) - multi}")
-    print(f"  Multi-mesh entries: {multi}")
-    if result_map:
-        print(f"  Max meshes/entry: {max(len(v) for v in result_map.values())}")
+def build_catalog(items_dir: Path = ITEMS_DIR) -> dict[str, Any]:
+    packages: dict[str, dict[str, Any]] = {}
+    files = sorted({Path(path) for path in glob.glob(str(items_dir / "*ITEMS*.uem"))})
+    for path in files:
+        record = decode_items_file(path)
+        package = record["source_package"]
+        if package in packages:
+            raise TaggedPropertyError(f"duplicate source package {package!r}")
+        packages[package] = record
 
-    if stats["errors"]:
-        print(f"\n  Errors ({len(stats['errors'])}):")
-        for e in stats["errors"][:10]:
-            print(f"    {e}")
+    missing_sources = sorted(
+        set(RUNTIME_PACKAGE_INDEX_TO_SOURCE.values()) - set(packages.keys())
+    )
+    if missing_sources:
+        raise TaggedPropertyError(
+            "runtime package map references absent source packages: "
+            + ", ".join(missing_sources)
+        )
+    return {
+        "schema": 2,
+        "generated_by": "scripts/extractors/decode_items.py",
+        "identity": ["package_index", "attachment_index"],
+        "runtime_package_index_to_source": {
+            str(index): source
+            for index, source in sorted(RUNTIME_PACKAGE_INDEX_TO_SOURCE.items())
+        },
+        "packages": packages,
+    }
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--items-dir", type=Path, default=ITEMS_DIR)
+    parser.add_argument("--output", type=Path, default=OUTPUT_PATH)
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    catalog = build_catalog(args.items_dir)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(catalog, indent=2, sort_keys=True) + "\n")
+    attachment_count = sum(
+        len(package["attachments"]) for package in catalog["packages"].values()
+    )
+    print(
+        f"Wrote {len(catalog['packages'])} source packages and "
+        f"{attachment_count} package-qualified attachments to {args.output}"
+    )
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

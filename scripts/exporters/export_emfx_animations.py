@@ -30,7 +30,6 @@ import config
 from ue2.package import UE2Package
 from ue2_property_reader import BinaryReader, read_ue2_properties, decode_animset_names
 from vanguard_emfxanim import parse_emfxanim_export, export_emfxanim_gltf
-from vanguard_emfxmesh import parse_emfxmesh_export
 
 MESH_DIR = os.path.join(config.ASSETS_PATH, "Characters", "Meshes")
 ANIM_DIR = os.path.join(config.ASSETS_PATH, "Characters", "Animations")
@@ -62,78 +61,6 @@ def extract_animset_from_uem(uem_path):
     return []
 
 
-def extract_mesh_bind_rotations(uem_path):
-    """Extract per-bone bind rotations from a .uem mesh package.
-
-    Returns dict {bone_name: (qx, qy, qz, qw)} or None on failure.
-    """
-    try:
-        pkg = UE2Package(uem_path)
-    except Exception:
-        return None
-
-    for exp in pkg.exports:
-        class_name = exp.get("class_name", "")
-        if class_name != "EMFXMesh":
-            continue
-        try:
-            data = pkg.get_export_data(exp)
-            mesh = parse_emfxmesh_export(data)
-            if mesh and mesh.nodes:
-                return {node.name: node.rotation for node in mesh.nodes}
-        except Exception:
-            continue
-    return None
-
-
-def extract_mesh_bind_positions(uem_path):
-    """Extract per-bone bind positions from a .uem mesh package.
-
-    Returns dict {bone_name: (px, py, pz)} or None on failure.
-    """
-    try:
-        pkg = UE2Package(uem_path)
-    except Exception:
-        return None
-
-    for exp in pkg.exports:
-        class_name = exp.get("class_name", "")
-        if class_name != "EMFXMesh":
-            continue
-        try:
-            data = pkg.get_export_data(exp)
-            mesh = parse_emfxmesh_export(data)
-            if mesh and mesh.nodes:
-                return {node.name: node.position for node in mesh.nodes}
-        except Exception:
-            continue
-    return None
-
-
-def extract_mesh_bind_pose(uem_path):
-    """Extract per-bone bind rotations and positions from a .uem mesh package."""
-    try:
-        pkg = UE2Package(uem_path)
-    except Exception:
-        return None, None
-
-    for exp in pkg.exports:
-        class_name = exp.get("class_name", "")
-        if class_name != "EMFXMesh":
-            continue
-        try:
-            data = pkg.get_export_data(exp)
-            mesh = parse_emfxmesh_export(data)
-            if mesh and mesh.nodes:
-                return (
-                    {node.name: node.rotation for node in mesh.nodes},
-                    {node.name: node.position for node in mesh.nodes},
-                )
-        except Exception:
-            continue
-    return None, None
-
-
 def _resolve_worker_count(value):
     if value <= 0:
         return max(1, os.cpu_count() or 1)
@@ -149,18 +76,8 @@ def _scan_uem_animset_job(uem_path):
     }
 
 
-def _extract_mesh_bind_pose_job(job):
-    mesh_name, uem_path = job
-    bind_rots, bind_pos = extract_mesh_bind_pose(uem_path)
-    return {
-        "mesh_name": mesh_name,
-        "bind_rots": bind_rots,
-        "bind_pos": bind_pos,
-    }
-
-
 def _export_uea_package_job(job):
-    uea_name, uea_path, bind_rots, bind_pos, out_dir = job
+    uea_name, uea_path, out_dir = job
     result = {
         "uea_name": uea_name,
         "clips": [],
@@ -194,8 +111,6 @@ def _export_uea_package_job(job):
                 anim,
                 obj_name,
                 out_path,
-                mesh_bind_rotations=bind_rots,
-                mesh_bind_positions=bind_pos,
             )
             if export_result:
                 rel_path = f"{uea_name}/{obj_name}.gltf"
@@ -309,38 +224,6 @@ def main(argv=None):
     if missing:
         print(f"  Missing: {sorted(missing)[:10]}{'...' if len(missing) > 10 else ''}")
 
-    # --- Phase 2b: Load mesh bind poses for bind-pose correction ---
-    # Map each UEA package to the bind rotations/positions from its first referencing mesh.
-    uea_to_bind_rots = {}  # uea_pkg_name -> {bone_name: (qx,qy,qz,qw)}
-    uea_to_bind_pos = {}   # uea_pkg_name -> {bone_name: (px,py,pz)}
-    bind_jobs = [
-        (mesh_name, os.path.join(MESH_DIR, mesh_name + ".uem"))
-        for mesh_name in mesh_to_uea.keys()
-    ]
-    bind_results = _run_jobs(
-        "Loaded mesh bind poses",
-        bind_jobs,
-        worker_count,
-        _extract_mesh_bind_pose_job,
-        args.progress_every,
-    )
-    bind_by_mesh = {
-        result["mesh_name"]: (result["bind_rots"], result["bind_pos"])
-        for result in bind_results
-    }
-
-    for mesh_name, uea_names in mesh_to_uea.items():
-        bind_rots, bind_pos = bind_by_mesh.get(mesh_name, (None, None))
-        if bind_rots:
-            for uea_name in uea_names:
-                uea_to_bind_rots.setdefault(uea_name, bind_rots)
-        if bind_pos:
-            for uea_name in uea_names:
-                uea_to_bind_pos.setdefault(uea_name, bind_pos)
-
-    print(f"  Loaded bind rotations for {len(uea_to_bind_rots)} UEA packages")
-    print(f"  Loaded bind positions for {len(uea_to_bind_pos)} UEA packages")
-
     # --- Phase 3: Parse and export each UEA package ---
     manifest = {}  # mesh_pkg -> {uea_packages: [{name, clips: [{name, path}]}]}
     total_exported = 0
@@ -351,8 +234,6 @@ def main(argv=None):
         (
             uea_name,
             uea_files_on_disk[uea_name],
-            uea_to_bind_rots.get(uea_name),
-            uea_to_bind_pos.get(uea_name),
             OUT_DIR,
         )
         for uea_name in sorted(found)
@@ -385,7 +266,10 @@ def main(argv=None):
             if clips:
                 uea_entries.append({"package": uea_name, "clips": clips})
         if uea_entries:
-            manifest[mesh_name] = {"uea_packages": uea_entries}
+            manifest[mesh_name] = {
+                "binding": "authoritative_fxm",
+                "uea_packages": uea_entries,
+            }
 
     manifest_path = os.path.join(OUT_DIR, "manifest.json")
     with open(manifest_path, "w") as f:

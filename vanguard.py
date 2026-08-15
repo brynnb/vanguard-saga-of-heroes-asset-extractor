@@ -190,7 +190,12 @@ def cmd_export_characters(args: argparse.Namespace) -> None:
     if args.filter:
         command.extend(["--filter", args.filter])
     run("Export character meshes", command, env)
-    run("Decode item attachment mesh references", [sys.executable, "scripts/extractors/decode_items.py"], env)
+    run("Build authoritative item appearance catalog", [sys.executable, "scripts/extractors/decode_items.py"], env)
+    run(
+        "Decode authored attachment groups",
+        [sys.executable, "scripts/extractors/decode_attachment_groups.py"],
+        env,
+    )
     run("Generate playable race data", [sys.executable, "scripts/generators/generate_playable_races.py"], env)
 
     customization_file = Path(env["VANGUARD_EMU_PATH"]) / "bin" / "Resources" / "Texts" / "customization_data.txt"

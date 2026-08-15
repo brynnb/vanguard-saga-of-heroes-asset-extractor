@@ -22,15 +22,12 @@ sys.path.insert(0, os.path.join(PROJECT_ROOT, "scripts", "lib"))
 import config
 from ue2.package import UE2Package
 from vanguard_emfxmesh import parse_emfxmesh_export, export_gltf, extract_skins_shaders
-from vanguard_emfxanim import parse_emfxanim_export
-from ue2_property_reader import BinaryReader, read_ue2_properties, decode_animset_names
 
 ASSETS = os.environ.get(
     "VANGUARD_ASSETS",
     os.environ.get("VANGUARD_ASSETS_PATH", config.ASSETS_PATH),
 )
 UEM_DIR = os.path.join(ASSETS, "Characters", "Meshes")
-ANIM_DIR = os.path.join(ASSETS, "Characters", "Animations")
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output", "meshes", "characters")
 TEXTURE_DIR = os.path.join(PROJECT_ROOT, "output", "textures")
 MATERIAL_MANIFEST_PATH = os.path.join(PROJECT_ROOT, "output", "data", "material_manifest.json")
@@ -79,68 +76,6 @@ def _shader_map_entry(shader_map, shader_ref):
     return None
 
 
-def _load_anim_bind_poses(uem_path):
-    """Load animation bind poses for a UEM mesh package.
-
-    Reads the AnimSet property to find the UEA package, loads the first
-    animation clip, and returns per-bone bind_pose_rot and bind_pose_pos
-    dicts from the FXM submotions.
-
-    Returns (bind_rots, bind_pos) or (None, None).
-    """
-    try:
-        pkg = UE2Package(uem_path)
-    except Exception:
-        return None, None
-
-    # Find AnimSet references
-    uea_names = []
-    for exp in pkg.exports:
-        obj_name = exp.get("object_name", "")
-        if "SKELETON" not in obj_name:
-            continue
-        try:
-            data = pkg.get_export_data(exp)
-            reader = BinaryReader(data, 0)
-            props = read_ue2_properties(reader, pkg.names)
-            animset_raw = props.get("AnimSet")
-            if animset_raw and isinstance(animset_raw, (bytes, bytearray)):
-                uea_names = decode_animset_names(animset_raw, pkg.names)
-                break
-        except Exception:
-            continue
-
-    if not uea_names:
-        return None, None
-
-    # Load first available UEA and extract bind poses from first clip
-    for uea_name in uea_names:
-        uea_path = os.path.join(ANIM_DIR, uea_name + ".uea")
-        if not os.path.exists(uea_path):
-            uea_path = os.path.join(UEM_DIR, uea_name + ".uea")
-        if not os.path.exists(uea_path):
-            continue
-        try:
-            apkg = UE2Package(uea_path)
-            for aexp in apkg.exports:
-                if aexp.get("class_name") != "EMFXAnim":
-                    continue
-                adata = apkg.get_export_data(aexp)
-                anim = parse_emfxanim_export(adata)
-                if not anim.submotions:
-                    continue
-                bind_rots = {}
-                bind_pos = {}
-                for sm in anim.submotions:
-                    bind_rots[sm.name] = sm.bind_pose_rot
-                    bind_pos[sm.name] = sm.bind_pose_pos
-                return bind_rots, bind_pos
-        except Exception:
-            continue
-
-    return None, None
-
-
 def main():
     import argparse
     parser = argparse.ArgumentParser()
@@ -166,9 +101,6 @@ def main():
     uem_files = sorted(glob.glob(os.path.join(UEM_DIR, "UEM_*.uem")))
     print(f"Found {len(uem_files)} UEM_* files")
 
-    # Pre-load animation bind poses for IBM correction
-    anim_bind_cache = {}  # uem_path -> (bind_rots, bind_pos)
-
     manifest = []
     total_exported = 0
     total_skipped = 0
@@ -189,7 +121,10 @@ def main():
                 exp_name = exp["object_name"]
                 try:
                     data = pkg.get_export_data(exp)
-                    mesh = parse_emfxmesh_export(data)
+                    # Package names are required to decode the authoritative
+                    # socket array. Calling without them silently discarded all
+                    # weapon, cloak, effect, eye, and mouth attachment points.
+                    mesh = parse_emfxmesh_export(data, pkg.names)
 
                     if not mesh.submeshes:
                         total_skipped += 1
@@ -202,18 +137,12 @@ def main():
                         total_skipped += 1
                         continue
 
-                    # Load animation bind poses for this mesh (cached)
-                    if uem_path not in anim_bind_cache:
-                        anim_bind_cache[uem_path] = _load_anim_bind_poses(uem_path)
-                    anim_rots, anim_pos = anim_bind_cache[uem_path]
-
                     # Export to glTF
                     out_dir = os.path.join(OUTPUT_DIR, pkg_name)
                     os.makedirs(out_dir, exist_ok=True)
                     out_path = os.path.join(out_dir, f"{exp_name}.gltf")
                     skins_shaders = extract_skins_shaders(uem_path, exp_name, pkg=pkg)
                     export_gltf(mesh, out_path, texture_dir=TEXTURE_DIR, shader_map=shader_map,
-                                bind_rot_overrides=anim_rots, bind_pos_overrides=anim_pos,
                                 pkg_name=pkg_name, skins_shaders=skins_shaders,
                                 material_manifest=material_manifest)
 
@@ -254,6 +183,17 @@ def main():
                         "faces": total_f,
                         "submeshes": len(mesh.submeshes),
                         "bones": len(mesh.nodes),
+                        "sockets": [
+                            {
+                                "alias": socket.attach_alias,
+                                "bone": socket.bone_name,
+                                "emfx_node": socket.emfx_node,
+                                "rotation_degrees": list(socket.rotation),
+                                "translation": list(socket.translation),
+                                "test_scale": socket.test_scale,
+                            }
+                            for socket in mesh.sockets
+                        ],
                         "uv_sets": mesh.num_uv_sets,
                         "materials": [m.name for m in mesh.materials],
                         "color_variants": color_variants,

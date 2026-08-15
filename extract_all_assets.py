@@ -131,7 +131,12 @@ def run_world(args: argparse.Namespace, env: dict[str, str]) -> None:
 
 def run_characters(args: argparse.Namespace, env: dict[str, str]) -> None:
     run_step("Export character meshes", [sys.executable, "scripts/exporters/export_character_meshes.py"], env)
-    run_step("Decode item attachment mesh references", [sys.executable, "scripts/extractors/decode_items.py"], env)
+    run_step("Build authoritative item appearance catalog", [sys.executable, "scripts/extractors/decode_items.py"], env)
+    run_step(
+        "Decode authored attachment groups",
+        [sys.executable, "scripts/extractors/decode_attachment_groups.py"],
+        env,
+    )
     run_step("Generate playable race data", [sys.executable, "scripts/generators/generate_playable_races.py"], env)
 
     emu_root = Path(env["VANGUARD_EMU_PATH"])

@@ -2338,15 +2338,11 @@ def _build_skinning_data(mesh_data):
     return joints, weights
 
 
-def _compute_inverse_bind_matrices(nodes, bind_rot_overrides=None, bind_pos_overrides=None):
+def _compute_inverse_bind_matrices(nodes):
     """Compute inverse bind matrices for each bone node.
 
     Walks the bone hierarchy to build world-space transforms, then inverts
     each to produce the 4x4 inverse bind matrix that glTF requires.
-
-    When *bind_rot_overrides* / *bind_pos_overrides* are provided (dicts of
-    ``{bone_name: (x, y, z, w)}`` / ``{bone_name: (x, y, z)}``), they replace
-    the FXA node values so that IBMs match what animation keyframes expect.
 
     Returns a list of 16-element lists (column-major 4x4 matrices).
     """
@@ -2386,11 +2382,6 @@ def _compute_inverse_bind_matrices(nodes, bind_rot_overrides=None, bind_pos_over
         local_pos = node.position
         local_rot = node.rotation
         local_scl = node.scale
-        if bind_pos_overrides and node.name in bind_pos_overrides:
-            local_pos = bind_pos_overrides[node.name]
-        if bind_rot_overrides and node.name in bind_rot_overrides:
-            local_rot = bind_rot_overrides[node.name]
-
         try:
             if node.parent_index < 0:
                 world_pos[i] = local_pos
@@ -2580,7 +2571,7 @@ def extract_skins_shaders(uem_path, exp_name, pkg=None):
 
 
 def export_gltf(mesh_data, filepath, texture_dir=None, shader_map=None,
-                bind_rot_overrides=None, bind_pos_overrides=None, pkg_name=None,
+                pkg_name=None,
                 skins_shaders=None, material_manifest=None):
     """
     Export parsed mesh data to a standalone glTF 2.0 file with embedded buffer.
@@ -2588,10 +2579,6 @@ def export_gltf(mesh_data, filepath, texture_dir=None, shader_map=None,
     Includes full skeletal skinning when the mesh has bone and skinning data:
     joint nodes with hierarchy, inverse bind matrices, and per-vertex
     JOINTS_0/WEIGHTS_0 attributes.
-
-    When *bind_rot_overrides* / *bind_pos_overrides* are provided, they are
-    used instead of the FXA node transforms for IBM computation so that the
-    mesh IBMs match the animation bind pose.
 
     When *texture_dir* is provided, resolves per-submesh materials by looking
     up the ``_CLR`` layer name in the FXA material and embedding the matching

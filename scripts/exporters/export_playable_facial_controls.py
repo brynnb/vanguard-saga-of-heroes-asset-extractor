@@ -215,6 +215,18 @@ def _round_vec(values: tuple[float, ...] | list[float]) -> list[float]:
     return [_round_float(value) for value in values]
 
 
+def _socket_record(socket: Any) -> dict[str, Any]:
+    """Serialize an authored EMFX socket without inventing runtime defaults."""
+    return {
+        "alias": str(socket.attach_alias),
+        "bone": str(socket.bone_name),
+        "emfx_node": int(socket.emfx_node),
+        "rotation_degrees": _round_vec(socket.rotation),
+        "translation": _round_vec(socket.translation),
+        "test_scale": _round_float(socket.test_scale),
+    }
+
+
 def _is_face_bone(name: str) -> bool:
     lower = name.lower()
     return any(token in lower for token in FACE_BONE_TOKENS)
@@ -624,6 +636,7 @@ def _parse_emfx_mesh_exports(package_name: str) -> tuple[dict[str, Any], ...]:
                 "package": package_name,
                 "export": object_name,
                 "nodes": tuple(mesh.nodes),
+                "sockets": tuple(mesh.sockets),
                 "submesh_count": len(mesh.submeshes),
                 "variant_index": _skeleton_variant_index(object_name),
                 "object_refs": object_refs,
@@ -659,6 +672,7 @@ def _select_skeleton_profile(package_name: str) -> dict[str, Any] | None:
         "submesh_count": int(selected.get("submesh_count", 0)),
         "bone_count": len(nodes),
         "bones": [_node_record(node) for node in nodes],
+        "sockets": [_socket_record(socket) for socket in selected.get("sockets", ())],
         "face_bones": [name for name in bone_names if _is_face_bone(name)],
         "object_refs": selected.get("object_refs", {}),
         "animsets": list(selected.get("animsets", ())),
@@ -712,6 +726,7 @@ def _master_skeleton_profile_from_record(record: dict[str, Any]) -> dict[str, An
         "submesh_count": int(record.get("submesh_count", 0)),
         "bone_count": len(nodes),
         "bones": [_node_record(node) for node in nodes],
+        "sockets": [_socket_record(socket) for socket in record.get("sockets", ())],
         "face_bones": [name for name in bone_names if _is_face_bone(name)],
         "object_refs": record.get("object_refs", {}),
         "animsets": list(record.get("animsets", ())),

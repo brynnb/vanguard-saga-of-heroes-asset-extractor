@@ -106,6 +106,13 @@ python3 vanguard.py extract-audio
 python3 vanguard.py extract-world
 ```
 
+`export-characters` also rebuilds the authoritative appearance sidecars:
+`item_appearance_catalog.json` retains package-qualified item identities and
+their skin/layer/tint/hiding rules, while `attachment_group_catalog.json`
+decodes the 17 original `.sag` template packages. These replace the obsolete
+attachment-index-only lookup; consumers must never resolve an appearance from
+`attachment_index` without its `package_index` and actor visual profile.
+
 Generate Godot runtime mesh packs for the viewer. The default layout stores
 shared mesh assets once under `output/godot_runtime/assets/` and lets each chunk
 manifest reference that global library with lightweight `mesh_assets` refs:
