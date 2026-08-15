@@ -88,6 +88,9 @@ RUNTIME_PACKAGE_INDEX_TO_SOURCE = {
     41: "MARTIALSTAFF_ITEMS",
     42: "FOCUS_ITEMS",
     43: "BARD_ITEMS",
+    # Original attachment-set data uses 100 for the NPC-human composite
+    # package (documented examples and recovered rows both resolve it here).
+    100: "NPCHUMAN_M_ITEMS",
     500: "MOUNT_ITEMS",
     601: "FULLSUIT_ITEMS",
 }
