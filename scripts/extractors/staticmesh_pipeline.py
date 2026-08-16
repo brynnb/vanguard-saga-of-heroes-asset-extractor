@@ -45,6 +45,7 @@ sys.path.insert(0, PROJECT_ROOT)
 from ue2 import UE2Package
 from material_memory import MaterialMemoryResolver
 from vanguard_staticmesh import parse_vanguard_staticmesh
+from staticmesh_topology import section_triangle_indices
 from scripts.speedtree.build_spt2fbx_leaf_hybrid_gltf import build_hybrid as build_runtime_leaf_hybrid
 from scripts.speedtree.export_reconstructed_spt2fbx_leaf_cards_gltf import build_gltf as build_runtime_leaf_gltf
 
@@ -823,7 +824,7 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
     if mesh.sections and mesh.skins and len(mesh.skins) > 0:
         skin0 = mesh.skins[0]  # Use first skin set
         for si, sec in enumerate(mesh.sections):
-            if sec.get("num_faces", 0) == 0:
+            if sec.get("num_primitives", 0) == 0:
                 section_materials.append(
                     (
                         None,
@@ -950,25 +951,11 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
         billboard_vertices = set()
         non_billboard_vertices = set()
         for si, sec in enumerate(mesh.sections):
-            nf = sec.get("num_faces", 0)
-            if nf <= 0:
+            if sec.get("num_primitives", 0) <= 0:
                 continue
-
-            first_index = sec.get("first_index", 0)
-            if first_index + nf * 3 <= len(mesh.indices):
-                slice_as_faces = mesh.indices[first_index : first_index + nf * 3]
-                slice_as_idx = mesh.indices[first_index : first_index + nf]
-                use_faces = (len(slice_as_faces) % 3 == 0 and len(slice_as_faces) >= len(slice_as_idx))
-                num_indices = nf * 3 if use_faces else nf
-            else:
-                num_indices = nf
-
-            if first_index + num_indices > len(mesh.indices):
-                num_indices = len(mesh.indices) - first_index
-            if num_indices <= 0:
-                continue
-
-            sec_indices = mesh.indices[first_index : first_index + num_indices]
+            sec_indices = section_triangle_indices(
+                mesh.indices, sec, vertex_count=len(mesh.vertices)
+            )
             sec_vertices = {idx for idx in sec_indices if 0 <= idx < len(mesh.vertices)}
             if not sec_vertices:
                 continue
@@ -1564,76 +1551,17 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
         material_cache[cache_key] = mat_idx
         return mat_idx
 
-    # --- Helper: detect and convert triangle strips to triangle lists ---
-    def strip_to_list(raw_indices):
-        """Convert a triangle strip index buffer to a triangle list.
-        Returns (converted_indices, was_strip)."""
-        if len(raw_indices) < 3:
-            return raw_indices, False
-
-        # Detect strip: count degenerate triangles when interpreted as a list
-        list_tris = len(raw_indices) // 3
-        degen_count = 0
-        for i in range(0, list_tris * 3, 3):
-            a, b, c = raw_indices[i], raw_indices[i + 1], raw_indices[i + 2]
-            if a == b or b == c or a == c:
-                degen_count += 1
-
-        # If >10% of triangles are degenerate as a list, it's a strip
-        if list_tris > 0 and degen_count / list_tris > 0.10:
-            # Unpack triangle strip to triangle list
-            out = []
-            for i in range(len(raw_indices) - 2):
-                i0, i1, i2 = raw_indices[i], raw_indices[i + 1], raw_indices[i + 2]
-                # Skip degenerate triangles
-                if i0 == i1 or i1 == i2 or i0 == i2:
-                    continue
-                # Flip winding on odd triangles to maintain consistent face orientation
-                if i % 2 == 0:
-                    out.extend([i0, i1, i2])
-                else:
-                    out.extend([i0, i2, i1])
-            return out, True
-
-        return raw_indices, False
-
     # --- Build primitives (one per section or single fallback) ---
     primitives = []
 
     if section_materials and any(sm[0] is not None for sm in section_materials):
         # Multi-material: one primitive per non-empty section
         for si, sec in enumerate(mesh.sections):
-            nf = sec.get("num_faces", 0)
-            if nf == 0:
+            if sec.get("num_primitives", 0) == 0:
                 continue
-
-            first_index = sec.get("first_index", 0)
-
-            # Determine if num_faces is a face count (triangle list) or index count (strip).
-            # Triangle lists: num_faces * 3 = actual index count
-            # Triangle strips: num_faces = index count (strip length)
-            # Heuristic: if first_index + nf*3 fits in the buffer AND using nf as
-            # index count would leave >50% of vertices unused, treat as face count.
-            num_indices = nf
-            if first_index + nf * 3 <= len(mesh.indices):
-                # Check coverage: how many unique verts does nf-as-indices cover?
-                slice_as_idx = mesh.indices[first_index : first_index + nf]
-                unique_as_idx = len(set(slice_as_idx))
-                expected_verts = (
-                    sec.get("last_vertex", 0) - sec.get("first_vertex", 0) + 1
-                )
-                if expected_verts > 0 and unique_as_idx < expected_verts * 0.6:
-                    num_indices = nf * 3  # It's a face count, multiply by 3
-
-            # Bounds check
-            if first_index + num_indices > len(mesh.indices):
-                num_indices = len(mesh.indices) - first_index
-                if num_indices <= 0:
-                    continue
-
-            # Extract section indices and convert strips to lists
-            sec_indices = list(mesh.indices[first_index : first_index + num_indices])
-            sec_indices, was_strip = strip_to_list(sec_indices)
+            sec_indices = section_triangle_indices(
+                mesh.indices, sec, vertex_count=len(mesh.vertices)
+            )
 
             # Pad to 4-byte alignment
             while len(buffer_data) % 4 != 0:
@@ -1733,8 +1661,20 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
 
     if not primitives:
         # Fallback: single primitive with all indices (no material split)
-        fallback_indices = list(mesh.indices)
-        fallback_indices, _ = strip_to_list(fallback_indices)
+        fallback_indices = []
+        for section in mesh.sections:
+            fallback_indices.extend(
+                section_triangle_indices(
+                    mesh.indices, section, vertex_count=len(mesh.vertices)
+                )
+            )
+        if not fallback_indices:
+            fallback_indices = list(mesh.indices)
+            if len(fallback_indices) % 3 != 0:
+                raise ValueError(
+                    f"{mesh.name}: fallback index count is not triangular: "
+                    f"{len(fallback_indices)}"
+                )
 
         while len(buffer_data) % 4 != 0:
             buffer_data.append(0)

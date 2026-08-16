@@ -51,13 +51,16 @@ outputs, while retaining package-level parallelism:
 
 ```bash
 .venv/bin/python scripts/extractors/staticmesh_pipeline.py --export-only \
-  --object-artifact /path/to/objects-world-v5 --workers 2
+  --object-artifact /path/to/objects-world-v7 --workers 2
 ```
 
 Keep package workers low: individual Vanguard packages can require more than
 5 GiB of transient memory while their embedded glTF and images are assembled.
 Each mesh is published with a same-directory atomic rename, so an interrupted
 worker cannot replace a valid prior glTF with a partial JSON document.
+Static-mesh sections are decoded from UE2's explicit `IsStrip` and
+`NumPrimitives` fields; the exporter never guesses topology from vertex
+coverage, and incomplete triangle lists are rejected before publication.
 
 ## Setup
 

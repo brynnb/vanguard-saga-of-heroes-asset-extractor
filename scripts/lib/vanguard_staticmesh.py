@@ -14,6 +14,7 @@ Source: UEViewer/Unreal/UnrealMesh/UnMesh2.cpp SerializeVanguardMesh
 
 import struct
 from ue2_property_reader import BinaryReader, skip_ue2_properties
+from staticmesh_topology import section_triangle_indices
 
 
 class VanguardMeshData:
@@ -51,9 +52,7 @@ class VanguardMeshData:
             []
         )  # flat list of uint16 from IndexStream1 (for direct first_index access)
         self.colors = []  # list of (r, g, b, a) normalized floats from ColorStream
-        self.sections = (
-            []
-        )  # list of dicts with firstIndex, firstVertex, lastVertex, numFaces
+        self.sections = []  # explicit UE2 FStaticMeshSection dictionaries
         self.skins = []  # list of lists: each skin is a list of material name strings
         self.bbox_min = (0, 0, 0)
         self.bbox_max = (0, 0, 0)
@@ -197,18 +196,20 @@ def parse_vanguard_staticmesh(data, names, serial_offset=0, imports=None):
     # FStaticMeshSection: int32 + 5*uint16 = 14 bytes
     sec_count = r.read_int32()
     for i in range(sec_count):
-        f4 = r.read_int32()
+        is_strip = r.read_int32()
         first_index = r.read_uint16()
         first_vertex = r.read_uint16()
         last_vertex = r.read_uint16()
-        fE = r.read_uint16()
-        num_faces = r.read_uint16()
+        num_triangles = r.read_uint16()
+        num_primitives = r.read_uint16()
         mesh.sections.append(
             {
+                "is_strip": bool(is_strip),
                 "first_index": first_index,
                 "first_vertex": first_vertex,
                 "last_vertex": last_vertex,
-                "num_faces": num_faces,
+                "num_triangles": num_triangles,
+                "num_primitives": num_primitives,
             }
         )
 
@@ -362,28 +363,14 @@ def parse_vanguard_staticmesh(data, names, serial_offset=0, imports=None):
     if idx1_count >= 3:
         indices = struct.unpack_from(f"<{idx1_count}H", idx1_data)
         mesh.raw_indices = list(indices)
-        # Build face list from IndexStream1 and Sections
-        # num_faces can be either face count (triangle list) or index count (strip)
-        # Detect by checking if num_faces*3 fits and covers more vertices
+        # Build a canonical face list from the section's serialized topology.
         for sec in mesh.sections:
-            fi = sec["first_index"]
-            nf = sec["num_faces"]
-            # Determine actual index count
-            ni = nf
-            if fi + nf * 3 <= len(indices):
-                slice_as_idx = indices[fi : fi + nf]
-                unique_as_idx = len(set(slice_as_idx))
-                expected_verts = (
-                    sec.get("last_vertex", 0) - sec.get("first_vertex", 0) + 1
-                )
-                if expected_verts > 0 and unique_as_idx < expected_verts * 0.6:
-                    ni = nf * 3
-            num_tris = ni // 3
-            for f in range(num_tris):
-                base = fi + f * 3
-                if base + 2 < len(indices):
-                    mesh.faces.append(
-                        (indices[base], indices[base + 1], indices[base + 2])
-                    )
+            triangle_indices = section_triangle_indices(
+                indices, sec, vertex_count=len(mesh.vertices)
+            )
+            mesh.faces.extend(
+                tuple(triangle_indices[offset : offset + 3])
+                for offset in range(0, len(triangle_indices), 3)
+            )
 
     return mesh
