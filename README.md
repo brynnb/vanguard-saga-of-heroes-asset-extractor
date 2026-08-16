@@ -45,6 +45,20 @@ The original Vanguard client data is spread across UE2 package files, Vanguard-s
 - SGO prefab and world object placement data.
 - Shader-to-texture mappings and diffuse texture PNGs when the optional Unreal-Library CLI is available.
 
+The world renderer can parse only the packages referenced by an existing
+immutable Cesium object artifact and write only its exact referenced mesh/LOD
+outputs, while retaining package-level parallelism:
+
+```bash
+.venv/bin/python scripts/extractors/staticmesh_pipeline.py --export-only \
+  --object-artifact /path/to/objects-world-v5 --workers 2
+```
+
+Keep package workers low: individual Vanguard packages can require more than
+5 GiB of transient memory while their embedded glTF and images are assembled.
+Each mesh is published with a same-directory atomic rename, so an interrupted
+worker cannot replace a valid prior glTF with a partial JSON document.
+
 ## Setup
 
 Create a virtual environment and install the dependencies:

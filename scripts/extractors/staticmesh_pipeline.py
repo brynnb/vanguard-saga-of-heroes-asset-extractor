@@ -1807,8 +1807,14 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
 
     # Write file
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    with open(output_path, "w") as f:
-        json.dump(gltf, f)
+    candidate_path = f"{output_path}.writing-{os.getpid()}"
+    try:
+        with open(candidate_path, "w") as f:
+            json.dump(gltf, f)
+        os.replace(candidate_path, output_path)
+    finally:
+        if os.path.exists(candidate_path):
+            os.unlink(candidate_path)
 
     return True
 
@@ -1826,6 +1832,7 @@ def process_package(
     output_dir: str = None,
     only_trees: bool = False,
     export_runtime_leaf_hybrids: bool = False,
+    required_mesh_names: Optional[set[str]] = None,
 ) -> Dict[str, int]:
     """
     Process a single package file through the complete pipeline.
@@ -1838,6 +1845,12 @@ def process_package(
     meshes = parse_staticmesh_file(pkg_path)
 
     for mesh in meshes:
+        if (
+            required_mesh_names is not None
+            and mesh.name.casefold() not in required_mesh_names
+        ):
+            stats["skipped"] += 1
+            continue
         if only_trees and not is_tree_mesh_name(mesh.name):
             stats["skipped"] += 1
             continue
@@ -1896,6 +1909,7 @@ def process_package_worker(args) -> Tuple[str, Dict[str, int], Optional[str]]:
         output_dir,
         only_trees,
         export_runtime_leaf_hybrids,
+        required_mesh_names,
     ) = args
     try:
         stats = process_package(
@@ -1906,6 +1920,7 @@ def process_package_worker(args) -> Tuple[str, Dict[str, int], Optional[str]]:
             output_dir=output_dir,
             only_trees=only_trees,
             export_runtime_leaf_hybrids=export_runtime_leaf_hybrids,
+            required_mesh_names=required_mesh_names,
         )
         return pkg_path, stats, None
     except Exception as exc:
@@ -1916,6 +1931,7 @@ def process_package_worker(args) -> Tuple[str, Dict[str, int], Optional[str]]:
 
 def run_pipeline(
     file_pattern: str = None,
+    object_artifact: str = None,
     export_gltf: bool = True,
     export_only: bool = False,
     limit: int = 0,
@@ -1950,7 +1966,31 @@ def run_pipeline(
         print()
 
     # Find files to process
-    if file_pattern:
+    required_mesh_names_by_package: dict[str, set[str]] = {}
+    if object_artifact:
+        object_root = Path(object_artifact) / "objects"
+        if not object_root.is_dir():
+            raise FileNotFoundError(
+                f"object artifact has no shared object store: {object_root}"
+            )
+        for path in object_root.rglob("*.glb"):
+            package_name = path.parent.name.casefold()
+            required_mesh_names_by_package.setdefault(package_name, set()).add(
+                path.stem.casefold()
+            )
+        required_packages = set(required_mesh_names_by_package)
+        available_packages = {
+            Path(path).stem.casefold(): path
+            for path in glob.glob(os.path.join(MESHES_DIR, "*.usx"))
+        }
+        missing = sorted(required_packages - available_packages.keys())
+        if missing:
+            raise FileNotFoundError(
+                "object artifact references missing mesh packages: "
+                + ", ".join(missing[:20])
+            )
+        files = [available_packages[name] for name in sorted(required_packages)]
+    elif file_pattern:
         pattern = (
             file_pattern if file_pattern.endswith(".usx") else file_pattern + "*.usx"
         )
@@ -1995,6 +2035,7 @@ def run_pipeline(
                 OUTPUT_DIR,
                 only_trees,
                 export_runtime_leaf_hybrids,
+                required_mesh_names_by_package.get(Path(pkg_path).stem.casefold()),
             )
             for pkg_path in files
         ]
@@ -2035,6 +2076,9 @@ def run_pipeline(
                     output_dir=OUTPUT_DIR,
                     only_trees=only_trees,
                     export_runtime_leaf_hybrids=export_runtime_leaf_hybrids,
+                    required_mesh_names=required_mesh_names_by_package.get(
+                        Path(pkg_path).stem.casefold()
+                    ),
                 )
                 merge_stats(total_stats, stats)
 
@@ -2122,6 +2166,13 @@ def main():
         "--export-only", action="store_true", help="Only export glTF, skip DB updates"
     )
     parser.add_argument(
+        "--object-artifact",
+        help=(
+            "Only export mesh packages referenced by an existing Cesium "
+            "artifact's shared objects/ store"
+        ),
+    )
+    parser.add_argument(
         "--limit", "-n", type=int, default=0, help="Limit number of files to process"
     )
     parser.add_argument(
@@ -2146,6 +2197,7 @@ def main():
 
     run_pipeline(
         file_pattern=args.file,
+        object_artifact=args.object_artifact,
         export_gltf=True,
         export_only=args.export_only,
         limit=args.limit,
