@@ -477,6 +477,28 @@ def _optimized_style_index_for_entry(entry: dict[str, Any]) -> int:
     return int(entry.get("optimized_style_index", 0))
 
 
+def _modular_package_name_for_entry(entry: dict[str, Any]) -> str | None:
+    if not bool(entry.get("visual_supported", False)):
+        return None
+    optimized_package = str(entry.get("optimized_package", ""))
+    marker = "UEM_optimized"
+    if not optimized_package.startswith(marker):
+        return None
+    family_and_gender = optimized_package.removeprefix(marker)
+    family_and_gender = family_and_gender[:1].lower() + family_and_gender[1:]
+    return "UEM_" + family_and_gender
+
+
+def _modular_package_for_entry(entry: dict[str, Any]) -> str | None:
+    package = _modular_package_name_for_entry(entry)
+    if not package:
+        return None
+    path = SOURCE_MESH_ROOT / f"{package}.uem"
+    if not path.exists():
+        raise RuntimeError(f"Missing modular source package: {path}")
+    return package
+
+
 def _optimized_mesh_info(entry: dict[str, Any]) -> dict[str, Any] | None:
     package = _optimized_package_for_entry(entry)
     if not package:
@@ -785,7 +807,19 @@ def _entry_part_exports_for_face(entry: dict[str, Any], face_index: int) -> dict
             result["Head"] = export_name
         elif "_char_ears_" in lower_export:
             result["Ears"] = export_name
-    return result
+    if result:
+        return result
+    modular_package = _modular_package_for_entry(entry)
+    if not modular_package:
+        return result
+    stem = modular_package.removeprefix("UEM_").removesuffix("_char") + "_char"
+    # ALL_<style> selects the playable race/subrace skeleton (for example
+    # Human style 2 is Kojani). C_* face variants do not advance that style.
+    style_index = _optimized_style_index_for_entry(entry)
+    return {
+        "Head": f"{stem}_head_{style_index}_C_0",
+        "Ears": f"{stem}_ears_{style_index}_C_0",
+    }
 
 
 def _select_modular_master_profile(
@@ -996,10 +1030,10 @@ def build_payload(tolerance: float = 0.001) -> tuple[dict[str, Any], dict[str, A
     )
     modular_packages = sorted(
         {
-            str(part.get("package", ""))
+            package
             for entry in playable_entries
-            for part in entry.get("body_parts", [])
-            if isinstance(part, dict) and str(part.get("package", ""))
+            for package in [_modular_package_for_entry(entry)]
+            if package
         }
     )
     master_profile_packages = sorted(set(optimized_packages) | set(modular_packages))
@@ -1083,16 +1117,7 @@ def build_payload(tolerance: float = 0.001) -> tuple[dict[str, Any], dict[str, A
                 unresolved_seen.setdefault(unresolved, []).append(key)
         missing_current_counts[key] = len(missing_current)
         face_count = max(int(entry.get("face_count", 1) or 1), 1)
-        body_parts = [part for part in entry.get("body_parts", []) if isinstance(part, dict)]
-        head_part = next(
-            (
-                part
-                for part in body_parts
-                if "_char_head_" in str(part.get("export", "")).lower()
-            ),
-            None,
-        )
-        modular_package = str(head_part.get("package", "")) if head_part else ""
+        modular_package = _modular_package_for_entry(entry) or ""
         style_skeletons: list[dict[str, Any]] = []
         default_master_profile_id: str | None = None
         for face_index in range(face_count):

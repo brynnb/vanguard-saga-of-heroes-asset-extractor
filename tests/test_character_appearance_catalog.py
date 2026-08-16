@@ -7,6 +7,9 @@ from pathlib import Path
 from scripts.extractors.decode_attachment_groups import CATEGORY_ORDER
 from scripts.extractors.decode_items import RUNTIME_PACKAGE_INDEX_TO_SOURCE, write_catalog
 from scripts.generators.generate_playable_races import PLAYABLE_VISUAL_SOURCE, _entry
+from scripts.exporters.export_playable_facial_controls import (
+    _modular_package_name_for_entry,
+)
 from scripts.lib.material_memory import MaterialMemoryResolver
 from scripts.lib.vanguard_emfxmesh import (
     FXAMaterial,
@@ -55,6 +58,26 @@ class TaggedPropertyReaderTest(unittest.TestCase):
 
 
 class AppearanceCatalogContractTest(unittest.TestCase):
+    def test_modular_master_package_derives_from_playable_family(self) -> None:
+        self.assertEqual(
+            _modular_package_name_for_entry(
+                {
+                    "visual_supported": True,
+                    "optimized_package": "UEM_optimizedDwarf_M_char",
+                }
+            ),
+            "UEM_dwarf_M_char",
+        )
+        self.assertEqual(
+            _modular_package_name_for_entry(
+                {
+                    "visual_supported": True,
+                    "optimized_package": "UEM_optimizedBarbarian_F_char",
+                }
+            ),
+            "UEM_barbarian_F_char",
+        )
+
     def test_tintable_materials_are_canonical_render_materials(self) -> None:
         resolver = object.__new__(MaterialMemoryResolver)
         wanted = resolver._record_wanted_property_names("TintableMaterial")
