@@ -172,7 +172,7 @@ def main() -> int:
         "--include-nonrenderable",
         action="store_true",
         help=(
-            "Include Shader records that resolve no base texture or color fallback. "
+            "Include Shader/TintableMaterial records that resolve no base texture or color fallback. "
             "Default builds skip these helper/special records so the canonical "
             "manifest contains renderable material entries only."
         ),

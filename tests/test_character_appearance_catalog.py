@@ -7,7 +7,12 @@ from pathlib import Path
 from scripts.extractors.decode_attachment_groups import CATEGORY_ORDER
 from scripts.extractors.decode_items import RUNTIME_PACKAGE_INDEX_TO_SOURCE, write_catalog
 from scripts.generators.generate_playable_races import PLAYABLE_VISUAL_SOURCE, _entry
-from scripts.lib.vanguard_emfxmesh import FXAMaterial, _find_clr_texture
+from scripts.lib.material_memory import MaterialMemoryResolver
+from scripts.lib.vanguard_emfxmesh import (
+    FXAMaterial,
+    _find_clr_texture,
+    extract_skins_shaders,
+)
 from scripts.lib.ue2_tagged_properties import (
     TYPE_BOOL,
     TYPE_INT,
@@ -50,6 +55,57 @@ class TaggedPropertyReaderTest(unittest.TestCase):
 
 
 class AppearanceCatalogContractTest(unittest.TestCase):
+    def test_tintable_materials_are_canonical_render_materials(self) -> None:
+        resolver = object.__new__(MaterialMemoryResolver)
+        wanted = resolver._record_wanted_property_names("TintableMaterial")
+
+        self.assertIn("Diffuse", wanted)
+        self.assertIn("TintAlpha", wanted)
+        self.assertIn("TintPalette", wanted)
+
+    def test_skins_material_slots_are_decoded_structurally(self) -> None:
+        names = ["None", "Skins", "EMFXMaterial", "Material"]
+
+        def array_property(name_index: int, payload: bytes) -> bytes:
+            return bytes([name_index, 0x59, len(payload)]) + payload
+
+        slot = bytes([3, 0x05, 0x81, 0])
+        material_array = bytes([1]) + slot
+        skin = array_property(2, material_array) + bytes([0])
+        skins = bytes([1]) + skin
+        export_data = array_property(1, skins) + bytes([0])
+
+        class FakePackage:
+            imports = [
+                {
+                    "class_name": "TintableMaterial",
+                    "object_name": "human_M_char_head_0_SHD",
+                    "package": -2,
+                },
+                {
+                    "class_name": "Package",
+                    "object_name": "UTX_human_M_char",
+                    "package": 0,
+                },
+            ]
+            exports = []
+
+            def __init__(self) -> None:
+                self.names = names
+
+            def get_exports_by_class(self, _class_name: str) -> list[dict]:
+                return [{"object_name": "human_M_char_head_0_C_0"}]
+
+            def get_export_data(self, _export: dict) -> bytes:
+                return export_data
+
+        self.assertEqual(
+            extract_skins_shaders(
+                "unused.uem", "human_M_char_head_0_C_0", FakePackage()
+            ),
+            ["UTX_human_M_char.human_M_char_head_0_SHD"],
+        )
+
     def test_character_material_prefers_exact_logical_texture(self) -> None:
         with tempfile.TemporaryDirectory() as temp_directory:
             texture_directory = Path(temp_directory)

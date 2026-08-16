@@ -2479,23 +2479,17 @@ def extract_skins_shaders(uem_path, exp_name, pkg=None):
     than heuristic name-based matching when the UEM material names are generic
     (e.g. ``blinn3SG``, ``phong4SG``, ``initialShadingGroup``).
 
-    Returns a list of shader object-names in material-slot order (first-unique
-    occurrence), e.g. ``["drake_M_char_body_0_SHD", "drake_M_char_eye_0_SHD"]``,
+    Returns a list of shader paths in material-slot order for the first authored
+    skin, e.g. ``["drake_M_char_body_0_SHD", "drake_M_char_eye_0_SHD"]``,
     or an empty list if the property cannot be found or parsed.
 
     The *pkg* argument is an optional already-opened :class:`ue2.package.UE2Package`
     instance; if omitted the package is opened fresh from *uem_path*.
 
-    Implementation note
-    -------------------
-    The Skins raw bytes are scanned for single-byte (and two-byte) UE2 compact
-    indices that are *negative* (i.e. import references).  Negative compact-index
-    byte pattern: ``(b & 0x80) != 0``.  For single-byte: ``val = b & 0x3F``,
-    ``import_index = val - 1``.  For two-byte: ``(b & 0x40) != 0`` indicates a
-    second byte; ``val = (b & 0x3F) | ((b1 & 0x7F) << 6)``.
-    Only imports whose ``class_name`` is a known shader/material class are kept.
-    Shader-class imports are returned in the order of first unique occurrence —
-    this order matches mat-slot assignment.
+    Skins is an array of property-serialized structs, each containing an
+    EMFXMaterial array of property-serialized slot structs.  Decode that schema
+    exactly; scanning arbitrary bytes for import-looking values also mistakes
+    counts, names, and unrelated fields for materials.
     """
     try:
         import sys as _sys
@@ -2505,13 +2499,17 @@ def extract_skins_shaders(uem_path, exp_name, pkg=None):
         if _root not in _sys.path:
             _sys.path.insert(0, _root)
         from ue2.package import UE2Package
-        from material_memory import import_full_path
-        from ue2_property_reader import BinaryReader, read_ue2_properties
+        from scripts.lib.material_memory import import_full_path
+        from scripts.lib.ue2_property_reader import BinaryReader, read_ue2_properties
+        from scripts.lib.ue2_tagged_properties import (
+            properties_by_name,
+            read_tagged_properties,
+        )
     except ImportError:
         return []
 
     _SHADER_CLASSES = frozenset({
-        "Shader", "Material", "FinalBlend", "TexEnvMap",
+        "Shader", "TintableMaterial", "Material", "FinalBlend", "TexEnvMap",
         "Combiner", "TexPanner", "TexOscillator", "TexScaler",
     })
 
@@ -2529,58 +2527,51 @@ def extract_skins_shaders(uem_path, exp_name, pkg=None):
             return []
 
         data = pkg.get_export_data(target_exp)
-        reader = BinaryReader(data, 0)
-        props = read_ue2_properties(reader, pkg.names)
-
-        skins_raw = props.get("Skins")
-        if not skins_raw or not isinstance(skins_raw, (bytes, bytearray)):
+        props = properties_by_name(read_tagged_properties(data, pkg.names))
+        skins_property = props.get("Skins")
+        skins_raw = skins_property.raw if skins_property is not None else None
+        if not skins_raw:
             return []
 
-        # Scan for compact indices that reference imports (negative = import ref).
-        # UE2 compact index byte encoding:
-        #   bit7 = sign (1 = negative)
-        #   bit6 = continuation (1 = second byte follows)
-        #   bits5-0 = value bits 0-5
-        # For single-byte: bit6=0  → final; import_idx = (b & 0x3F) - 1
-        # For two-byte:    bit6=1  → next byte; import_idx = ((b & 0x3F) | ((b1 & 0x7F) << 6)) - 1
-        seen = []
-        seen_set = set()
-        i = 0
-        raw = bytes(skins_raw)
-        while i < len(raw):
-            b = raw[i]
-            if not (b & 0x80):   # bit7=0 → positive or zero, not an import ref
-                i += 1
+        skins_reader = BinaryReader(bytes(skins_raw), 0)
+        skin_count = skins_reader.read_compact_index()
+        if skin_count <= 0:
+            return []
+        first_skin = read_ue2_properties(skins_reader, pkg.names)
+        materials_raw = first_skin.get("EMFXMaterial")
+        if not isinstance(materials_raw, (bytes, bytearray)):
+            return []
+
+        material_reader = BinaryReader(bytes(materials_raw), 0)
+        material_count = material_reader.read_compact_index()
+        result = []
+        for _ in range(max(0, material_count)):
+            slot = read_ue2_properties(material_reader, pkg.names)
+            ref_raw = slot.get("Material")
+            if not isinstance(ref_raw, (bytes, bytearray)) or not ref_raw:
                 continue
-            # Negative compact index
-            if b & 0x40:
-                # Two-byte form
-                if i + 1 < len(raw):
-                    b1 = raw[i + 1]
-                    val = (b & 0x3F) | ((b1 & 0x7F) << 6)
-                    import_idx = val - 1
-                    i += 2
-                else:
-                    i += 1
+            ref = BinaryReader(bytes(ref_raw), 0).read_compact_index()
+            if ref < 0:
+                import_index = -ref - 1
+                if not (0 <= import_index < len(pkg.imports)):
                     continue
+                imp = pkg.imports[import_index]
+                if imp.get("class_name") not in _SHADER_CLASSES:
+                    continue
+                source_ref = import_full_path(pkg.imports, import_index)
+            elif ref > 0:
+                export_index = ref - 1
+                if not (0 <= export_index < len(pkg.exports)):
+                    continue
+                exp = pkg.exports[export_index]
+                if exp.get("class_name") not in _SHADER_CLASSES:
+                    continue
+                source_ref = ".".join(_export_path(pkg, export_index))
             else:
-                # Single-byte form
-                val = b & 0x3F
-                import_idx = val - 1
-                i += 1
-
-            if import_idx < 0 or import_idx >= len(pkg.imports):
-                continue
-            imp = pkg.imports[import_idx]
-            if imp["class_name"] not in _SHADER_CLASSES:
-                continue
-            obj_name = imp["object_name"]
-            source_ref = import_full_path(pkg.imports, import_idx) or obj_name
-            if source_ref not in seen_set:
-                seen.append(source_ref)
-                seen_set.add(source_ref)
-
-        return seen
+                source_ref = None
+            if source_ref:
+                result.append(source_ref)
+        return result
 
     except Exception:
         return []

@@ -44,6 +44,7 @@ class ShaderMaterialInfo:
     full_path: str
     package_name: str
     object_name: str
+    class_name: str = "Shader"
     diffuse: MaterialTarget | None = None
     normal: MaterialTarget | None = None
     specular: MaterialTarget | None = None
@@ -509,7 +510,7 @@ class MaterialMemoryResolver:
             props = self._record_properties(pkg, record, wanted_names)
             if not props:
                 continue
-            if record.asset_class == "Shader":
+            if record.asset_class in {"Shader", "TintableMaterial"}:
                 info = self._parse_shader_record(pkg, record, props)
                 self._shaders_by_path[info.full_path.lower()] = info
                 self._shaders_by_name.setdefault(info.object_name.lower(), []).append(info)
@@ -530,12 +531,14 @@ class MaterialMemoryResolver:
                     ).append((record.package_name.lower(), color_factor))
 
     def _record_wanted_property_names(self, asset_class: str) -> set[str]:
-        if asset_class == "Shader":
+        if asset_class in {"Shader", "TintableMaterial"}:
             return {
                 "Diffuse",
                 "Normal",
                 "Specular",
                 "Opacity",
+                "TintAlpha",
+                "TintPalette",
                 "Detail",
                 "DetailScale",
                 "TwoSided",
@@ -610,6 +613,7 @@ class MaterialMemoryResolver:
             full_path=record.full_path,
             package_name=record.package_name,
             object_name=record.object_name,
+            class_name=record.asset_class,
         )
         for prop in props:
             name = str(prop.get("name") or "")
@@ -987,7 +991,7 @@ class MaterialMemoryResolver:
         return {
             "source_package": shader_info.package_name,
             "source_ref": shader_info.full_path,
-            "class_name": "Shader",
+            "class_name": shader_info.class_name,
             "base_color": base_color
             or _unresolved_texture_asset(
                 diffuse_target, {"color_factor": base_color_factor}
