@@ -7,6 +7,7 @@ from pathlib import Path
 from scripts.extractors.decode_attachment_groups import CATEGORY_ORDER
 from scripts.extractors.decode_items import RUNTIME_PACKAGE_INDEX_TO_SOURCE, write_catalog
 from scripts.generators.generate_playable_races import PLAYABLE_VISUAL_SOURCE, _entry
+from scripts.lib.vanguard_emfxmesh import FXAMaterial, _find_clr_texture
 from scripts.lib.ue2_tagged_properties import (
     TYPE_BOOL,
     TYPE_INT,
@@ -49,6 +50,30 @@ class TaggedPropertyReaderTest(unittest.TestCase):
 
 
 class AppearanceCatalogContractTest(unittest.TestCase):
+    def test_character_material_prefers_exact_logical_texture(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            texture_directory = Path(temp_directory)
+            expected = (
+                texture_directory
+                / "UTX_human_M_char__Color__human_M_char_head_0_CLR.png"
+            )
+            expected.write_bytes(b"png")
+            (
+                texture_directory
+                / "UTX_human_M_char__Color__human_M_char_body_1_CLR.png"
+            ).write_bytes(b"wrong")
+            material = FXAMaterial()
+            material.name = "_CLASH_human_M_char_head_0_SHD3"
+
+            resolved = _find_clr_texture(
+                material,
+                str(texture_directory),
+                shader_map={},
+                pkg_hint="UEM_human_M_char",
+            )
+
+            self.assertEqual(Path(resolved), expected)
+
     def test_runtime_package_mapping_is_one_to_one(self) -> None:
         sources = list(RUNTIME_PACKAGE_INDEX_TO_SOURCE.values())
         self.assertEqual(len(sources), len(set(sources)))

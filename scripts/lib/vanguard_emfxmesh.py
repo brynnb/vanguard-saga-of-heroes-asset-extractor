@@ -1605,11 +1605,21 @@ def _find_clr_texture(material, texture_dir, shader_map=None, pkg_hint=None, mat
     # Build a case-insensitive lookup of available PNGs (cached on first call)
     if not hasattr(_find_clr_texture, "_cache") or _find_clr_texture._cache[0] != texture_dir:
         lookup = {}
+        logical_lookup = {}
         for fn in os.listdir(texture_dir):
             if fn.lower().endswith(".png"):
-                lookup[fn[:-4].lower()] = os.path.join(texture_dir, fn)
-        _find_clr_texture._cache = (texture_dir, lookup)
+                path = os.path.join(texture_dir, fn)
+                stem = fn[:-4].lower()
+                lookup[stem] = path
+                # Extracted character textures retain their qualified source
+                # package in the filename. The material itself stores the
+                # logical shader name, so index the suffix after Color too.
+                marker = "__color__"
+                if marker in stem:
+                    logical_lookup.setdefault(stem.rsplit(marker, 1)[-1], path)
+        _find_clr_texture._cache = (texture_dir, lookup, logical_lookup)
     lookup = _find_clr_texture._cache[1]
+    logical_lookup = _find_clr_texture._cache[2]
 
     # Ghost/Stealth shaders are special-effect materials (invisible, translucent
     # shimmer in the game engine). Do NOT assign a regular diffuse texture —
@@ -1641,6 +1651,22 @@ def _find_clr_texture(material, texture_dir, shader_map=None, pkg_hint=None, mat
     manifest_path = _manifest_texture_path(material_manifest, material.name)
     if manifest_path:
         return manifest_path
+
+    # Character materials usually encode the exact diffuse asset name:
+    # ``*_head_0_SHD`` -> ``*_head_0_CLR``. Resolve that deterministic relation
+    # before any package-wide fallback. Some recovered EMFX names carry a
+    # parser-preserved ``_CLASH_`` prefix or a numeric suffix after SHD; neither
+    # changes the underlying shader/texture identity.
+    import re as _re_exact
+    logical_material = str(material.name or "")
+    if logical_material.startswith("_CLASH_"):
+        logical_material = logical_material[len("_CLASH_"):]
+    logical_texture = _re_exact.sub(
+        r"_SHD\d*$", "_CLR", logical_material, flags=_re_exact.IGNORECASE
+    ).lower()
+    path = logical_lookup.get(logical_texture)
+    if path:
+        return path
 
     # 1. Try _CLR / _CLRH layers (primary convention)
     for layer in material.layers:
