@@ -152,6 +152,11 @@ def main() -> int:
         help="Merge into an existing output manifest and skip entries already present",
     )
     parser.add_argument(
+        "--refresh-selected",
+        action="store_true",
+        help="With --resume, rebuild explicitly selected package/shader entries instead of skipping them",
+    )
+    parser.add_argument(
         "--limit",
         type=int,
         help="Build at most this many selected shader refs; useful for probes",
@@ -237,7 +242,7 @@ def main() -> int:
         last_flushed_built_count = 0
         for index, shader_info in enumerate(selected_shader_infos, start=1):
             key = shader_info.full_path
-            if key.lower() in existing_keys:
+            if key.lower() in existing_keys and not args.refresh_selected:
                 skipped_count += 1
             else:
                 entry = resolver.material_manifest_entry(key, textures_dir)

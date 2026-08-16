@@ -49,6 +49,8 @@ class ShaderMaterialInfo:
     normal: MaterialTarget | None = None
     specular: MaterialTarget | None = None
     opacity: MaterialTarget | None = None
+    tint_alpha: MaterialTarget | None = None
+    tint_palette: MaterialTarget | None = None
     detail: MaterialTarget | None = None
     detail_scale: float | None = None
     two_sided: bool = False
@@ -632,6 +634,10 @@ class MaterialMemoryResolver:
                 info.specular = target
             elif name == "Opacity":
                 info.opacity = target
+            elif name == "TintAlpha":
+                info.tint_alpha = target
+            elif name == "TintPalette":
+                info.tint_palette = target
             elif name == "Detail":
                 info.detail = target
             elif name == "DetailScale":
@@ -951,6 +957,8 @@ class MaterialMemoryResolver:
             else None
         )
         detail_target = self._resolve_texture_target(shader_info.detail)
+        tint_alpha_target = self._resolve_texture_target(shader_info.tint_alpha)
+        tint_palette_target = self._resolve_texture_target(shader_info.tint_palette)
 
         base_color = self.ensure_diffuse_asset(shader_info.full_path, output_dir)
         base_color_factor = self._resolve_color_factor(shader_info.diffuse)
@@ -961,6 +969,16 @@ class MaterialMemoryResolver:
             shader_info.full_path, output_dir
         )
         detail_asset = self.ensure_detail_asset(shader_info.full_path, output_dir)
+        tint_alpha_asset = (
+            self._ensure_texture_asset(tint_alpha_target, output_dir)
+            if tint_alpha_target is not None
+            else None
+        )
+        tint_palette_asset = (
+            self._ensure_texture_asset(tint_palette_target, output_dir)
+            if tint_palette_target is not None
+            else None
+        )
 
         normal = _unresolved_texture_asset(normal_target, {"scale": normal_scale})
         if normal_asset:
@@ -999,6 +1017,10 @@ class MaterialMemoryResolver:
             "normal": normal,
             "specular": specular,
             "detail": detail,
+            "tint_alpha": tint_alpha_asset
+            or _unresolved_texture_asset(tint_alpha_target),
+            "tint_palette": tint_palette_asset
+            or _unresolved_texture_asset(tint_palette_target),
             "alpha_mode": alpha_mode,
             "alpha_cutoff": 0.01 if alpha_mode == "MASK" else None,
             "two_sided": bool(shader_info.two_sided),

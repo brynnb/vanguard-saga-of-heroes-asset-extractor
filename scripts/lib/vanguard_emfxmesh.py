@@ -3113,6 +3113,12 @@ def export_gltf(mesh_data, filepath, texture_dir=None, shader_map=None,
                 extras["vg_detail_scale"] = detail_record.get("scale")
             if detail_img_idx >= 0:
                 extras["vg_detail_texture_index"] = detail_img_idx
+            tint_alpha_record = manifest_entry.get("tint_alpha") or {}
+            if tint_alpha_record.get("asset_path"):
+                extras["vg_tint_alpha_texture"] = tint_alpha_record
+            tint_palette_record = manifest_entry.get("tint_palette") or {}
+            if tint_palette_record.get("asset_path"):
+                extras["vg_tint_palette_texture"] = tint_palette_record
             mat_entry["extras"] = {
                 key: value for key, value in extras.items() if value is not None
             }
