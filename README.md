@@ -61,6 +61,19 @@ worker cannot replace a valid prior glTF with a partial JSON document.
 Static-mesh sections are decoded from UE2's explicit `IsStrip` and
 `NumPrimitives` fields; the exporter never guesses topology from vertex
 coverage, and incomplete triangle lists are rejected before publication.
+The command exits nonzero if any requested mesh fails and writes
+`staticmesh-last-failure.json` without replacing the last successful manifest.
+A successful manifest lists only the files produced by that run and records a
+SHA-256 revision for every source package, so bounded refreshes cannot silently
+claim unrelated historical output. It also reports the count and sample paths
+of older on-disk glTFs that are explicitly unclaimed by the run. Obsolete heuristic mesh harvesters have
+been removed; `staticmesh_pipeline.py` is the only supported static-mesh
+decoder and exporter.
+When a legacy package contains different exports with the same leaf name under
+different UE2 outers, the manifest records that ambiguity and the explicitly
+selected export index. The flat compatibility path deliberately retains the
+old exporter's last-export behavior until placement identities are fully
+outer-qualified; it is no longer an order-dependent silent overwrite.
 
 ## Setup
 

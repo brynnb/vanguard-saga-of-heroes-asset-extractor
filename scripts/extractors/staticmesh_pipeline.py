@@ -23,6 +23,7 @@ import struct
 import argparse
 import math
 import time
+import hashlib
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from dataclasses import dataclass, asdict
@@ -227,6 +228,8 @@ class ParsedMesh:
     internal_version: int
     section_count: int
     parse_status: str
+    outer_index: int = 0
+    outer_name: Optional[str] = None
     error_message: Optional[str] = None
     unknown_regions: List[Dict] = None
     sections: List[Dict] = None
@@ -281,8 +284,7 @@ def parse_staticmesh_file(pkg_path: str) -> List[ParsedMesh]:
     try:
         pkg = UE2Package(pkg_path)
     except Exception as e:
-        print(f"  Error loading package: {e}")
-        return meshes
+        raise RuntimeError(f"could not load package {pkg_path}: {e}") from e
 
     static_mesh_exports = [e for e in pkg.exports if e["class_name"] == "StaticMesh"]
 
@@ -359,14 +361,22 @@ def parse_staticmesh_file(pkg_path: str) -> List[ParsedMesh]:
                     vertices=vertices,
                     indices=indices,
                     bytes_total=len(data),
-                    bytes_parsed=len(data),
-                    bytes_unknown=0,
-                    coverage_pct=100.0,
+                    bytes_parsed=mesh_data.bytes_consumed,
+                    bytes_unknown=max(0, len(data) - mesh_data.bytes_consumed),
+                    coverage_pct=(
+                        mesh_data.bytes_consumed / len(data) * 100.0
+                        if data
+                        else 0.0
+                    ),
                     uses_heuristics=False,
                     uses_skips=False,
                     internal_version=mesh_data.internal_version,
                     section_count=len(mesh_data.sections),
                     parse_status="complete",
+                    outer_index=int(exp.get("package", 0) or 0),
+                    outer_name=(
+                        pkg.get_object_name(int(exp.get("package", 0) or 0)) or None
+                    ),
                     sections=mesh_data.sections,
                     skins=mesh_data.skins,
                     uv1s=mesh_data.uv_streams[1] if len(mesh_data.uv_streams) > 1 else None,
@@ -1773,17 +1783,19 @@ def process_package(
     only_trees: bool = False,
     export_runtime_leaf_hybrids: bool = False,
     required_mesh_names: Optional[set[str]] = None,
-) -> Dict[str, int]:
+) -> Dict[str, Any]:
     """
     Process a single package file through the complete pipeline.
     Returns stats dict.
     """
-    stats = {"success": 0, "error": 0, "skipped": 0, "exported": 0, "hybrid_exported": 0}
+    stats = empty_stats()
 
     file_id = get_or_create_file_id(conn, pkg_path) if conn else 0
     # sys.stderr.write(f"DEBUG: Processing {os.path.basename(pkg_path)}\n")
     meshes = parse_staticmesh_file(pkg_path)
 
+    eligible_meshes = []
+    by_output_name: dict[str, list[ParsedMesh]] = {}
     for mesh in meshes:
         if (
             required_mesh_names is not None
@@ -1794,6 +1806,36 @@ def process_package(
         if only_trees and not is_tree_mesh_name(mesh.name):
             stats["skipped"] += 1
             continue
+        by_output_name.setdefault(mesh.name.casefold(), []).append(mesh)
+    for candidates in by_output_name.values():
+        # Preserve the historical flat-name behavior deliberately: the old
+        # exporter traversed exports in index order and the final export won.
+        # Record every ambiguity instead of allowing incidental overwrite order.
+        selected = max(candidates, key=lambda item: item.export_index)
+        eligible_meshes.append(selected)
+        if len(candidates) > 1:
+            discarded = sorted(
+                (candidate for candidate in candidates if candidate is not selected),
+                key=lambda item: item.export_index,
+            )
+            stats["skipped"] += len(discarded)
+            stats["name_collisions"].append(
+                {
+                    "package": os.path.basename(pkg_path),
+                    "mesh": selected.name,
+                    "selected_export_index": selected.export_index,
+                    "selected_outer": selected.outer_name,
+                    "discarded": [
+                        {
+                            "export_index": candidate.export_index,
+                            "outer": candidate.outer_name,
+                        }
+                        for candidate in discarded
+                    ],
+                }
+            )
+
+    for mesh in sorted(eligible_meshes, key=lambda item: item.export_index):
 
         # Store in database
         if conn:
@@ -1803,15 +1845,43 @@ def process_package(
             stats["success"] += 1
 
             # Export glTF if requested
-            if export_gltf and output_dir and mesh.vertices and mesh.indices:
+            if export_gltf and output_dir:
                 pkg_name = os.path.splitext(os.path.basename(pkg_path))[0]
                 gltf_path = os.path.join(output_dir, pkg_name, f"{mesh.name}.gltf")
-                if mesh_to_gltf(mesh, gltf_path):
+                if not mesh.vertices or not mesh.indices:
+                    stats["error"] += 1
+                    stats["failures"].append(
+                        {
+                            "package": os.path.basename(pkg_path),
+                            "mesh": mesh.name,
+                            "error": "complete mesh has no exportable vertices or indices",
+                        }
+                    )
+                    continue
+                try:
+                    exported = mesh_to_gltf(mesh, gltf_path)
+                except Exception as exc:
+                    stats["error"] += 1
+                    stats["failures"].append(
+                        {
+                            "package": os.path.basename(pkg_path),
+                            "mesh": mesh.name,
+                            "error": f"glTF export failed: {exc}",
+                        }
+                    )
+                    continue
+                if exported:
                     stats["exported"] += 1
+                    stats["outputs"].append(
+                        Path(gltf_path).relative_to(output_dir).as_posix()
+                    )
                     if export_runtime_leaf_hybrids:
                         hybrid_path = _maybe_export_runtime_leaf_hybrid(gltf_path, mesh.name)
                         if hybrid_path:
                             stats["hybrid_exported"] += 1
+                            stats["outputs"].append(
+                                Path(hybrid_path).relative_to(output_dir).as_posix()
+                            )
                     # Mark as exported in database
                     if conn:
                         cursor = conn.cursor()
@@ -1824,22 +1894,50 @@ def process_package(
                             (file_id, mesh.export_index),
                         )
                         conn.commit()
+                else:
+                    stats["error"] += 1
+                    stats["failures"].append(
+                        {
+                            "package": os.path.basename(pkg_path),
+                            "mesh": mesh.name,
+                            "error": "glTF export did not publish an output",
+                        }
+                    )
 
         elif "skipped" in mesh.parse_status:
             stats["skipped"] += 1
         else:
             stats["error"] += 1
+            stats["failures"].append(
+                {
+                    "package": os.path.basename(pkg_path),
+                    "mesh": mesh.name,
+                    "error": mesh.error_message or mesh.parse_status,
+                }
+            )
 
     return stats
 
 
-def empty_stats() -> Dict[str, int]:
-    return {"success": 0, "error": 0, "skipped": 0, "exported": 0, "hybrid_exported": 0}
+def empty_stats() -> Dict[str, Any]:
+    return {
+        "success": 0,
+        "error": 0,
+        "skipped": 0,
+        "exported": 0,
+        "hybrid_exported": 0,
+        "outputs": [],
+        "failures": [],
+        "name_collisions": [],
+    }
 
 
-def merge_stats(total: Dict[str, int], stats: Dict[str, int]) -> None:
-    for key in total:
+def merge_stats(total: Dict[str, Any], stats: Dict[str, Any]) -> None:
+    for key in ("success", "error", "skipped", "exported", "hybrid_exported"):
         total[key] += stats.get(key, 0)
+    total["outputs"].extend(stats.get("outputs", []))
+    total["failures"].extend(stats.get("failures", []))
+    total["name_collisions"].extend(stats.get("name_collisions", []))
 
 
 def process_package_worker(args) -> Tuple[str, Dict[str, int], Optional[str]]:
@@ -1866,6 +1964,13 @@ def process_package_worker(args) -> Tuple[str, Dict[str, int], Optional[str]]:
     except Exception as exc:
         stats = empty_stats()
         stats["error"] = 1
+        stats["failures"].append(
+            {
+                "package": os.path.basename(pkg_path),
+                "mesh": None,
+                "error": str(exc),
+            }
+        )
         return pkg_path, stats, str(exc)
 
 
@@ -1947,7 +2052,7 @@ def run_pipeline(
 
     total_files = len(files)
     if total_files == 0:
-        return
+        raise FileNotFoundError("no StaticMesh packages matched this extraction run")
 
     workers = min(workers, total_files)
     parallel = workers > 1
@@ -2028,6 +2133,13 @@ def run_pipeline(
                 if not silent:
                     print(f"\n  ERROR processing {os.path.basename(pkg_path)}: {e}")
                 total_stats["error"] += 1
+                total_stats["failures"].append(
+                    {
+                        "package": os.path.basename(pkg_path),
+                        "mesh": None,
+                        "error": str(e),
+                    }
+                )
 
     # Update session as complete (skip if export-only mode)
     if conn is not None:
@@ -2077,24 +2189,97 @@ def run_pipeline(
         )
         print(f"Success Rate: {success_rate:.1f}%")
 
+    total_stats["files"] = [str(Path(path).resolve()) for path in files]
+    return total_stats
 
-def write_mesh_manifest(output_dir: str) -> int:
-    """Write the static mesh manifest consumed by chunk object generation."""
+
+def _sha256_file(path: str | os.PathLike[str]) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _atomic_json(path: Path, value: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f"{path.name}.writing-{os.getpid()}")
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as handle:
+            json.dump(value, handle, indent=2)
+            handle.write("\n")
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
+
+
+def write_mesh_manifest(
+    output_dir: str,
+    meshes: List[str],
+    source_packages: List[str],
+    *,
+    object_artifact: str | None = None,
+    name_collisions: List[Dict[str, Any]] | None = None,
+) -> int:
+    """Publish only outputs produced by one fully successful extraction run."""
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    meshes = sorted(
+    meshes = sorted(set(meshes))
+    for relative in meshes:
+        candidate = output_path / relative
+        if Path(relative).is_absolute() or ".." in Path(relative).parts:
+            raise ValueError(f"manifest mesh path escapes output root: {relative}")
+        if not candidate.is_file():
+            raise FileNotFoundError(f"manifest mesh output is absent: {candidate}")
+    package_records = [
         {
-            path.relative_to(output_path).as_posix()
-            for path in output_path.rglob("*.gltf")
+            "path": os.path.relpath(path, PROJECT_ROOT),
+            "sha256": _sha256_file(path),
         }
+        for path in sorted(set(source_packages), key=str.casefold)
+    ]
+    claimed_outputs = set(meshes)
+    unclaimed_outputs = sorted(
+        path.relative_to(output_path).as_posix()
+        for path in output_path.rglob("*.gltf")
+        if path.relative_to(output_path).as_posix() not in claimed_outputs
     )
     manifest_path = output_path / "manifest.json"
-    tmp_path = manifest_path.with_suffix(".json.tmp")
-    with open(tmp_path, "w", encoding="utf-8") as handle:
-        json.dump({"meshes": meshes}, handle, indent=2)
-        handle.write("\n")
-    os.replace(tmp_path, manifest_path)
+    _atomic_json(
+        manifest_path,
+        {
+            "schema": "vanguard_staticmesh_manifest",
+            "version": 2,
+            "status": "complete",
+            "scope": "object_artifact" if object_artifact else "selected_packages",
+            "object_artifact": str(Path(object_artifact).resolve()) if object_artifact else None,
+            "source_packages": package_records,
+            "meshes": meshes,
+            "unclaimed_gltf_count": len(unclaimed_outputs),
+            "unclaimed_gltf_examples": unclaimed_outputs[:100],
+            "flat_name_collision_count": len(name_collisions or []),
+            "flat_name_collisions": name_collisions or [],
+        },
+    )
     return len(meshes)
+
+
+def write_failure_report(output_dir: str, stats: Dict[str, Any]) -> Path:
+    """Record a failed run without replacing the last complete manifest."""
+    path = Path(output_dir) / "staticmesh-last-failure.json"
+    _atomic_json(
+        path,
+        {
+            "schema": "vanguard_staticmesh_failure_report",
+            "version": 1,
+            "status": "failed",
+            "error_count": int(stats.get("error", 0)),
+            "failures": stats.get("failures", []),
+            "outputs_published_before_failure": sorted(set(stats.get("outputs", []))),
+        },
+    )
+    return path
 
 
 def main():
@@ -2135,9 +2320,10 @@ def main():
 
     args = parser.parse_args()
 
-    run_pipeline(
+    stats = run_pipeline(
         file_pattern=args.file,
         object_artifact=args.object_artifact,
+        name_collisions=stats["name_collisions"],
         export_gltf=True,
         export_only=args.export_only,
         limit=args.limit,
@@ -2147,7 +2333,24 @@ def main():
         workers=args.workers,
     )
 
-    manifest_count = write_mesh_manifest(OUTPUT_DIR)
+    if stats["error"]:
+        report = write_failure_report(OUTPUT_DIR, stats)
+        print(
+            f"StaticMesh extraction failed with {stats['error']} error(s); "
+            f"the last complete manifest was not replaced. Report: {report}",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
+    manifest_count = write_mesh_manifest(
+        OUTPUT_DIR,
+        stats["outputs"],
+        stats["files"],
+        object_artifact=args.object_artifact,
+    )
+    failure_report = Path(OUTPUT_DIR) / "staticmesh-last-failure.json"
+    if failure_report.exists():
+        failure_report.unlink()
     if not args.silent:
         print(f"Wrote mesh manifest: {manifest_count} entries")
 

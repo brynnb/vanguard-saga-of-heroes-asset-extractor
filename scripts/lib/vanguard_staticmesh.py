@@ -13,8 +13,17 @@ Source: UEViewer/Unreal/UnrealMesh/UnMesh2.cpp SerializeVanguardMesh
 """
 
 import struct
-from ue2_property_reader import BinaryReader, skip_ue2_properties
-from staticmesh_topology import section_triangle_indices
+import math
+try:
+    from .ue2_property_reader import BinaryReader, skip_ue2_properties
+    from .staticmesh_topology import section_triangle_indices
+except ImportError:  # Direct script imports used by the extraction CLI.
+    from ue2_property_reader import BinaryReader, skip_ue2_properties
+    from staticmesh_topology import section_triangle_indices
+
+
+class StaticMeshParseError(ValueError):
+    """Raised when required Vanguard StaticMesh geometry is malformed."""
 
 
 class VanguardMeshData:
@@ -37,6 +46,7 @@ class VanguardMeshData:
         "bbox_max",
         "internal_version",
         "is_new_format",
+        "bytes_consumed",
     )
 
     def __init__(self):
@@ -58,11 +68,86 @@ class VanguardMeshData:
         self.bbox_max = (0, 0, 0)
         self.internal_version = 0
         self.is_new_format = False
+        self.bytes_consumed = 0
+
+
+def _remaining(r):
+    return len(r.data) - r.tell()
+
+
+def _require_bytes(r, count, label):
+    if count < 0 or _remaining(r) < count:
+        raise StaticMeshParseError(
+            f"{label} exceeds the serialized mesh: need={count} remaining={_remaining(r)}"
+        )
+
+
+def _read_count(r, label, *, element_size=None, maximum=300_000_000):
+    _require_bytes(r, 4, f"{label} count")
+    count = r.read_int32()
+    if count < 0 or count > maximum:
+        raise StaticMeshParseError(f"{label} count is invalid: {count}")
+    if element_size is not None:
+        _require_bytes(r, count * element_size, label)
+    return count
+
+
+def _validated_header_anchor(data, names):
+    """Locate the mesh body without accepting an arbitrary 0xEC byte match."""
+
+    def valid(candidate):
+        if candidate < 41 or candidate + 240 > len(data):
+            return False
+        try:
+            bbox = struct.unpack_from("<6f", data, candidate - 41)
+            bounds_valid = data[candidate - 17]
+            sphere = struct.unpack_from("<4f", data, candidate - 16)
+            if bounds_valid not in (0, 1):
+                return False
+            if not all(math.isfinite(value) and abs(value) <= 1.0e7 for value in bbox):
+                return False
+            if not all(math.isfinite(value) and abs(value) <= 1.0e7 for value in sphere):
+                return False
+            if sphere[-1] < 0.0:
+                return False
+            internal_version = struct.unpack_from("<i", data, candidate + 236)[0]
+            return 0 <= internal_version <= 100
+        except (IndexError, struct.error):
+            return False
+
+    property_candidate = None
+    try:
+        property_reader = BinaryReader(data)
+        skip_ue2_properties(property_reader, names)
+        candidate = property_reader.tell() + 41
+        if data[candidate : candidate + 4] == struct.pack("<I", 236) and valid(candidate):
+            property_candidate = candidate
+    except (IndexError, KeyError, struct.error):
+        pass
+    if property_candidate is not None:
+        return property_candidate
+
+    anchor = struct.pack("<I", 236)
+    candidates = []
+    start = 41
+    while start < min(len(data), 600):
+        candidate = data.find(anchor, start, 600)
+        if candidate < 0:
+            break
+        if valid(candidate):
+            candidates.append(candidate)
+        start = candidate + 1
+    if len(candidates) != 1:
+        raise StaticMeshParseError(
+            "could not uniquely locate a structurally valid StaticMesh header "
+            f"(candidates={candidates})"
+        )
+    return candidates[0]
 
 
 def _read_tarray_raw(r, element_size):
     """Read TArray: int32 count, then count * element_size bytes. Returns raw bytes."""
-    count = r.read_int32()
+    count = _read_count(r, "raw array", element_size=element_size)
     data = r.data[r.pos : r.pos + count * element_size]
     r.skip(count * element_size)
     return count, data
@@ -70,7 +155,7 @@ def _read_tarray_raw(r, element_size):
 
 def _skip_tarray(r, element_size):
     """Skip a TArray of fixed-size elements."""
-    count = r.read_int32()
+    count = _read_count(r, "fixed array", element_size=element_size)
     r.skip(count * element_size)
     return count
 
@@ -84,7 +169,7 @@ def _skip_lazy_array(r):
 
 def _read_compact_index_array(r):
     """Read TArray<CompactIndex> (e.g. TArray<UObject*>)."""
-    count = r.read_int32()
+    count = _read_count(r, "compact-index array")
     items = []
     for _ in range(count):
         items.append(r.read_compact_index())
@@ -132,15 +217,9 @@ def parse_vanguard_staticmesh(data, names, serial_offset=0, imports=None):
     mesh = VanguardMeshData()
     r = BinaryReader(data)
 
-    # --- Locate mesh header body via anchor ---
-    # Every Vanguard StaticMesh has int32(236) = 0xEC000000 as the first field
-    # of the mesh header body, immediately after UPrimitive's BBox(25)+BSphere(16).
-    # Some exports have property blocks that confuse skip_ue2_properties (premature
-    # None terminators), so we use this anchor to reliably find our position.
-    HEADER_ANCHOR = struct.pack("<I", 236)
-    anchor_pos = data.find(HEADER_ANCHOR, 0, 600)
-    if anchor_pos < 0 or anchor_pos < 41:
-        return None
+    # Prefer the exact end of the UE2 property stream. A bounded byte scan is
+    # retained only as a fallback and must yield one structurally valid header.
+    anchor_pos = _validated_header_anchor(data, names)
 
     # Read BBox from the 41 bytes before the anchor (UPrimitive data)
     prim_start = anchor_pos - 41
@@ -149,8 +228,11 @@ def parse_vanguard_staticmesh(data, names, serial_offset=0, imports=None):
     prim_bbox_max = (prim_r.read_float(), prim_r.read_float(), prim_r.read_float())
     prim_is_valid = prim_r.read_byte()
     # Validate: IsValid should be 0 or 1, floats should be reasonable
-    if prim_is_valid > 1 or any(abs(f) > 1e7 for f in prim_bbox_min + prim_bbox_max):
-        return None
+    if prim_is_valid > 1 or any(
+        not math.isfinite(f) or abs(f) > 1e7
+        for f in prim_bbox_min + prim_bbox_max
+    ):
+        raise StaticMeshParseError("UPrimitive bounds are invalid")
 
     # Position reader at the anchor (start of mesh header body)
     r.seek(anchor_pos)
@@ -161,8 +243,7 @@ def parse_vanguard_staticmesh(data, names, serial_offset=0, imports=None):
     r.skip(236)
 
     # Ar << InternalVersion
-    if r.tell() + 4 > len(data):
-        return None
+    _require_bytes(r, 4, "internal version")
     mesh.internal_version = r.read_int32()
     mesh.is_new_format = mesh.internal_version >= 13
 
@@ -194,7 +275,7 @@ def parse_vanguard_staticmesh(data, names, serial_offset=0, imports=None):
 
     # --- Ar << Sections (TArray<FStaticMeshSection>) ---
     # FStaticMeshSection: int32 + 5*uint16 = 14 bytes
-    sec_count = r.read_int32()
+    sec_count = _read_count(r, "sections", element_size=14, maximum=65_535)
     for i in range(sec_count):
         is_strip = r.read_int32()
         first_index = r.read_uint16()
@@ -215,9 +296,9 @@ def parse_vanguard_staticmesh(data, names, serial_offset=0, imports=None):
 
     # --- Ar << Skins (TArray<FVanguardSkin>) ---
     # FVanguardSkin: TArray<UMaterial*> + FName
-    skin_count = r.read_int32()
+    skin_count = _read_count(r, "skins", maximum=65_535)
     for _ in range(skin_count):
-        tex_count = r.read_int32()
+        tex_count = _read_count(r, "skin materials", maximum=65_535)
         mat_names = []
         for _ in range(tex_count):
             ref_idx = r.read_compact_index()  # UMaterial*
@@ -251,10 +332,10 @@ def parse_vanguard_staticmesh(data, names, serial_offset=0, imports=None):
     # --- Ar << UVStream (TArray<FStaticMeshUVStream>) ---
     # Each FStaticMeshUVStream: TArray<FMeshUVFloat> + int32 f10 + int32 f1C
     # FMeshUVFloat: 2 floats = 8 bytes
-    uv_stream_count = r.read_int32()
+    uv_stream_count = _read_count(r, "UV streams", maximum=64)
     uv_streams = []
     for _ in range(uv_stream_count):
-        uv_count = r.read_int32()
+        uv_count = _read_count(r, "UV coordinates", element_size=8)
         uv_data = []
         for j in range(uv_count):
             u = r.read_float()
@@ -267,9 +348,9 @@ def parse_vanguard_staticmesh(data, names, serial_offset=0, imports=None):
 
     # --- Ar << BasisStream (TArray<FVanguardUTangentStream>) ---
     # FVanguardUTangentStream: TArray<FVector> + int32
-    basis_count = r.read_int32()
+    basis_count = _read_count(r, "basis streams", maximum=64)
     for _ in range(basis_count):
-        vec_count = r.read_int32()
+        vec_count = _read_count(r, "basis vectors", element_size=12)
         basis_data = []
         for _j in range(vec_count):
             basis_data.append((r.read_float(), r.read_float(), r.read_float()))
@@ -285,7 +366,7 @@ def parse_vanguard_staticmesh(data, names, serial_offset=0, imports=None):
     if mesh.is_new_format:
         # New format: TArray<FStaticMeshVertexVanguard> + int32 Revision
         # FStaticMeshVertexVanguard: Pos(12) + Normal(12) + TangentU(12) + TangentV(12) + U(4) + V(4) = 56 bytes
-        vert_count = r.read_int32()
+        vert_count = _read_count(r, "vertices", element_size=56)
         for i in range(vert_count):
             px, py, pz = r.read_float(), r.read_float(), r.read_float()
             nx, ny, nz = r.read_float(), r.read_float(), r.read_float()
@@ -302,7 +383,7 @@ def parse_vanguard_staticmesh(data, names, serial_offset=0, imports=None):
     else:
         # Old format: TArray<FStaticMeshVertex> + int32 Revision
         # FStaticMeshVertex: Pos(12) + Normal(12) = 24 bytes
-        vert_count = r.read_int32()
+        vert_count = _read_count(r, "vertices", element_size=24)
         for i in range(vert_count):
             px, py, pz = r.read_float(), r.read_float(), r.read_float()
             nx, ny, nz = r.read_float(), r.read_float(), r.read_float()
@@ -318,46 +399,31 @@ def parse_vanguard_staticmesh(data, names, serial_offset=0, imports=None):
     # If old format, UVs come from UVStream above
 
     # --- ColorStream (FRawColorStream: TArray<FColor> + int32 Revision) ---
-    if r.tell() + 4 > len(data):
-        return mesh if mesh.vertices else None
-    color_count = r.read_int32()
-    if r.tell() + color_count * 4 <= len(data):
-        for _ci in range(color_count):
-            b, g, rv, a = struct.unpack_from('<BBBB', r.data, r.pos)
-            r.skip(4)
-            mesh.colors.append((rv / 255.0, g / 255.0, b / 255.0, a / 255.0))
-    else:
-        r.skip(color_count * 4)  # bounds issue, skip
-    if r.tell() + 4 > len(data):
-        return mesh if mesh.vertices else None
+    color_count = _read_count(r, "vertex colors", element_size=4)
+    for _ci in range(color_count):
+        b, g, rv, a = struct.unpack_from("<BBBB", r.data, r.pos)
+        r.skip(4)
+        mesh.colors.append((rv / 255.0, g / 255.0, b / 255.0, a / 255.0))
+    _require_bytes(r, 4, "vertex color revision")
     r.read_int32()  # Revision
 
     # --- AlphaStream (FRawColorStream: TArray<FColor> + int32 Revision) ---
-    if r.tell() + 4 > len(data):
-        return mesh if mesh.vertices else None
     _skip_tarray(r, 4)  # TArray<FColor>
-    if r.tell() + 4 > len(data):
-        return mesh if mesh.vertices else None
+    _require_bytes(r, 4, "alpha revision")
     r.read_int32()  # Revision
 
     # --- IndexStream1 (FRawIndexBuffer: TArray<uint16> + int32 Revision) ---
-    if r.tell() + 4 > len(data):
-        return mesh if mesh.vertices else None
-    idx1_count = r.read_int32()
-    if r.tell() + idx1_count * 2 > len(data):
-        return mesh if mesh.vertices else None
+    idx1_count = _read_count(r, "primary indices", element_size=2)
     idx1_data = r.data[r.pos : r.pos + idx1_count * 2]
     r.skip(idx1_count * 2)
-    if r.tell() + 4 > len(data):
-        return mesh if mesh.vertices else None
+    _require_bytes(r, 4, "primary index revision")
     r.read_int32()  # Revision
 
     # --- IndexStream2 (FRawIndexBuffer: TArray<uint16> + int32 Revision) ---
-    if r.tell() + 4 > len(data):
-        return mesh if mesh.vertices else None
-    idx2_count = r.read_int32()
+    idx2_count = _read_count(r, "secondary indices", element_size=2)
     r.skip(idx2_count * 2)
-    # Revision (don't need to read, we're done)
+    _require_bytes(r, 4, "secondary index revision")
+    r.read_int32()
 
     # Store raw index buffer for direct section-based access in glTF export
     if idx1_count >= 3:
@@ -373,4 +439,9 @@ def parse_vanguard_staticmesh(data, names, serial_offset=0, imports=None):
                 for offset in range(0, len(triangle_indices), 3)
             )
 
+    if not mesh.vertices:
+        raise StaticMeshParseError("mesh has no vertices")
+    if mesh.sections and not mesh.raw_indices:
+        raise StaticMeshParseError("mesh sections have no primary index buffer")
+    mesh.bytes_consumed = r.tell()
     return mesh
