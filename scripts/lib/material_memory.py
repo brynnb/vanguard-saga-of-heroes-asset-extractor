@@ -48,6 +48,9 @@ class ShaderMaterialInfo:
     diffuse: MaterialTarget | None = None
     normal: MaterialTarget | None = None
     specular: MaterialTarget | None = None
+    specularity_mask: MaterialTarget | None = None
+    self_illumination: MaterialTarget | None = None
+    self_illumination_mask: MaterialTarget | None = None
     opacity: MaterialTarget | None = None
     tint_alpha: MaterialTarget | None = None
     tint_palette: MaterialTarget | None = None
@@ -352,6 +355,27 @@ def _output_asset_path(output_dir: str | os.PathLike[str], asset_name: str) -> s
         return png_path.as_posix()
 
 
+def _runtime_material_node_size(node: dict[str, Any] | None) -> tuple[int, int]:
+    """Mirror UE2 MaterialUSize/MaterialVSize for the graph nodes we emit."""
+    if not node:
+        return 0, 0
+    node_type = node.get("type")
+    if node_type == "texture":
+        asset = node.get("asset") or {}
+        return int(asset.get("width") or 0), int(asset.get("height") or 0)
+    if node_type == "combiner":
+        first = _runtime_material_node_size(node.get("material1"))
+        second = _runtime_material_node_size(node.get("material2"))
+        return max(first[0], second[0]), max(first[1], second[1])
+    if node_type in {"tex_scaler", "wrapper"}:
+        return _runtime_material_node_size(node.get("material"))
+    if node_type == "bump":
+        return _runtime_material_node_size(node.get("height"))
+    if node_type == "specular":
+        return _runtime_material_node_size(node.get("exponent"))
+    return 0, 0
+
+
 def _empty_texture_asset(extra: dict[str, Any] | None = None) -> dict[str, Any]:
     record: dict[str, Any] = {
         "texture_ref": None,
@@ -395,6 +419,15 @@ def _first_float_property(props: list[dict[str, Any]], name: str) -> float | Non
         if prop.get("name") == name:
             return _float_or_none(prop.get("value"))
     return None
+
+
+def _first_property_value(
+    props: list[dict[str, Any]], name: str, default: Any = None
+) -> Any:
+    for prop in props:
+        if prop.get("name") == name:
+            return prop.get("value")
+    return default
 
 
 def _target_preference_text(*targets: MaterialTarget | None) -> str:
@@ -538,6 +571,9 @@ class MaterialMemoryResolver:
                 "Diffuse",
                 "Normal",
                 "Specular",
+                "SpecularityMask",
+                "SelfIllumination",
+                "SelfIlluminationMask",
                 "Opacity",
                 "TintAlpha",
                 "TintPalette",
@@ -632,6 +668,12 @@ class MaterialMemoryResolver:
                 info.normal = target
             elif name == "Specular":
                 info.specular = target
+            elif name == "SpecularityMask":
+                info.specularity_mask = target
+            elif name == "SelfIllumination":
+                info.self_illumination = target
+            elif name == "SelfIlluminationMask":
+                info.self_illumination_mask = target
             elif name == "Opacity":
                 info.opacity = target
             elif name == "TintAlpha":
@@ -933,6 +975,225 @@ class MaterialMemoryResolver:
         if shader_info.output_blending is not None:
             extras["vg_output_blending"] = shader_info.output_blending
         return extras
+
+    def build_runtime_material_graph(
+        self,
+        shader_ref: str | None,
+        output_dir: str | os.PathLike[str],
+    ) -> dict[str, Any] | None:
+        """Return the source-authored material graph needed by a runtime shader.
+
+        glTF core deliberately cannot express UE2 Combiners or animated material
+        modifiers.  Keep those nodes losslessly in material extras instead of
+        selecting one visually-plausible leaf and silently discarding the rest.
+        Texture leaves contain ordinary extracted asset records; the glTF writer
+        replaces them with model texture indices after embedding the images.
+        """
+        shader_info = self.resolve_shader(shader_ref)
+        if shader_info is None:
+            return None
+
+        roots: dict[str, Any] = {}
+        for name, target in (
+            ("diffuse", shader_info.diffuse),
+            ("normal", shader_info.normal),
+            ("specular", shader_info.specular),
+            ("specularity_mask", shader_info.specularity_mask),
+            ("self_illumination", shader_info.self_illumination),
+            ("self_illumination_mask", shader_info.self_illumination_mask),
+            ("detail", shader_info.detail),
+            ("opacity", shader_info.opacity),
+        ):
+            node = self._runtime_material_node(target, output_dir, set(), 0)
+            if node is not None:
+                roots[name] = node
+
+        if not roots:
+            return None
+        return {
+            "version": 1,
+            "source_ref": shader_info.full_path,
+            "roots": roots,
+            # Warfare's Shader.uc defaultproperties sets this to 8.0.
+            "detail_scale": (
+                shader_info.detail_scale
+                if shader_info.detail_scale is not None
+                else 8.0
+            ),
+            "two_sided": bool(shader_info.two_sided),
+            "output_blending": shader_info.output_blending,
+            "surface_type": shader_info.surface_type,
+        }
+
+    def _runtime_material_node(
+        self,
+        target: MaterialTarget | None,
+        output_dir: str | os.PathLike[str],
+        visited: set[str],
+        depth: int,
+    ) -> dict[str, Any] | None:
+        if target is None or depth > 16:
+            return None
+        key = self._target_cache_key(target)
+        if key in visited:
+            return {"type": "cycle", "source": _target_to_dict(target)}
+        visited = set(visited)
+        visited.add(key)
+
+        class_name = (target.class_name or "").lower()
+        source = _target_to_dict(target)
+        if class_name == "texture":
+            asset = self._ensure_texture_asset(target, output_dir)
+            if asset is None:
+                return {"type": "missing_texture", "source": source}
+            return {"type": "texture", "source": source, "asset": asset}
+
+        if class_name == "constantcolor":
+            return {
+                "type": "constant_color",
+                "source": source,
+                "color": self._constant_color_factor(target)
+                or [0.0, 0.0, 0.0, 1.0],
+            }
+
+        wanted = {
+            "Material",
+            "Material1",
+            "Material2",
+            "Mask",
+            "Diffuse",
+            "Texture",
+            "BumpMap",
+            "ExponentMap",
+            "CombineOperation",
+            "AlphaOperation",
+            "InvertMask",
+            "Modulate2X",
+            "Modulate4X",
+            "UScale",
+            "VScale",
+            "UOffset",
+            "VOffset",
+            "Rotation",
+            "BumpScale",
+            "DiffuseStrength",
+            "SpecularPower",
+            "SpecularStrength",
+            "SpecularColor",
+        }
+        pkg, props = self._target_properties(target, wanted)
+        if pkg is None:
+            return {"type": "unresolved", "source": source}
+
+        def child(property_name: str) -> dict[str, Any] | None:
+            candidates = self._property_targets_by_name(pkg, props, (property_name,))
+            if not candidates:
+                return None
+            return self._runtime_material_node(
+                candidates[0], output_dir, visited, depth + 1
+            )
+
+        if class_name == "combiner":
+            return {
+                "type": "combiner",
+                "source": source,
+                "color_operation": int(
+                    _first_property_value(props, "CombineOperation", 0) or 0
+                ),
+                "alpha_operation": int(
+                    _first_property_value(props, "AlphaOperation", 0) or 0
+                ),
+                "invert_mask": _looks_truthy(
+                    _first_property_value(props, "InvertMask", False)
+                ),
+                "modulate_2x": _looks_truthy(
+                    _first_property_value(props, "Modulate2X", False)
+                ),
+                "modulate_4x": _looks_truthy(
+                    _first_property_value(props, "Modulate4X", False)
+                ),
+                "material1": child("Material1"),
+                "material2": child("Material2"),
+                "mask": child("Mask"),
+            }
+
+        if class_name == "texscaler":
+            u_scale = _first_float_property(props, "UScale")
+            v_scale = _first_float_property(props, "VScale")
+            material = child("Material") or child("Diffuse")
+            material_size = _runtime_material_node_size(material)
+            u_offset = _first_float_property(props, "UOffset") or 0.0
+            v_offset = _first_float_property(props, "VOffset") or 0.0
+            return {
+                "type": "tex_scaler",
+                "source": source,
+                # UE2 UScale/VScale describe stretching. Sampling therefore
+                # uses their reciprocal, matching the proven terrain path.
+                "uv_scale": [
+                    1.0 / u_scale if u_scale not in (None, 0.0) else 1.0,
+                    1.0 / v_scale if v_scale not in (None, 0.0) else 1.0,
+                ],
+                "source_scale": [
+                    u_scale if u_scale is not None else 1.0,
+                    v_scale if v_scale is not None else 1.0,
+                ],
+                "source_offset": [
+                    u_offset,
+                    v_offset,
+                ],
+                # UTexScaler::GetMatrix divides offsets by the wrapped
+                # material's pixel dimensions before applying them to UVs.
+                "uv_offset": [
+                    u_offset / material_size[0] if material_size[0] else 0.0,
+                    v_offset / material_size[1] if material_size[1] else 0.0,
+                ],
+                "material_size": list(material_size),
+                "material": material,
+            }
+
+        if class_name == "normalbitmapmaterial":
+            return {
+                "type": "bump",
+                "source": source,
+                "bump_scale": _first_float_property(props, "BumpScale"),
+                "height": child("BumpMap"),
+            }
+
+        if class_name == "specularbitmapmaterial":
+            return {
+                "type": "specular",
+                "source": source,
+                "exponent": child("ExponentMap"),
+                "diffuse_strength": _first_float_property(
+                    props, "DiffuseStrength"
+                ),
+                "specular_power": _first_float_property(props, "SpecularPower"),
+                "specular_strength": _first_float_property(
+                    props, "SpecularStrength"
+                ),
+                "specular_color": _color_factor(
+                    _first_property_value(props, "SpecularColor")
+                ),
+            }
+
+        for property_name in (
+            "Material",
+            "Diffuse",
+            "Texture",
+            "BumpMap",
+            "ExponentMap",
+            "Material1",
+            "Material2",
+        ):
+            wrapped = child(property_name)
+            if wrapped is not None:
+                return {
+                    "type": "wrapper",
+                    "wrapper_class": target.class_name,
+                    "source": source,
+                    "material": wrapped,
+                }
+        return {"type": "unresolved", "source": source}
 
     def iter_shaders(self) -> list[ShaderMaterialInfo]:
         return sorted(
@@ -1786,7 +2047,7 @@ class MaterialMemoryResolver:
         asset_name: str,
     ) -> dict[str, Any] | None:
         texture_ref = _target_source_ref(target)
-        return {
+        record = {
             "texture_ref": texture_ref,
             "texture_package": target.package_name
             or (
@@ -1800,6 +2061,14 @@ class MaterialMemoryResolver:
             "class_name": target.class_name,
             "source_kind": target.kind,
         }
+        png_path = Path(output_dir) / f"{asset_name}.png"
+        try:
+            with Image.open(png_path) as image:
+                record["width"] = int(image.width)
+                record["height"] = int(image.height)
+        except (OSError, ValueError):
+            pass
+        return record
 
     def _ensure_texture_asset(
         self,

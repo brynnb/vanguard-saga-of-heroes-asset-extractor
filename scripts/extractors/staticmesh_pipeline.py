@@ -757,6 +757,32 @@ def _compute_leaf_billboard_data(mesh: "ParsedMesh", eligible_vertices=None):
     mesh._billboard_size = bb_size
 
 
+def _gltf_basis_vector(vector: tuple[float, float, float]) -> tuple[float, float, float]:
+    x, y, z = vector
+    return (
+        -(y if math.isfinite(y) else 0.0),
+        z if math.isfinite(z) else 0.0,
+        x if math.isfinite(x) else 0.0,
+    )
+
+
+def _tangent_handedness(
+    source_normal: tuple[float, float, float],
+    source_tangent: tuple[float, float, float],
+    source_bitangent: tuple[float, float, float],
+) -> float:
+    """Return glTF tangent.w from the two authored tangent directions."""
+    normal = _gltf_basis_vector(source_normal)
+    tangent = _gltf_basis_vector(source_tangent)
+    bitangent = _gltf_basis_vector(source_bitangent)
+    cross_nt = (
+        normal[1] * tangent[2] - normal[2] * tangent[1],
+        normal[2] * tangent[0] - normal[0] * tangent[2],
+        normal[0] * tangent[1] - normal[1] * tangent[0],
+    )
+    return -1.0 if sum(a * b for a, b in zip(cross_nt, bitangent)) < 0.0 else 1.0
+
+
 def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
     """
     Export ParsedMesh to glTF format with positions, normals, UVs, and textures.
@@ -856,6 +882,11 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
                         alpha_mode = shader_info.alpha_mode
                     two_sided = two_sided or shader_info.two_sided
                     material_extras = material_resolver.shader_extras(shader_ref)
+                    runtime_graph = material_resolver.build_runtime_material_graph(
+                        shader_ref, OUTPUT_TEXTURES_DIR
+                    )
+                    if runtime_graph is not None:
+                        material_extras["vg_runtime_material_graph"] = runtime_graph
                     if diffuse_asset:
                         material_extras["vg_base_color_texture"] = diffuse_asset
                     if base_color_factor:
@@ -1124,11 +1155,19 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
 
     if has_tangent_us:
         tangent_start = len(buffer_data)
-        for tx, ty, tz in mesh.tangent_us:
+        for tangent_index, (tx, ty, tz) in enumerate(mesh.tangent_us):
             gx = -(ty if math.isfinite(ty) else 0.0)
             gy = tz if math.isfinite(tz) else 0.0
             gz = tx if math.isfinite(tx) else 0.0
-            buffer_data.extend(struct.pack("<ffff", gx, gy, gz, 1.0))
+            handedness = 1.0
+            if has_tangent_vs:
+                vertex = mesh.vertices[tangent_index]
+                handedness = _tangent_handedness(
+                    (vertex.nx, vertex.ny, vertex.nz),
+                    (tx, ty, tz),
+                    mesh.tangent_vs[tangent_index],
+                )
+            buffer_data.extend(struct.pack("<ffff", gx, gy, gz, handedness))
 
         tangent_end = len(buffer_data)
         tangent_bv_idx = len(buffer_views)
@@ -1351,7 +1390,36 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
         if detail_texture_name:
             detail_tex_idx = get_or_create_texture(detail_texture_name)
 
-        extras = dict(material_extras or {})
+        extras = json.loads(json.dumps(material_extras or {}))
+
+        runtime_texture_indices = []
+
+        def embed_runtime_graph_textures(value):
+            if isinstance(value, dict):
+                if value.get("type") == "texture":
+                    asset = value.get("asset") or {}
+                    texture_name = asset.get("asset_name")
+                    texture_index = (
+                        get_or_create_texture(texture_name) if texture_name else None
+                    )
+                    if texture_index is not None:
+                        value["texture_index"] = texture_index
+                        runtime_texture_indices.append(texture_index)
+                for child_value in value.values():
+                    embed_runtime_graph_textures(child_value)
+            elif isinstance(value, list):
+                for child_value in value:
+                    embed_runtime_graph_textures(child_value)
+
+        runtime_graph = extras.get("vg_runtime_material_graph")
+        if runtime_graph:
+            embed_runtime_graph_textures(runtime_graph)
+            extras["vg_runtime_material_texture_indices"] = sorted(
+                set(runtime_texture_indices)
+            )
+            extras["cesium_godot_application_texture_indices"] = sorted(
+                set(runtime_texture_indices)
+            )
         if is_water:
             extras["is_water"] = True
         if normal_texture_name:

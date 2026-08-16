@@ -34,7 +34,11 @@ This is a fan-made preservation and recreation project and is not affiliated wit
 The original Vanguard client data is spread across UE2 package files, Vanguard-specific mesh and animation formats, terrain chunks, audio archives, prefab/object archives, text resources, and several one-off binary formats. This project currently extracts:
 
 - Terrain from `.vgr` chunk files, including heightmaps, layer masks, terrain textures, baked vegetation-shadow masks, and chunk transforms.
-- Static meshes from UE2 package data, exported to glTF.
+- Static meshes from UE2 package data, exported to glTF with authored tangent
+  handedness and package-qualified material metadata. Static material exports
+  preserve the recoverable UE2.5 `Shader` / `Combiner` / `TexScaler` graph,
+  bump, specular, detail, opacity, and self-illumination inputs in glTF extras
+  so a runtime adapter can reproduce them without flattening layered materials.
 - Character meshes, playable race metadata, customization data, and item attachment references.
 - EMotion FX and UE2 skeletal animations, including static hand/finger pose clips and playable facial-control sidecars.
 - UAX, ISB, and ICB audio data.
