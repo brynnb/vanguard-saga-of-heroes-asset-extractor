@@ -1,4 +1,6 @@
+import base64
 import json
+import struct
 import tempfile
 import unittest
 from dataclasses import replace
@@ -83,12 +85,16 @@ class StaticMeshCollisionMetadataTests(unittest.TestCase):
             bsphere_center=(0.5, 0.5, 0.0),
             bsphere_radius=1.0,
             lod_index=0,
+            # Vanguard's clockwise face order is intentionally opposite the
+            # source vertex normal. The handedness-changing glTF position
+            # swizzle makes the exported face and normal agree without an
+            # additional index reversal.
             vertices=[
-                ParsedVertex(0.0, 0.0, 0.0),
-                ParsedVertex(1.0, 0.0, 0.0),
-                ParsedVertex(0.0, 1.0, 0.0),
+                ParsedVertex(0.0, 0.0, 0.0, nz=1.0),
+                ParsedVertex(1.0, 0.0, 0.0, nz=1.0),
+                ParsedVertex(0.0, 1.0, 0.0, nz=1.0),
             ],
-            indices=[0, 1, 2],
+            indices=[0, 2, 1],
             bytes_total=1,
             bytes_parsed=1,
             bytes_unknown=0,
@@ -109,10 +115,47 @@ class StaticMeshCollisionMetadataTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             output = Path(temp_dir) / "wall.gltf"
             self.assertTrue(mesh_to_gltf(mesh, str(output)))
-            collision = json.loads(output.read_text())["asset"]["extras"][
-                "vg_collision"
+            document = json.loads(output.read_text())
+            collision = document["asset"]["extras"]["vg_collision"]
+            encoded = document["buffers"][0]["uri"].split(",", 1)[1]
+            payload = base64.b64decode(encoded)
+            primitive = document["meshes"][0]["primitives"][0]
+            index_accessor = document["accessors"][primitive["indices"]]
+            index_view = document["bufferViews"][index_accessor["bufferView"]]
+            index_offset = int(index_view.get("byteOffset", 0)) + int(
+                index_accessor.get("byteOffset", 0)
+            )
+            indices = struct.unpack_from("<3H", payload, index_offset)
+            position_accessor = document["accessors"][
+                primitive["attributes"]["POSITION"]
             ]
+            position_view = document["bufferViews"][position_accessor["bufferView"]]
+            position_offset = int(position_view.get("byteOffset", 0)) + int(
+                position_accessor.get("byteOffset", 0)
+            )
+            positions = [
+                struct.unpack_from("<3f", payload, position_offset + index * 12)
+                for index in indices
+            ]
+            normal_accessor = document["accessors"][primitive["attributes"]["NORMAL"]]
+            normal_view = document["bufferViews"][normal_accessor["bufferView"]]
+            normal_offset = int(normal_view.get("byteOffset", 0)) + int(
+                normal_accessor.get("byteOffset", 0)
+            )
+            normal = struct.unpack_from("<3f", payload, normal_offset + indices[0] * 12)
+            edge_a = tuple(positions[1][axis] - positions[0][axis] for axis in range(3))
+            edge_b = tuple(positions[2][axis] - positions[0][axis] for axis in range(3))
+            face_normal = (
+                edge_a[1] * edge_b[2] - edge_a[2] * edge_b[1],
+                edge_a[2] * edge_b[0] - edge_a[0] * edge_b[2],
+                edge_a[0] * edge_b[1] - edge_a[1] * edge_b[0],
+            )
+            face_normal_dot = sum(
+                face_normal[axis] * normal[axis] for axis in range(3)
+            )
         self.assertEqual(collision["section_slots"], [True])
+        self.assertEqual(indices, (0, 2, 1))
+        self.assertGreater(face_normal_dot, 0.0)
         self.assertIs(collision["matches_section_count"], True)
         self.assertEqual(
             collision["source_identity"],
