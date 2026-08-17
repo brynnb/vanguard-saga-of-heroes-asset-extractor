@@ -3,6 +3,7 @@ import struct
 
 from scripts.lib.staticmesh_topology import (
     StaticMeshTopologyError,
+    reverse_triangle_winding,
     section_raw_index_count,
     section_triangle_indices,
 )
@@ -44,6 +45,14 @@ class StaticMeshTopologyTest(unittest.TestCase):
 
         self.assertEqual(section_raw_index_count(section), 12)
         self.assertEqual(section_triangle_indices(indices, section, vertex_count=8), indices[3:15])
+
+    def test_handedness_conversion_reverses_every_triangle(self) -> None:
+        self.assertEqual(
+            reverse_triangle_winding([0, 1, 2, 2, 1, 3]),
+            [1, 0, 2, 1, 2, 3],
+        )
+        with self.assertRaisesRegex(StaticMeshTopologyError, "divisible by three"):
+            reverse_triangle_winding([0, 1])
 
     def test_strip_section_uses_explicit_flag_and_discards_degenerates(self) -> None:
         section = {

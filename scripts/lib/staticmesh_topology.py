@@ -12,6 +12,21 @@ class StaticMeshTopologyError(ValueError):
     """Raised when a serialized section cannot describe valid triangles."""
 
 
+def reverse_triangle_winding(indices: Sequence[int]) -> list[int]:
+    """Reverse every triangle after Vanguard's handedness-changing swizzle."""
+    if len(indices) % 3 != 0:
+        raise StaticMeshTopologyError(
+            f"triangle index count is not divisible by three: {len(indices)}"
+        )
+    result = [int(index) for index in indices]
+    for offset in range(0, len(result), 3):
+        result[offset], result[offset + 1] = (
+            result[offset + 1],
+            result[offset],
+        )
+    return result
+
+
 def _nonnegative_int(section: Mapping[str, object], key: str) -> int:
     value = int(section.get(key, 0) or 0)
     if value < 0:

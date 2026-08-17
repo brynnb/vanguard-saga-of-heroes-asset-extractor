@@ -46,7 +46,7 @@ sys.path.insert(0, PROJECT_ROOT)
 from ue2 import UE2Package
 from material_memory import MaterialMemoryResolver
 from vanguard_staticmesh import parse_vanguard_staticmesh
-from staticmesh_topology import section_triangle_indices
+from staticmesh_topology import reverse_triangle_winding, section_triangle_indices
 from speedtree_staticmesh import (
     collapsed_leaf_section,
     discard_degenerate_triangles,
@@ -1516,6 +1516,12 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
                 )
             if not sec_indices:
                 continue
+            # The Vanguard -> glTF position swizzle negates one axis and
+            # therefore changes handedness. Reverse each triangle so glTF's
+            # counter-clockwise front face remains aligned with the exported
+            # vertex normals. Foliage is double-sided, but bark and every other
+            # one-sided StaticMesh depend on this being correct.
+            sec_indices = reverse_triangle_winding(sec_indices)
 
             # Pad to 4-byte alignment
             while len(buffer_data) % 4 != 0:
@@ -1628,6 +1634,7 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
                     f"{mesh.name}: fallback index count is not triangular: "
                     f"{len(fallback_indices)}"
                 )
+        fallback_indices = reverse_triangle_winding(fallback_indices)
 
         while len(buffer_data) % 4 != 0:
             buffer_data.append(0)
