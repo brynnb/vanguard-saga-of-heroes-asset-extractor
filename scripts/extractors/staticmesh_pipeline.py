@@ -2223,6 +2223,39 @@ def write_mesh_manifest(
     return len(meshes)
 
 
+def mesh_manifest_entries_from_object_artifact(
+    output_dir: str, object_artifact: str
+) -> list[str]:
+    """Recover the canonical source-mesh list from a validated object store.
+
+    Compact object GLBs preserve the source package directory and mesh stem.
+    This lets a bounded extraction restore the manifest it replaced without
+    decoding or exporting every package again.
+    """
+    output_path = Path(output_dir)
+    object_root = Path(object_artifact) / "objects"
+    if not object_root.is_dir():
+        raise FileNotFoundError(
+            f"object artifact has no shared object store: {object_root}"
+        )
+    meshes: list[str] = []
+    missing: list[str] = []
+    for compact_path in sorted(object_root.rglob("*.glb")):
+        relative = compact_path.relative_to(object_root).with_suffix(".gltf").as_posix()
+        if (output_path / relative).is_file():
+            meshes.append(relative)
+        else:
+            missing.append(relative)
+    if missing:
+        raise FileNotFoundError(
+            "object artifact references missing extracted meshes: "
+            + ", ".join(missing[:20])
+        )
+    if not meshes:
+        raise ValueError(f"object artifact contains no compact meshes: {object_root}")
+    return meshes
+
+
 def write_failure_report(output_dir: str, stats: Dict[str, Any]) -> Path:
     """Record a failed run without replacing the last complete manifest."""
     path = Path(output_dir) / "staticmesh-last-failure.json"
@@ -2256,6 +2289,14 @@ def main():
         ),
     )
     parser.add_argument(
+        "--manifest-only",
+        action="store_true",
+        help=(
+            "With --object-artifact, restore the canonical mesh manifest from "
+            "already-extracted files without re-exporting packages"
+        ),
+    )
+    parser.add_argument(
         "--limit", "-n", type=int, default=0, help="Limit number of files to process"
     )
     parser.add_argument(
@@ -2272,6 +2313,18 @@ def main():
     )
 
     args = parser.parse_args()
+
+    if args.manifest_only:
+        if not args.object_artifact:
+            parser.error("--manifest-only requires --object-artifact")
+        meshes = mesh_manifest_entries_from_object_artifact(
+            OUTPUT_DIR, args.object_artifact
+        )
+        manifest_count = write_mesh_manifest(
+            OUTPUT_DIR, meshes, [], object_artifact=args.object_artifact
+        )
+        print(f"Wrote mesh manifest: {manifest_count} entries")
+        return
 
     stats = run_pipeline(
         file_pattern=args.file,

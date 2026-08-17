@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from scripts.extractors.staticmesh_pipeline import (
+    mesh_manifest_entries_from_object_artifact,
     process_package,
     write_failure_report,
     write_mesh_manifest,
@@ -78,6 +79,22 @@ class StaticMeshPipelinePublicationTests(unittest.TestCase):
                 manifest["unclaimed_gltf_examples"], ["Example/Historical.gltf"]
             )
             self.assertEqual(len(manifest["source_packages"][0]["sha256"]), 64)
+
+    def test_manifest_entries_can_be_recovered_from_object_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "output"
+            objects = root / "artifact" / "objects"
+            (output / "Package").mkdir(parents=True)
+            (objects / "Package").mkdir(parents=True)
+            (output / "Package" / "Tree.gltf").write_text("{}")
+            (objects / "Package" / "Tree.glb").write_bytes(b"compact")
+
+            entries = mesh_manifest_entries_from_object_artifact(
+                str(output), str(root / "artifact")
+            )
+
+            self.assertEqual(entries, ["Package/Tree.gltf"])
 
     def test_failure_report_does_not_replace_complete_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
