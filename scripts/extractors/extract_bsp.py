@@ -29,6 +29,10 @@ sys.path.insert(0, PROJECT_ROOT)
 import config
 from ue2 import Vector, Plane, UE2Package
 from ue2.reader import BinaryReader, read_compact_index_at as read_compact_index
+from scripts.lib.vanguard_bsp import (
+    BspParseError,
+    parse_model_export as parse_vanguard_model_export,
+)
 
 
 @dataclass
@@ -197,110 +201,18 @@ class BSPParser:
         return reader.tell() - start_pos
 
     def parse_model(self, export: Dict) -> Optional[UModel]:
-        """Parse a Model export into UModel structure."""
-        data = self.package.get_export_data(export)
-        if not data:
-            return None
-
-        reader = BinaryReader(data)
-        model = UModel()
+        """Parse a Vanguard Model without discarding BSP zone authority."""
 
         try:
-            # Skip properties
-            self.skip_properties(reader)
-
-            # UE2 version check - Vanguard is version 128+
-            version = self.package.version
-
-            if version <= 61:
-                # Old format - just indices
-                model.vectors = []
-                model.points = []
-                model.nodes = []
-                model.surfaces = []
-                model.vertices = []
-                reader.read_compact_index()  # vectors ref
-                reader.read_compact_index()  # points ref
-                reader.read_compact_index()  # nodes ref
-                reader.read_compact_index()  # surfaces ref
-                reader.read_compact_index()  # vertices ref
-            else:
-                # New format - inline arrays
-                # Vectors
-                vec_count = reader.read_compact_index()
-                model.vectors = [reader.read_vector() for _ in range(vec_count)]
-
-                # Points
-                point_count = reader.read_compact_index()
-                model.points = [reader.read_vector() for _ in range(point_count)]
-
-                # Nodes
-                node_count = reader.read_compact_index()
-                model.nodes = []
-                for _ in range(node_count):
-                    node = BspNode()
-                    node.plane = reader.read_plane()
-                    node.zone_mask = reader.read_uint64()
-                    node.node_flags = reader.read_uint8()
-                    node.i_vert_pool = reader.read_compact_index()
-                    node.i_surf = reader.read_compact_index()
-                    node.i_front = reader.read_compact_index()
-                    node.i_back = reader.read_compact_index()
-                    node.i_plane = reader.read_compact_index()
-                    node.i_collision_bound = reader.read_compact_index()
-                    node.i_render_bound = reader.read_compact_index()
-                    node.i_zone = [
-                        reader.read_compact_index(),
-                        reader.read_compact_index(),
-                    ]
-                    node.num_vertices = reader.read_uint8()
-                    node.i_leaf = [reader.read_uint32(), reader.read_uint32()]
-                    model.nodes.append(node)
-
-                # Surfaces
-                surf_count = reader.read_compact_index()
-                model.surfaces = []
-                for _ in range(surf_count):
-                    surf = BspSurface()
-                    surf.texture = reader.read_compact_index()
-                    surf.poly_flags = reader.read_uint32()
-                    surf.p_base = reader.read_compact_index()
-                    surf.v_normal = reader.read_compact_index()
-                    surf.v_texture_u = reader.read_compact_index()
-                    surf.v_texture_v = reader.read_compact_index()
-                    surf.i_light_map = reader.read_compact_index()
-                    surf.i_brush_poly = reader.read_compact_index()
-                    surf.pan_u = reader.read_int16()
-                    surf.pan_v = reader.read_int16()
-                    surf.actor = reader.read_compact_index()
-                    model.surfaces.append(surf)
-
-                # Vertices
-                vert_count = reader.read_compact_index()
-                model.vertices = []
-                for _ in range(vert_count):
-                    mv = ModelVertex()
-                    mv.vertex = reader.read_compact_index()
-                    mv.i_side = reader.read_compact_index()
-                    model.vertices.append(mv)
-
-                # Additional fields
-                model.num_shared_sides = reader.read_int32()
-                model.num_zones = reader.read_int32()
-
-                # Skip zones array
-                for _ in range(model.num_zones):
-                    reader.read_compact_index()  # zone_actor
-                    reader.read_uint64()  # connectivity
-                    reader.read_uint64()  # visibility
-
-            # Polys reference
-            model.polys_ref = reader.read_compact_index()
-
-            return model
-
-        except Exception as e:
-            print(f"    Error parsing Model: {e}")
+            # The shared parser is strict about Vanguard's verified 128/34
+            # layout.  In particular, trans-array counts are int32 while record
+            # indices remain compact, and zone/leaf visibility is retained.
+            return parse_vanguard_model_export(self.package, export)
+        except BspParseError as error:
+            print(
+                f"    Error parsing Model {export.get('object_name', '<unnamed>')}: "
+                f"{error}"
+            )
             return None
 
     def parse_polys(self, export: Dict) -> Optional[UPolys]:

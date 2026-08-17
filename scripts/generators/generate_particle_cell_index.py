@@ -5,11 +5,27 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+import gc
+import hashlib
 import json
 import math
+import os
 from pathlib import Path
-import time
+import sys
 from typing import Any
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from scripts.lib.world_residency_interiors import (
+    AffineTransform,
+    MAX_PREFAB_DEPTH,
+    ROOM_COMPOUND_TYPE,
+    compact_compound_refs,
+    nested_source_path,
+    prefab_name_from_raw_record,
+    source_component_path,
+)
 
 from generate_particle_manifest import (
     DEFAULT_OUTPUT_ROOT,
@@ -24,8 +40,8 @@ from generate_particle_manifest import (
 
 DEFAULT_RUNTIME_ROOT = DEFAULT_OUTPUT_ROOT / "godot_runtime"
 DEFAULT_PARTICLE_MANIFEST = DEFAULT_OUTPUT_ROOT / "data/particle_emitters.json"
-PARTICLE_CELL_INDEX_VERSION = 14
-GLOBAL_PARTICLE_CELL_INDEX_VERSION = 13
+PARTICLE_CELL_INDEX_VERSION = 15
+GLOBAL_PARTICLE_CELL_INDEX_VERSION = 14
 DEFAULT_CELL_SIZE = 24000.0
 TERRAIN_CHUNK_WORLD_SIZE = 204400.0
 
@@ -145,9 +161,21 @@ def main() -> int:
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--runtime-root", type=Path, default=DEFAULT_RUNTIME_ROOT)
     parser.add_argument("--particle-manifest", type=Path, default=DEFAULT_PARTICLE_MANIFEST)
+    parser.add_argument(
+        "--sgo-raw",
+        type=Path,
+        default=None,
+        help="Canonical raw SGO JSONL used to resolve nested compound prefabs.",
+    )
     parser.add_argument("--cell-size", type=float, default=DEFAULT_CELL_SIZE)
     parser.add_argument("--limit-chunks", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--require-emitter-count",
+        type=int,
+        default=0,
+        help="Fail if the selected source set produces fewer emitters than this guard.",
+    )
     parser.add_argument(
         "--write-global-index",
         action="store_true",
@@ -164,6 +192,11 @@ def main() -> int:
     output_root = args.output_root.expanduser().resolve()
     runtime_root = args.runtime_root.expanduser().resolve()
     particle_manifest_path = args.particle_manifest.expanduser().resolve()
+    sgo_raw_path = (
+        args.sgo_raw.expanduser().resolve()
+        if args.sgo_raw is not None
+        else output_root / "data/sgo_raw.jsonl"
+    )
     chunks = [normalize_chunk_name(chunk) for chunk in args.chunk]
     if args.all:
         chunks.extend(discover_chunks(output_root))
@@ -173,10 +206,17 @@ def main() -> int:
     if not chunks:
         parser.error("provide at least one --chunk or --all")
 
-    template_map = load_template_map(particle_manifest_path)
+    template_map, manifest_emitters_by_prefab = load_particle_manifest_maps(
+        particle_manifest_path
+    )
+    placed_root_prefabs = discover_placed_root_prefabs(chunks, output_root)
+    compound_graph, compound_graph_source = load_compound_prefab_graph(
+        sgo_raw_path, placed_root_prefabs
+    )
     texture_index = build_texture_index(output_root / "textures", output_root)
 
     failures = 0
+    selected_emitter_count = 0
     for chunk in chunks:
         try:
             result = build_particle_cell_index(
@@ -185,15 +225,30 @@ def main() -> int:
                 runtime_root=runtime_root,
                 particle_manifest_path=particle_manifest_path,
                 template_map=template_map,
+                manifest_emitters_by_prefab=manifest_emitters_by_prefab,
+                compound_graph=compound_graph,
+                compound_graph_source=compound_graph_source,
                 texture_index=texture_index,
                 cell_size=float(args.cell_size),
                 dry_run=args.dry_run,
             )
+            selected_emitter_count += int(result["emitter_count"])
             print_summary(result, args.dry_run)
         except Exception as exc:  # noqa: BLE001 - index all requested chunks when possible.
             failures += 1
             print(f"ERROR: {chunk}: {exc}")
+    if failures == 0 and selected_emitter_count < max(0, args.require_emitter_count):
+        failures += 1
+        print(
+            "ERROR: selected emitter count %d is below required minimum %d"
+            % (selected_emitter_count, max(0, args.require_emitter_count))
+        )
     if failures == 0 and args.write_global_index:
+        template_map.clear()
+        manifest_emitters_by_prefab.clear()
+        compound_graph.clear()
+        texture_index.clear()
+        gc.collect()
         global_result = write_global_particle_cell_index(
             chunks=chunks,
             runtime_root=runtime_root,
@@ -210,18 +265,301 @@ def discover_chunks(output_root: Path) -> list[str]:
     return sorted(path.name.removesuffix("_sgo.json") for path in terrain_root.glob("chunk_*_sgo.json"))
 
 
+def discover_placed_root_prefabs(chunks: list[str], output_root: Path) -> set[str]:
+    roots: set[str] = set()
+    terrain_root = output_root / "terrain/terrain_grid"
+    for chunk in chunks:
+        objects_path = terrain_root / f"{chunk}_objects.gltf"
+        if not objects_path.is_file():
+            raise ValueError(f"missing object placement file: {objects_path}")
+        objects_data = read_json(objects_path)
+        nodes = objects_data.get("nodes", []) if isinstance(objects_data, dict) else []
+        if not isinstance(nodes, list) or not nodes or not isinstance(nodes[0], dict):
+            raise ValueError(f"{chunk} object placement nodes are invalid")
+        root_children = nodes[0].get("children", [])
+        if not isinstance(root_children, list):
+            raise ValueError(f"{chunk} root children are invalid")
+        for node_index_value in root_children:
+            node_index = int(node_index_value)
+            if node_index < 0 or node_index >= len(nodes):
+                continue
+            node = nodes[node_index]
+            if not isinstance(node, dict):
+                continue
+            extras = node.get("extras", {})
+            if not isinstance(extras, dict):
+                continue
+            prefab_name = str(extras.get("prefab_name", "")).strip()
+            if prefab_name:
+                roots.add(prefab_name)
+    if not roots:
+        raise ValueError("selected chunks contain no placed root prefabs")
+    return roots
+
+
 def load_template_map(path: Path) -> dict[str, dict[str, Any]]:
+    return load_particle_manifest_maps(path)[0]
+
+
+def load_particle_manifest_maps(
+    path: Path,
+) -> tuple[dict[str, dict[str, Any]], dict[str, list[Any]]]:
     if not path.exists():
-        return {}
+        return {}, {}
     manifest = read_json(path)
     templates = manifest.get("templates", []) if isinstance(manifest, dict) else []
     if not isinstance(templates, list):
-        return {}
-    return {
+        return {}, {}
+    template_map = {
         str(template.get("id", "")): template
         for template in templates
         if isinstance(template, dict) and template.get("id")
     }
+    return template_map, manifest_emitters_by_prefab_from_templates(templates)
+
+
+def manifest_emitters_by_prefab_from_templates(
+    templates: list[Any],
+) -> dict[str, list[Any]]:
+    """Rebuild the canonical prefab actor table from normalized templates.
+
+    Newer residency-oriented SGO sidecars intentionally contain only component
+    and compound structure.  Particle templates retain the exact emitter actor
+    index, class, name, and raw properties, so this join is the authoritative
+    compatibility path rather than relying on the removed source_extras table.
+    """
+
+    sparse: dict[str, dict[int, dict[str, Any]]] = {}
+    for template_value in templates:
+        if not isinstance(template_value, dict):
+            continue
+        source = template_value.get("source", {})
+        if not isinstance(source, dict) or source.get("kind") != "sgo_prefab_extra":
+            continue
+        prefab_name = str(source.get("prefab", "")).strip()
+        actor_index_value = source.get("actor_index")
+        if not prefab_name or isinstance(actor_index_value, bool) or not isinstance(
+            actor_index_value, (int, float)
+        ):
+            continue
+        actor_index = int(actor_index_value)
+        if actor_index < 0 or float(actor_index_value) != float(actor_index):
+            continue
+        actor = {
+            "class": str(source.get("class", "")).strip(),
+            "name": str(source.get("name", "")).strip(),
+            "props": template_value.get("props", {}),
+        }
+        existing = sparse.setdefault(prefab_name, {}).get(actor_index)
+        if existing is not None and existing != actor:
+            raise ValueError(
+                f"particle manifest has conflicting {prefab_name} actor index {actor_index}"
+            )
+        sparse[prefab_name][actor_index] = actor
+    result: dict[str, list[Any]] = {}
+    for prefab_name, actors_by_index in sparse.items():
+        actor_count = max(actors_by_index) + 1
+        actors: list[Any] = [None] * actor_count
+        for actor_index, actor in actors_by_index.items():
+            actors[actor_index] = actor
+        result[prefab_name] = actors
+    return result
+
+
+def load_compound_prefab_graph(
+    sgo_raw: Path,
+    roots: set[str],
+) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
+    if not sgo_raw.is_file():
+        raise ValueError(f"canonical raw SGO JSONL does not exist: {sgo_raw}")
+    if not roots:
+        raise ValueError("compound prefab graph root set is empty")
+    graph: dict[str, dict[str, Any]] = {}
+    retained_by_fold: dict[str, str] = {}
+    digest = hashlib.sha256()
+    record_count = 0
+    pending = {name.casefold() for name in roots}
+    pass_count = 0
+    while pending:
+        pass_count += 1
+        found: set[str] = set()
+        discovered: set[str] = set()
+        with sgo_raw.open("rb") as handle:
+            for line_number, raw_line in enumerate(handle, 1):
+                if not raw_line.strip():
+                    raise ValueError(f"blank line in raw SGO JSONL at {line_number}")
+                if pass_count == 1:
+                    digest.update(raw_line)
+                    record_count += 1
+                record = json.loads(raw_line)
+                name = prefab_name_from_raw_record(record)
+                folded = name.casefold()
+                if folded not in pending:
+                    continue
+                if folded in retained_by_fold:
+                    raise ValueError(
+                        f"duplicate case-insensitive SGO prefab name: {name}"
+                    )
+                refs = compact_compound_refs(record)
+                graph[name] = {"compound_refs": refs}
+                retained_by_fold[folded] = name
+                found.add(folded)
+                discovered.update(
+                    str(ref["sub_prefab"]).casefold()
+                    for ref in refs
+                    if str(ref.get("sub_prefab", "")).strip()
+                )
+        missing = sorted(pending - found)
+        if missing:
+            raise ValueError(
+                f"compound prefab graph is missing {len(missing)} requested prefabs: "
+                f"{missing[:8]}"
+            )
+        pending = discovered - set(retained_by_fold)
+    if not graph:
+        raise ValueError(f"canonical raw SGO JSONL is empty: {sgo_raw}")
+    return graph, {
+        "bytes": sgo_raw.stat().st_size,
+        "closure_prefab_count": len(graph),
+        "closure_root_count": len(roots),
+        "closure_scan_pass_count": pass_count,
+        "record_count": record_count,
+        "relative_path": "data/sgo_raw.jsonl",
+        "sha256": digest.hexdigest(),
+    }
+
+
+def walk_prefab_emitter_instances(
+    root_prefab: str,
+    sidecar: dict[str, Any],
+    manifest_emitters_by_prefab: dict[str, list[Any]],
+    compound_graph: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Resolve direct and nested emitter prefabs for one placed root.
+
+    The compact residency sidecar preserves CompoundObject structure even
+    though it no longer duplicates emitter actors.  Walking that graph is
+    necessary both for exact transforms and for retaining authored room
+    ownership instead of treating nested interior effects as exterior cells.
+    """
+
+    compound_graph = compound_graph if compound_graph is not None else sidecar
+    sidecar_by_fold = {str(name).casefold(): str(name) for name in sidecar}
+    graph_by_fold = {str(name).casefold(): str(name) for name in compound_graph}
+    emitter_by_fold = {
+        str(name).casefold(): str(name) for name in manifest_emitters_by_prefab
+    }
+    result: list[dict[str, Any]] = []
+
+    def visit(
+        requested: str,
+        prefab_transform: AffineTransform,
+        source_parent_path: str,
+        room_source_component_path: str,
+        ancestors: frozenset[str],
+        depth: int,
+    ) -> None:
+        if depth > MAX_PREFAB_DEPTH:
+            raise ValueError(
+                f"particle prefab graph exceeds {MAX_PREFAB_DEPTH} levels at {requested}"
+            )
+        folded = requested.casefold()
+        if folded in ancestors:
+            raise ValueError(f"cycle in particle prefab graph at {requested}")
+        sidecar_name = sidecar_by_fold.get(folded)
+        graph_name = graph_by_fold.get(folded)
+        emitter_name = emitter_by_fold.get(folded)
+        resolved_name = graph_name or sidecar_name or emitter_name
+        if resolved_name is None:
+            raise ValueError(f"particle prefab graph references missing prefab {requested}")
+        sidecar_entry = sidecar.get(sidecar_name, {}) if sidecar_name is not None else {}
+        if not isinstance(sidecar_entry, dict):
+            raise ValueError(f"particle prefab sidecar entry is invalid: {resolved_name}")
+        graph_entry = (
+            compound_graph.get(graph_name, {}) if graph_name is not None else sidecar_entry
+        )
+        if not isinstance(graph_entry, dict):
+            raise ValueError(f"particle compound graph entry is invalid: {resolved_name}")
+        source_extras = sidecar_entry.get("source_extras", {})
+        emitters = (
+            source_extras.get("emitters", [])
+            if isinstance(source_extras, dict)
+            else []
+        )
+        emitter_source = "sgo_sidecar_source_extras"
+        if not isinstance(emitters, list) or not emitters:
+            emitters = manifest_emitters_by_prefab.get(emitter_name or resolved_name, [])
+            emitter_source = "particle_template_manifest_prefab_join"
+        if isinstance(emitters, list) and any(
+            isinstance(value, dict) for value in emitters
+        ):
+            result.append(
+                {
+                    "prefab_name": emitter_name or resolved_name,
+                    "emitters": emitters,
+                    "prefab_transform": prefab_transform,
+                    "source_parent_path": source_parent_path,
+                    "room_source_component_path": room_source_component_path,
+                    "emitter_source": emitter_source,
+                }
+            )
+
+        next_ancestors = ancestors | {folded}
+        refs = graph_entry.get("compound_refs", [])
+        if not isinstance(refs, list):
+            raise ValueError(f"particle prefab compound refs are invalid: {resolved_name}")
+        for ref_value in refs:
+            if not isinstance(ref_value, dict):
+                continue
+            child_name = str(ref_value.get("sub_prefab", "")).strip()
+            if not child_name:
+                raise ValueError(f"particle compound below {resolved_name} has no prefab")
+            props = ref_value.get("props", {})
+            if not isinstance(props, dict):
+                props = {}
+            ref_transform = ref_value.get("_transform")
+            if not isinstance(ref_transform, AffineTransform):
+                ref_transform = AffineTransform.from_properties(props)
+            child_transform = prefab_transform.compose(ref_transform)
+            direct_path = str(ref_value.get("source_component_path", "")).strip()
+            if not direct_path:
+                direct_path = source_component_path(
+                    resolved_name,
+                    str(ref_value.get("class", "CompoundObject")),
+                    str(ref_value.get("name", "")),
+                )
+            child_path = (
+                nested_source_path(source_parent_path, direct_path)
+                if source_parent_path
+                else direct_path
+            )
+            child_room_path = room_source_component_path
+            compound_type = int(
+                ref_value.get(
+                    "compound_type", props.get("m_CompoundObjectType", 0)
+                )
+                or 0
+            )
+            if compound_type == ROOM_COMPOUND_TYPE:
+                child_room_path = child_path
+            visit(
+                child_name,
+                child_transform,
+                child_path,
+                child_room_path,
+                next_ancestors,
+                depth + 1,
+            )
+
+    visit(
+        root_prefab,
+        AffineTransform.identity(),
+        "",
+        "",
+        frozenset(),
+        0,
+    )
+    return result
 
 
 def build_particle_cell_index(
@@ -231,6 +569,9 @@ def build_particle_cell_index(
     runtime_root: Path,
     particle_manifest_path: Path,
     template_map: dict[str, dict[str, Any]],
+    manifest_emitters_by_prefab: dict[str, list[Any]],
+    compound_graph: dict[str, dict[str, Any]],
+    compound_graph_source: dict[str, Any],
     texture_index: dict[str, Any],
     cell_size: float,
     dry_run: bool,
@@ -262,6 +603,8 @@ def build_particle_cell_index(
     sprite_emitters = 0
     skipped_nodes = 0
     prefabs_with_emitters: set[str] = set()
+    effect_placements: list[dict[str, Any]] = []
+    emitter_source_counts: Counter[str] = Counter()
 
     def append_particle_record(record: dict[str, Any]) -> None:
         nonlocal total_emitters, renderable_emitters, sprite_emitters
@@ -295,69 +638,138 @@ def build_particle_cell_index(
         prefab_name = str(extras.get("prefab_name", "")).strip()
         if not prefab_name:
             continue
-        prefab = sgo_manifest.get(prefab_name, {}) if isinstance(sgo_manifest, dict) else {}
-        if not isinstance(prefab, dict):
-            continue
-        source_extras = prefab.get("source_extras", {})
-        emitters = source_extras.get("emitters", []) if isinstance(source_extras, dict) else []
-        if not isinstance(emitters, list) or not emitters:
-            continue
-        prefabs_with_emitters.add(prefab_name)
         node_transform = compact_node_transform(node)
-        referenced_emitter_indices = referenced_concrete_emitter_indices(emitters)
-        for emitter_index, actor_value in enumerate(emitters):
-            if not isinstance(actor_value, dict):
-                continue
-            props = actor_value.get("props", {})
-            if not isinstance(props, dict):
-                props = {}
-            class_name = str(actor_value.get("class", "")).strip()
-            kind = classify_emitter(class_name)
-            if emitter_index in referenced_emitter_indices and is_concrete_emitter_kind(kind):
-                continue
-            record = particle_record_for_actor(
-                prefab_name=prefab_name,
-                actor_index=emitter_index,
-                actor=actor_value,
-                node_index=node_index,
-                node=node,
-                node_transform=node_transform,
-                chunk_origin=chunk_origin,
-                template_map=template_map,
-                texture_index=texture_index,
+        for emitter_instance in walk_prefab_emitter_instances(
+            prefab_name,
+            sgo_manifest,
+            manifest_emitters_by_prefab,
+            compound_graph,
+        ):
+            instance_prefab = str(emitter_instance["prefab_name"])
+            emitters = emitter_instance["emitters"]
+            prefab_transform = emitter_instance["prefab_transform"]
+            source_parent_path = str(emitter_instance["source_parent_path"])
+            room_source_component_path = str(
+                emitter_instance["room_source_component_path"]
             )
-            if record:
-                append_particle_record(record)
-            if kind != "fx_actor":
-                continue
-            parent_normalized = normalized_actor_props(
-                prefab_name, emitter_index, actor_value, template_map, texture_index
-            )
-            parent_local_position, parent_local_source = emitter_local_position(parent_normalized)
-            for child_index in fx_emitter_reference_indices(props, len(emitters)):
-                child_actor = emitters[child_index] if 0 <= child_index < len(emitters) else None
-                if not isinstance(child_actor, dict):
+            emitter_source = str(emitter_instance["emitter_source"])
+            prefabs_with_emitters.add(instance_prefab)
+            emitter_source_counts[emitter_source] += 1
+            referenced_emitter_indices = referenced_concrete_emitter_indices(emitters)
+            for emitter_index, actor_value in enumerate(emitters):
+                if not isinstance(actor_value, dict):
                     continue
-                child_kind = classify_emitter(str(child_actor.get("class", "")).strip())
-                if not is_concrete_emitter_kind(child_kind):
+                props = actor_value.get("props", {})
+                if not isinstance(props, dict):
+                    props = {}
+                class_name = str(actor_value.get("class", "")).strip()
+                actor_name = str(actor_value.get("name", "")).strip()
+                kind = classify_emitter(class_name)
+                if emitter_index in referenced_emitter_indices and is_concrete_emitter_kind(kind):
                     continue
-                child_record = particle_record_for_actor(
-                    prefab_name=prefab_name,
-                    actor_index=child_index,
-                    actor=child_actor,
+                direct_effect_path = source_component_path(
+                    instance_prefab, class_name, actor_name
+                )
+                source_effect_path = (
+                    nested_source_path(source_parent_path, direct_effect_path)
+                    if source_parent_path
+                    else direct_effect_path
+                )
+                if kind != "fx_actor":
+                    record = particle_record_for_actor(
+                        prefab_name=instance_prefab,
+                        actor_index=emitter_index,
+                        actor=actor_value,
+                        node_index=node_index,
+                        node=node,
+                        node_transform=node_transform,
+                        chunk_origin=chunk_origin,
+                        template_map=template_map,
+                        texture_index=texture_index,
+                        prefab_transform=prefab_transform,
+                        source_effect_path=source_effect_path,
+                        room_source_component_path=room_source_component_path,
+                    )
+                    placement = build_effect_placement_topology(
+                        chunk=chunk,
+                        node_index=node_index,
+                        prefab_name=instance_prefab,
+                        root_actor_index=emitter_index,
+                        source_effect_path=source_effect_path,
+                        wrapper_record=None,
+                        component_records=[record],
+                        source_actor_indices=[emitter_index],
+                    )
+                    effect_placements.append(placement)
+                    append_particle_record(record)
+                    continue
+                wrapper_record = particle_record_for_actor(
+                    prefab_name=instance_prefab,
+                    actor_index=emitter_index,
+                    actor=actor_value,
                     node_index=node_index,
                     node=node,
                     node_transform=node_transform,
                     chunk_origin=chunk_origin,
                     template_map=template_map,
                     texture_index=texture_index,
-                    parent_actor=actor_value,
-                    parent_actor_index=emitter_index,
-                    parent_normalized=parent_normalized,
-                    parent_local_position=parent_local_position,
-                    parent_local_position_source=parent_local_source,
+                    prefab_transform=prefab_transform,
+                    source_effect_path=source_effect_path,
+                    room_source_component_path=room_source_component_path,
                 )
-                if child_record:
+                parent_normalized = normalized_actor_props(
+                    instance_prefab,
+                    emitter_index,
+                    actor_value,
+                    template_map,
+                    texture_index,
+                )
+                parent_local_position, parent_local_source = emitter_local_position(
+                    parent_normalized
+                )
+                child_records: list[dict[str, Any]] = []
+                child_actor_indices: list[int] = []
+                for child_index in fx_emitter_reference_indices(props, len(emitters)):
+                    child_actor = emitters[child_index] if 0 <= child_index < len(emitters) else None
+                    if not isinstance(child_actor, dict):
+                        continue
+                    child_kind = classify_emitter(str(child_actor.get("class", "")).strip())
+                    if not is_concrete_emitter_kind(child_kind):
+                        continue
+                    child_record = particle_record_for_actor(
+                        prefab_name=instance_prefab,
+                        actor_index=child_index,
+                        actor=child_actor,
+                        node_index=node_index,
+                        node=node,
+                        node_transform=node_transform,
+                        chunk_origin=chunk_origin,
+                        template_map=template_map,
+                        texture_index=texture_index,
+                        parent_actor=actor_value,
+                        parent_actor_index=emitter_index,
+                        parent_normalized=parent_normalized,
+                        parent_local_position=parent_local_position,
+                        parent_local_position_source=parent_local_source,
+                        prefab_transform=prefab_transform,
+                        source_effect_path=source_effect_path,
+                        room_source_component_path=room_source_component_path,
+                    )
+                    child_records.append(child_record)
+                    child_actor_indices.append(child_index)
+                placement = build_effect_placement_topology(
+                    prefab_name=instance_prefab,
+                    chunk=chunk,
+                    node_index=node_index,
+                    root_actor_index=emitter_index,
+                    source_effect_path=source_effect_path,
+                    wrapper_record=wrapper_record,
+                    component_records=child_records,
+                    source_actor_indices=child_actor_indices,
+                )
+                effect_placements.append(placement)
+                append_particle_record(wrapper_record)
+                for child_record in child_records:
                     append_particle_record(child_record)
 
     for cell in cells.values():
@@ -366,7 +778,7 @@ def build_particle_cell_index(
     data = {
         "version": PARTICLE_CELL_INDEX_VERSION,
         "generated_by": "scripts/generators/generate_particle_cell_index.py",
-        "generated_at_unix": int(time.time()),
+        "generated_at_unix": deterministic_generation_epoch(),
         "chunk": chunk,
         "cell_size": float(cell_size),
         "cell_key_space": "chunk_local",
@@ -375,6 +787,12 @@ def build_particle_cell_index(
         "objects_source_relative_path": relative_path(objects_path, output_root),
         "sgo_source_relative_path": relative_path(sgo_path, output_root),
         "particle_manifest_relative_path": relative_path(particle_manifest_path, output_root),
+        "compound_graph_source": compound_graph_source,
+        "emitter_source_policy": (
+            "compound_graph_walk_with_sidecar_source_extras_or_canonical_"
+            "template_prefab_join_v2"
+        ),
+        "emitter_source_counts": dict(sorted(emitter_source_counts.items())),
         "total_node_count": len(root_children),
         "skipped_node_count": skipped_nodes,
         "prefab_with_emitters_count": len(prefabs_with_emitters),
@@ -385,6 +803,22 @@ def build_particle_cell_index(
         "kind_counts": dict(sorted(kind_counts.items())),
         "unresolved_texture_ref_count": sum(unresolved_textures.values()),
         "top_unresolved_texture_refs": dict(unresolved_textures.most_common(50)),
+        "effect_placement_count": len(effect_placements),
+        "compound_effect_placement_count": sum(
+            1 for placement in effect_placements if placement.get("wrapper_template_id")
+        ),
+        "emitter_component_count": sum(
+            len(placement.get("ordered_emitter_component_ids", []))
+            for placement in effect_placements
+        ),
+        "dependency_edge_count": sum(
+            len(placement.get("dependency_edges", [])) for placement in effect_placements
+        ),
+        "atomic_activation_group_count": sum(
+            len(placement.get("atomic_activation_groups", []))
+            for placement in effect_placements
+        ),
+        "effect_placements": effect_placements,
         "cell_count": len(cells),
         "cells": dict(sorted(cells.items())),
     }
@@ -447,6 +881,10 @@ def write_global_particle_cell_index(
     total_emitters = 0
     total_renderable = 0
     total_unresolved_textures = 0
+    effect_placements: list[dict[str, Any]] = []
+    total_emitter_components = 0
+    total_dependency_edges = 0
+    total_atomic_activation_groups = 0
 
     for chunk in chunks:
         chunk_path = runtime_root / "chunks" / chunk / "particle_cells.json"
@@ -457,6 +895,21 @@ def write_global_particle_cell_index(
         if not isinstance(chunk_index, dict):
             missing_chunks.append(chunk)
             continue
+        chunk_effect_placements = chunk_index.get("effect_placements", [])
+        if isinstance(chunk_effect_placements, list):
+            for placement_value in chunk_effect_placements:
+                if not isinstance(placement_value, dict):
+                    continue
+                placement = placement_value.copy()
+                placement["source_chunk"] = chunk
+                effect_placements.append(placement)
+                total_emitter_components += len(
+                    placement.get("ordered_emitter_component_ids", [])
+                )
+                total_dependency_edges += len(placement.get("dependency_edges", []))
+                total_atomic_activation_groups += len(
+                    placement.get("atomic_activation_groups", [])
+                )
         chunk_origin = vector_or_none(chunk_index.get("chunk_global_origin", []))
         if chunk_origin is None:
             chunk_origin = chunk_global_origin(chunk)
@@ -585,7 +1038,7 @@ def write_global_particle_cell_index(
     data = {
         "version": GLOBAL_PARTICLE_CELL_INDEX_VERSION,
         "generated_by": "scripts/generators/generate_particle_cell_index.py",
-        "generated_at_unix": int(time.time()),
+        "generated_at_unix": deterministic_generation_epoch(),
         "cell_size": float(cell_size),
         "cell_key_space": "world",
         "source_index_version": PARTICLE_CELL_INDEX_VERSION,
@@ -595,6 +1048,14 @@ def write_global_particle_cell_index(
         "emitter_count": total_emitters,
         "renderable_emitter_count": total_renderable,
         "unresolved_texture_ref_count": total_unresolved_textures,
+        "effect_placement_count": len(effect_placements),
+        "compound_effect_placement_count": sum(
+            1 for placement in effect_placements if placement.get("wrapper_template_id")
+        ),
+        "emitter_component_count": total_emitter_components,
+        "dependency_edge_count": total_dependency_edges,
+        "atomic_activation_group_count": total_atomic_activation_groups,
+        "effect_placements": effect_placements,
         "class_counts": dict(sorted(class_counts.items())),
         "kind_counts": dict(sorted(kind_counts.items())),
         "cell_count": len(cells),
@@ -651,6 +1112,9 @@ def particle_record_for_actor(
     parent_normalized: dict[str, Any] | None = None,
     parent_local_position: tuple[float, float, float] | None = None,
     parent_local_position_source: str = "",
+    prefab_transform: AffineTransform | None = None,
+    source_effect_path: str = "",
+    room_source_component_path: str = "",
 ) -> dict[str, Any]:
     props = actor.get("props", {})
     if not isinstance(props, dict):
@@ -667,6 +1131,12 @@ def particle_record_for_actor(
         local_position = add_vector(parent_local_position, local_position)
         local_position_source = "%s+%s" % (parent_local_position_source, local_position_source)
         normalized = normalized_with_parent_fx_scale(normalized, parent_normalized)
+    if prefab_transform is not None:
+        local_position = source_affine_transform_gltf_position(
+            prefab_transform, local_position
+        )
+        if prefab_transform != AffineTransform.identity():
+            local_position_source = "compound_path+%s" % local_position_source
     chunk_position = transform_local_position(node_transform, local_position)
     global_position = add_vector(chunk_position, chunk_origin)
     texture_ref = str(normalized.get("texture_ref", "") or "")
@@ -731,6 +1201,8 @@ def particle_record_for_actor(
         "uniform_mesh_scale": normalized.get("uniform_mesh_scale"),
         "raw_property_count": len(props),
         "source_emitter_index": int(actor_index),
+        "source_effect_path": source_effect_path,
+        "room_source_component_path": room_source_component_path,
     }
     for field in RUNTIME_NORMALIZED_FIELDS:
         record[field] = normalized.get(field)
@@ -744,6 +1216,242 @@ def particle_record_for_actor(
             prefab_name, int(parent_actor_index or 0), parent_class, parent_name
         )
     return record
+
+
+def build_effect_placement_topology(
+    *,
+    chunk: str,
+    node_index: int,
+    prefab_name: str,
+    root_actor_index: int,
+    source_effect_path: str,
+    wrapper_record: dict[str, Any] | None,
+    component_records: list[dict[str, Any]],
+    source_actor_indices: list[int],
+) -> dict[str, Any]:
+    """Annotate one source effect without flattening its wrapper topology.
+
+    Vanguard inter-emitter indices address ordered wrapper child slots, not
+    prefab actor indices.  Stable component IDs therefore include both the
+    source child slot and actor index.  Dependency-connected components become
+    explicit atomic activation groups; the complete placement remains a single
+    residency transaction even when it contains multiple disconnected groups.
+    """
+
+    if len(component_records) != len(source_actor_indices):
+        raise ValueError("effect component records and source actor indices differ")
+    wrapper_template_id = (
+        str(wrapper_record.get("template_id", "")) if wrapper_record is not None else ""
+    )
+    placement_id = stable_runtime_id(
+        "effect_placement",
+        chunk,
+        int(node_index),
+        prefab_name,
+        int(root_actor_index),
+        source_effect_path,
+        wrapper_template_id,
+    )
+    component_ids: list[str] = []
+    for child_slot, (record, source_actor_index) in enumerate(
+        zip(component_records, source_actor_indices, strict=True)
+    ):
+        component_id = stable_runtime_id(
+            "emitter_component",
+            placement_id,
+            int(child_slot),
+            int(source_actor_index),
+            str(record.get("template_id", "")),
+        )
+        component_ids.append(component_id)
+        record["effect_placement_id"] = placement_id
+        record["emitter_component_id"] = component_id
+        record["source_child_slot"] = int(child_slot)
+        record["wrapper_template_id"] = wrapper_template_id
+        record["layer_membership"] = ["base"]
+        record["variant_key"] = ""
+
+    dependency_edges: list[dict[str, Any]] = []
+    seen_edges: set[tuple[str, str, str]] = set()
+    dependency_fields = (
+        ("add_location_from_other_emitter", "add_location"),
+        ("add_velocity_from_other_emitter", "add_velocity"),
+        ("branch_emitter", "branch_source"),
+    )
+    for target_slot, record in enumerate(component_records):
+        for source_field, relationship in dependency_fields:
+            source_slot = emitter_dependency_slot(record.get(source_field))
+            if source_slot < 0 or source_slot >= len(component_ids):
+                continue
+            edge_key = (
+                component_ids[source_slot],
+                component_ids[target_slot],
+                relationship,
+            )
+            if edge_key in seen_edges:
+                continue
+            seen_edges.add(edge_key)
+            dependency_edges.append(
+                {
+                    "source_component_id": component_ids[source_slot],
+                    "target_component_id": component_ids[target_slot],
+                    "relationship": relationship,
+                    "source_child_slot": int(source_slot),
+                    "target_child_slot": int(target_slot),
+                    "source_field": source_field,
+                }
+            )
+
+    atomic_groups = atomic_activation_groups(placement_id, component_ids, dependency_edges)
+    group_id_by_component: dict[str, str] = {}
+    for group in atomic_groups:
+        group_id = str(group["activation_group_id"])
+        for component_id in group["ordered_emitter_component_ids"]:
+            group_id_by_component[str(component_id)] = group_id
+    for record, component_id in zip(component_records, component_ids, strict=True):
+        record["atomic_activation_group_id"] = group_id_by_component[component_id]
+
+    activation_order, dependency_cycle = dependency_order(component_ids, dependency_edges)
+    if wrapper_record is not None:
+        wrapper_record["effect_placement_id"] = placement_id
+        wrapper_record["emitter_component_id"] = ""
+        wrapper_record["source_child_slot"] = -1
+        wrapper_record["wrapper_template_id"] = wrapper_template_id
+        wrapper_record["compound_wrapper_metadata_only"] = True
+        wrapper_record["layer_membership"] = ["base"]
+        wrapper_record["variant_key"] = ""
+
+    position_record = wrapper_record
+    if position_record is None and component_records:
+        position_record = component_records[0]
+    position_record = position_record or {}
+    return {
+        "placement_id": placement_id,
+        "source_chunk": chunk,
+        "source_node_index": int(node_index),
+        "source_root_emitter_index": int(root_actor_index),
+        "source_effect_path": source_effect_path,
+        "room_source_component_path": str(
+            position_record.get("room_source_component_path", "")
+        ),
+        "prefab_name": prefab_name,
+        "object_name": str(position_record.get("object_name", "")),
+        "wrapper_template_id": wrapper_template_id,
+        "ordered_emitter_component_ids": component_ids,
+        "activation_ordered_emitter_component_ids": activation_order,
+        "dependency_edges": dependency_edges,
+        "dependency_cycle": dependency_cycle,
+        "atomic_activation_group_ids": [
+            str(group["activation_group_id"]) for group in atomic_groups
+        ],
+        "atomic_activation_groups": atomic_groups,
+        "chunk_position": position_record.get("chunk_position", [0.0, 0.0, 0.0]),
+        "global_position": position_record.get("global_position", [0.0, 0.0, 0.0]),
+        "layer_membership": ["base"],
+        "variant_key": "",
+        "transaction_policy": "whole_effect_prepare_then_atomic_group_activation_v1",
+    }
+
+
+def stable_runtime_id(prefix: str, *parts: Any) -> str:
+    payload = json.dumps(
+        list(parts), ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    ).encode("utf-8")
+    return f"{prefix}_{hashlib.sha256(payload).hexdigest()[:32]}"
+
+
+def deterministic_generation_epoch() -> int:
+    value = os.environ.get("SOURCE_DATE_EPOCH", "0").strip()
+    if not value:
+        return 0
+    try:
+        result = int(value)
+    except ValueError as error:
+        raise ValueError(f"SOURCE_DATE_EPOCH is not an integer: {value!r}") from error
+    if result < 0:
+        raise ValueError("SOURCE_DATE_EPOCH cannot be negative")
+    return result
+
+
+def emitter_dependency_slot(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return -1
+    numeric = int(value)
+    return numeric if float(value) == float(numeric) else -1
+
+
+def atomic_activation_groups(
+    placement_id: str,
+    component_ids: list[str],
+    dependency_edges: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not component_ids:
+        return []
+    parent = list(range(len(component_ids)))
+    index_by_id = {component_id: index for index, component_id in enumerate(component_ids)}
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    for edge in dependency_edges:
+        source = index_by_id.get(str(edge.get("source_component_id", "")))
+        target = index_by_id.get(str(edge.get("target_component_id", "")))
+        if source is not None and target is not None:
+            union(source, target)
+
+    components_by_root: dict[int, list[str]] = {}
+    for index, component_id in enumerate(component_ids):
+        components_by_root.setdefault(find(index), []).append(component_id)
+    ordered_components = sorted(
+        components_by_root.values(), key=lambda values: index_by_id[values[0]]
+    )
+    return [
+        {
+            "activation_group_id": stable_runtime_id(
+                "effect_activation_group", placement_id, values
+            ),
+            "ordered_emitter_component_ids": values,
+        }
+        for values in ordered_components
+    ]
+
+
+def dependency_order(
+    component_ids: list[str], dependency_edges: list[dict[str, Any]]
+) -> tuple[list[str], bool]:
+    index_by_id = {component_id: index for index, component_id in enumerate(component_ids)}
+    outgoing: dict[str, set[str]] = {component_id: set() for component_id in component_ids}
+    indegree = {component_id: 0 for component_id in component_ids}
+    for edge in dependency_edges:
+        source = str(edge.get("source_component_id", ""))
+        target = str(edge.get("target_component_id", ""))
+        if source not in outgoing or target not in indegree or target in outgoing[source]:
+            continue
+        outgoing[source].add(target)
+        indegree[target] += 1
+    ready = [component_id for component_id in component_ids if indegree[component_id] == 0]
+    result: list[str] = []
+    while ready:
+        ready.sort(key=index_by_id.__getitem__)
+        component_id = ready.pop(0)
+        result.append(component_id)
+        for target in sorted(outgoing[component_id], key=index_by_id.__getitem__):
+            indegree[target] -= 1
+            if indegree[target] == 0:
+                ready.append(target)
+    dependency_cycle = len(result) != len(component_ids)
+    if dependency_cycle:
+        result.extend(component_id for component_id in component_ids if component_id not in result)
+    return result, dependency_cycle
 
 
 def normalized_actor_props(
@@ -868,6 +1576,20 @@ def transform_local_position(
         translation[1] + rotated[1],
         translation[2] + rotated[2],
     )
+
+
+def source_affine_transform_gltf_position(
+    transform: AffineTransform, position: tuple[float, float, float]
+) -> tuple[float, float, float]:
+    """Apply a Vanguard-source affine transform to a converted Godot point."""
+
+    source = (position[2], -position[0], position[1])
+    transformed = tuple(
+        transform.origin[row]
+        + sum(transform.basis[row][column] * source[column] for column in range(3))
+        for row in range(3)
+    )
+    return (-transformed[1], transformed[2], transformed[0])
 
 
 def quat_rotate(q: tuple[float, float, float, float], v: tuple[float, float, float]) -> tuple[float, float, float]:

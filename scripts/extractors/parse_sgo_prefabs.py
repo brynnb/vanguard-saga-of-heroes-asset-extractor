@@ -83,7 +83,9 @@ def write_prefab_index(prefabs, prefabs_out_path):
         )
         for name, entry in prefabs.items()
     }
-    os.makedirs(os.path.dirname(index_out_path), exist_ok=True)
+    index_parent = os.path.dirname(index_out_path)
+    if index_parent:
+        os.makedirs(index_parent, exist_ok=True)
     tmp_path = index_out_path + ".tmp"
     with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(index, f, separators=(",", ":"))
@@ -156,10 +158,13 @@ def _actor_hidden(props):
     return bool(props.get("bHidden")) or bool(props.get("bHiddenEd"))
 
 
-def _copy_actor_identity(record, cls, export_name, props):
+def _copy_actor_identity(record, cls, export_name, props, source_prefab_name):
     record["class"] = cls
     record["name"] = export_name
     record["props"] = props
+    record["source_component_path"] = (
+        f"prefab/{source_prefab_name}/actor/{cls}/{export_name}"
+    )
     if "bHidden" in props:
         record["hidden"] = props["bHidden"]
     if "bHiddenEd" in props:
@@ -394,7 +399,7 @@ for i in range(len(boundaries)):
                 if sm:
                     total_sma_with_mesh += 1
                     comp = _copy_actor_identity(
-                        {"mesh": sm}, cls, export_name, props
+                        {"mesh": sm}, cls, export_name, props, prefab_name
                     )
                     if props.get("Location"):
                         comp["location"] = props["Location"]
@@ -412,12 +417,12 @@ for i in range(len(boundaries)):
                 else:
                     total_sma_without_mesh += 1
                     static_mesh_actors_without_mesh.append(
-                        _copy_actor_identity({}, cls, export_name, props)
+                        _copy_actor_identity({}, cls, export_name, props, prefab_name)
                     )
 
             elif cls in ("Light", "DynamicLight"):
                 light = _copy_actor_identity(
-                    {"type": "light"}, cls, export_name, props
+                    {"type": "light"}, cls, export_name, props, prefab_name
                 )
                 if props.get("Location"):
                     light["location"] = props["Location"]
@@ -454,7 +459,7 @@ for i in range(len(boundaries)):
                 pn = props.get("PrefabName")
                 if pn:
                     ref = _copy_actor_identity(
-                        {"sub_prefab": pn}, cls, export_name, props
+                        {"sub_prefab": pn}, cls, export_name, props, prefab_name
                     )
                     if props.get("Location"):
                         ref["location"] = props["Location"]
@@ -594,7 +599,7 @@ def resolve_prefab(name, visited=None, depth=0):
                 leaf = leaf_prefabs[k]
                 break
     if leaf:
-        result.extend(leaf)
+        result.extend(dict(component) for component in leaf)
 
     compound = compound_prefabs.get(name)
     if not compound:
@@ -634,6 +639,15 @@ def resolve_prefab(name, visited=None, depth=0):
                 ]
                 rotated = _mat_apply(parent_rot_m, scaled)
                 new_comp = dict(comp)
+                parent_source_path = str(ref.get("source_component_path", "")).strip()
+                child_source_path = str(comp.get("source_component_path", "")).strip()
+                if not parent_source_path or not child_source_path:
+                    raise ValueError(
+                        f"prefab source component path is missing while resolving {name} -> {sub_name}"
+                    )
+                new_comp["source_component_path"] = (
+                    f"{parent_source_path}/contains/{child_source_path}"
+                )
                 new_comp["location"] = [parent_loc[i] + rotated[i] for i in range(3)]
                 if _actor_hidden(ref.get("props", {})):
                     new_comp["hidden"] = True
@@ -679,6 +693,20 @@ def resolve_prefab(name, visited=None, depth=0):
 all_prefabs = {}
 for name in sorted(set(leaf_prefabs) | set(compound_prefabs)):
     resolved = resolve_prefab(name)
+    source_paths = [
+        str(component.get("source_component_path", "")).strip()
+        for component in resolved
+        if isinstance(component, dict)
+    ]
+    if any(not path for path in source_paths):
+        raise ValueError(f"resolved prefab has an empty source component path: {name}")
+    if len(source_paths) != len(set(source_paths)):
+        duplicates = sorted(
+            path for path in set(source_paths) if source_paths.count(path) > 1
+        )
+        raise ValueError(
+            f"resolved prefab has duplicate source component paths: {name}: {duplicates[:4]}"
+        )
     entry = {"actors": resolved}
     if name in compound_prefabs:
         entry["compound_refs"] = compound_prefabs[name]
@@ -688,9 +716,14 @@ t2 = time.time()
 total_actors = sum(len(v.get("actors", [])) for v in all_prefabs.values())
 print(f"Pass 2 ({t2-t1:.1f}s): {len(all_prefabs)} prefabs, {total_actors} actors")
 
-os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
-with open(OUT_PATH, "w") as f:
-    json.dump(all_prefabs, f, indent=1)
+out_parent = os.path.dirname(OUT_PATH)
+if out_parent:
+    os.makedirs(out_parent, exist_ok=True)
+out_candidate = f"{OUT_PATH}.tmp-{os.getpid()}"
+with open(out_candidate, "w", encoding="utf-8") as f:
+    json.dump(all_prefabs, f, ensure_ascii=False, separators=(",", ":"))
+    f.write("\n")
+os.replace(out_candidate, OUT_PATH)
 print(f"Saved ({os.path.getsize(OUT_PATH)/1024:.0f} KB)")
 index_path, index_count = write_prefab_index(all_prefabs, OUT_PATH)
 print(f"Saved prefab index: {index_path} ({index_count:,} prefabs)")

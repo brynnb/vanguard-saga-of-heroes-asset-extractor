@@ -24,9 +24,9 @@ from generate_godot_runtime_chunk import (
 )
 
 
-OBJECT_CELL_INDEX_VERSION = 4
-GLOBAL_OBJECT_CELL_INDEX_VERSION = 2
-GLOBAL_LANDMARK_INDEX_VERSION = 2
+OBJECT_CELL_INDEX_VERSION = 5
+GLOBAL_OBJECT_CELL_INDEX_VERSION = 3
+GLOBAL_LANDMARK_INDEX_VERSION = 3
 DEFAULT_CELL_SIZE = 24000.0
 TERRAIN_CHUNK_WORLD_SIZE = 204400.0
 LANDMARK_SHELL_MIN_RADIUS = 2000.0
@@ -93,6 +93,9 @@ RECORD_FORMAT = [
     "rotation",
     "scale",
     "component",
+    "authoritative_source_object_id",
+    "authoritative_source_node_id",
+    "preserved_component_path",
 ]
 COMPONENT_FORMAT = ["location", "rotation", "draw_scale_3d", "draw_scale"]
 TIER_LOD_BUCKET_FORMAT = ["record", "asset"]
@@ -1060,6 +1063,16 @@ def expanded_placement_record(
         component = expanded_component_transform(source_record[8])
         if component:
             record["component"] = component
+    for field_index, field_name in (
+        (9, "authoritative_source_object_id"),
+        (10, "authoritative_source_node_id"),
+        (11, "preserved_component_path"),
+    ):
+        if len(source_record) <= field_index:
+            continue
+        identity = string_from_table(strings, int(source_record[field_index]))
+        if identity:
+            record[field_name] = identity
     asset = asset_for_index(assets, selected_asset_index)
     for key, value in asset.items():
         record.setdefault(str(key), value)
@@ -1324,7 +1337,35 @@ def placement_record(
     if component is not None:
         compact_component = compact_component_transform(component)
         record.append(compact_component if compact_component else None)
-    trim_trailing_nulls(record)
+    else:
+        record.append(None)
+
+    extras = node.get("extras", {})
+    if not isinstance(extras, dict):
+        raise ValueError(f"object node {node_index} has no authoritative source extras")
+    source_object_id = str(
+        extras.get("authoritative_source_object_id", "")
+    ).strip()
+    source_node_id = str(extras.get("authoritative_source_node_id", "")).strip()
+    if not source_object_id or not source_node_id:
+        raise ValueError(
+            f"object node {node_index} has no authoritative source object/node identity"
+        )
+    if component is None:
+        component_path = "actor_visual/root_mesh"
+    else:
+        component_path = str(component.get("source_component_path", "")).strip()
+        if not component_path:
+            raise ValueError(
+                f"object node {node_index} component {component_index} has no preserved source path"
+            )
+    record.extend(
+        [
+            intern_string(source_object_id, string_refs, strings),
+            intern_string(source_node_id, string_refs, strings),
+            intern_string(component_path, string_refs, strings),
+        ]
+    )
     return record
 
 

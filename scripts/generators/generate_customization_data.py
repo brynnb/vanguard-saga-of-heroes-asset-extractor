@@ -18,7 +18,8 @@ two data files consumed by the character viewer:
                                                    ALL bones preserved verbatim from the
                                                    source .txt (archival; not read by the
                                                    viewer)
-    output/data/playable_races.json             — slider_defaults[] array updated per race
+    output/data/playable_races.json             — slider_defaults[] and slider_ranges[]
+                                                   updated per race
 
   Preservation goal:
     Before this script existed, both output files were hand-maintained with no
@@ -47,9 +48,11 @@ two data files consumed by the character viewer:
       - 63 rows × 76 whitespace-separated integers each (= 38 min/max pairs).
       - Each pair is a clamp on ONE slider, but the file is not sequential.
         VGClient's native loader reads the first 19 pairs into even slider
-        slots and the second 19 pairs into odd slider slots. Midpoint of each
-        deinterleaved pair is the race's default slider value. Sliders 38..48
-        currently default to 50 because no race-mod clamp data is present.
+        slots and the second 19 pairs into odd slider slots. Each recovered
+        pair is preserved as that race/sex slider's allowed range. Midpoint of
+        each deinterleaved pair is the reconstructed default slider value.
+        Sliders 38..48 use range 0..100 and default 50 because no race-mod
+        clamp data is present.
       - Rows 0..41 correspond to 21 races × 2 genders (M, F interleaved).
         Rows 42..62 are non-playable races cut from the shipping game.
       - Row→race mapping is fixed by source order. The current playable list
@@ -310,6 +313,14 @@ def row_midpoints(pairs: list[tuple[int, int]], full_slider_count: int) -> list[
     return out
 
 
+def row_ranges(pairs: list[tuple[int, int]], full_slider_count: int) -> list[list[int]]:
+    """Preserve recovered inclusive slider clamps, padding unknown slots."""
+    out = [[min(mn, mx), max(mn, mx)] for mn, mx in pairs]
+    while len(out) < full_slider_count:
+        out.append([0, 100])
+    return out
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Row-to-race mapping
 # ─────────────────────────────────────────────────────────────────────────────
@@ -425,14 +436,16 @@ def main() -> int:
     if missing:
         print(f"  unmatched (will use all-50 defaults): {missing}")
 
-    # Apply regenerated slider_defaults to every entry.
+    # Apply regenerated slider defaults and authoritative clamps to every entry.
     for entry in playable:
         key = f"{entry['race']}_{entry['gender']}"
         ri = row_map.get(key)
         if ri is None:
             entry["slider_defaults"] = [50] * visible_count
+            entry["slider_ranges"] = [[0, 100] for _ in range(visible_count)]
         else:
             entry["slider_defaults"] = row_midpoints(rows[ri], visible_count)
+            entry["slider_ranges"] = row_ranges(rows[ri], visible_count)
 
     sliders_out     = args.output_dir / "customization_sliders.json"
     sliders_raw_out = args.output_dir / "customization_sliders_raw.json"
@@ -442,6 +455,7 @@ def main() -> int:
         existing_sliders = json.loads(sliders_out.read_text()) if sliders_out.exists() else None
         existing_playable = json.loads(playable_path.read_text())
         changed_slider_defaults = 0
+        changed_slider_ranges = 0
         for new_e, old_e in zip(playable, existing_playable):
             if new_e.get("slider_defaults") != old_e.get("slider_defaults"):
                 changed_slider_defaults += 1
@@ -450,13 +464,27 @@ def main() -> int:
                     f"    new: {new_e['slider_defaults']}\n"
                     f"    old: {old_e.get('slider_defaults')}"
                 )
+            if new_e.get("slider_ranges") != old_e.get("slider_ranges"):
+                changed_slider_ranges += 1
+                print(
+                    f"  slider_ranges differ for {new_e['race']}_{new_e['gender']}:\n"
+                    f"    new: {new_e['slider_ranges']}\n"
+                    f"    old: {old_e.get('slider_ranges')}"
+                )
         slider_tree_matches = existing_sliders == pages_tree_filtered
         print(
             f"\nCHECK RESULT: "
             f"sliders_json(filtered) match={slider_tree_matches}, "
-            f"slider_defaults diffs={changed_slider_defaults}/{len(playable)}"
+            f"slider_defaults diffs={changed_slider_defaults}/{len(playable)}, "
+            f"slider_ranges diffs={changed_slider_ranges}/{len(playable)}"
         )
-        return 0 if slider_tree_matches and changed_slider_defaults == 0 else 2
+        return (
+            0
+            if slider_tree_matches
+            and changed_slider_defaults == 0
+            and changed_slider_ranges == 0
+            else 2
+        )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     sliders_out.write_text(json.dumps(pages_tree_filtered, indent=2) + "\n")

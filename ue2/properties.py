@@ -220,9 +220,9 @@ def parse_struct_value(
         return None
 
     try:
-        # Color struct (4 bytes: R, G, B, A) - only parse if exactly 4 bytes
+        # Vanguard Core.u links Object.Color fields in B, G, R, A order.
         if struct_name == "Color" and len(data) == 4:
-            r, g, b, a = data[0], data[1], data[2], data[3]
+            b, g, r, a = data[0], data[1], data[2], data[3]
             return json.dumps({"r": r, "g": g, "b": b, "a": a})
 
         # Vector struct (12 bytes: X, Y, Z floats) - only parse if exactly 12 bytes

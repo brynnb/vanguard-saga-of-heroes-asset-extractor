@@ -362,7 +362,8 @@ def _decode_struct(struct_name: str, data: bytes,
         p, y, r = struct.unpack_from("<iii", data, 0)
         return {"pitch": p, "yaw": y, "roll": r}
     if struct_name == "Color" and n >= 4:
-        return {"R": data[0], "G": data[1], "B": data[2], "A": data[3]}
+        # Vanguard Core.u links Object.Color fields in B, G, R, A order.
+        return {"R": data[2], "G": data[1], "B": data[0], "A": data[3]}
     if struct_name == "Plane" and n >= 16:
         x, y, z, w = struct.unpack_from("<ffff", data, 0)
         return {"x": x, "y": y, "z": z, "w": w}
