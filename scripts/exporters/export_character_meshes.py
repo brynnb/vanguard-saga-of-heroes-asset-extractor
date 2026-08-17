@@ -22,6 +22,12 @@ sys.path.insert(0, os.path.join(PROJECT_ROOT, "scripts", "lib"))
 import config
 from ue2.package import UE2Package
 from vanguard_emfxmesh import parse_emfxmesh_export, export_gltf, extract_skins_shaders
+from scripts.lib.ue2_tagged_properties import (
+    TYPE_BOOL,
+    TYPE_STRUCT,
+    decode_scalar,
+    read_tagged_properties,
+)
 
 ASSETS = os.environ.get(
     "VANGUARD_ASSETS",
@@ -31,6 +37,75 @@ UEM_DIR = os.path.join(ASSETS, "Characters", "Meshes")
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output", "meshes", "characters")
 TEXTURE_DIR = os.path.join(PROJECT_ROOT, "output", "textures")
 MATERIAL_MANIFEST_PATH = os.path.join(PROJECT_ROOT, "output", "data", "material_manifest.json")
+
+# These shipped character meshes are the complete humanoid set whose EMFXMesh
+# exports omit `Item Template` entirely. Their sibling race/style exports,
+# names, and hair materials all identify them as Hair Top meshes. Keep the
+# recovery exact and auditable rather than letting consumers guess from
+# arbitrary filenames. The two Idara records are NPC-specific; the rest are
+# playable elf/orc styles.
+RECOVERED_HAIR_TOP_EXPORTS = {
+    "elf_M_char_hair_AB_DK_MidPartedLong1",
+    "elf_M_char_hair_AB_DK_MidPartedLong2",
+    "elf_M_char_hair_AB_DK_MidPartedLong3",
+    "elf_M_char_hair_AB_DK_MidPartedLong4",
+    "elf_M_char_hair_AB_DK_PulledBack1",
+    "elf_M_char_hair_AB_DK_PulledBack2",
+    "elf_M_char_hair_AB_DK_ScalpCutStr1",
+    "elf_M_char_hair_AB_HG_Messy1",
+    "elf_M_char_hair_AB_HG_Messy2",
+    "elf_M_char_hair_AB_HG_Messy3",
+    "elf_M_char_hair_AB_HG_MidPartedLong1",
+    "elf_M_char_hair_AB_HG_MidPartedLong2",
+    "elf_M_char_hair_AB_HG_MidPartedLong3",
+    "elf_M_char_hair_AB_HG_MidPartedLong4",
+    "elf_M_char_hair_AB_HG_PulledBack1",
+    "elf_M_char_hair_AB_HG_ScalpCutStr1",
+    "elf_M_char_hair_AB_WD_Messy1",
+    "elf_M_char_hair_AB_WD_Messy3",
+    "elf_M_char_hair_AB_WD_MidPartedLong3",
+    "elf_M_char_hair_AB_WD_MidPartedLong4",
+    "elf_M_char_hair_AB_WD_Short1",
+    "elf_M_char_hair_AB_WD_WildWavy3",
+    "human_F_hair_idara_0_C_0",
+    "human_F_hair_idara_0_C_10",
+    "orc_F_char_hairORTopLongUnkempt_100_C_0",
+    "orc_M_char_hair_AB_Ponytail1",
+}
+
+
+def _hidden_by_layers(pkg, data, export_name=""):
+    """Recover an EMFX mesh's authored modular-body occupancy layers."""
+    top_properties = {
+        prop.name: prop for prop in read_tagged_properties(data, pkg.names)
+    }
+    item_template = top_properties.get("Item Template")
+    if (
+        item_template is None
+        or item_template.type_id != TYPE_STRUCT
+        or item_template.struct_name != "ItemTemplate"
+    ):
+        return ["Hair Top"] if export_name in RECOVERED_HAIR_TOP_EXPORTS else []
+    template_properties = {
+        prop.name: prop
+        for prop in read_tagged_properties(
+            item_template.raw, pkg.names, require_terminator=False
+        )
+    }
+    hidden_by = template_properties.get("Item Hidden By")
+    if hidden_by is None:
+        return []
+    if hidden_by.type_id != TYPE_STRUCT or hidden_by.struct_name != "ItemHiddenBy":
+        raise ValueError("Item Hidden By has an unexpected property schema")
+    layers = []
+    for prop in read_tagged_properties(
+        hidden_by.raw, pkg.names, require_terminator=False
+    ):
+        if prop.type_id != TYPE_BOOL:
+            raise ValueError(f"{prop.name} is not a BoolProperty")
+        if bool(decode_scalar(prop, pkg.names)):
+            layers.append(prop.name.removeprefix("HiddenBy "))
+    return layers
 
 
 def _manifest_entry_for_ref(material_manifest, shader_ref):
@@ -80,6 +155,11 @@ def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--filter", help="Only export UEMs whose filename contains this string")
+    parser.add_argument(
+        "--metadata-only",
+        action="store_true",
+        help="Refresh recovered manifest metadata without rewriting glTF files",
+    )
     args = parser.parse_args()
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -100,6 +180,45 @@ def main():
 
     uem_files = sorted(glob.glob(os.path.join(UEM_DIR, "UEM_*.uem")))
     print(f"Found {len(uem_files)} UEM_* files")
+
+    manifest_path = os.path.join(OUTPUT_DIR, "manifest.json")
+    if args.metadata_only:
+        if not os.path.exists(manifest_path):
+            raise FileNotFoundError(
+                "--metadata-only requires an existing character manifest"
+            )
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+        entries_by_identity = {}
+        for entry in manifest:
+            if not isinstance(entry, dict):
+                continue
+            identity = (entry.get("package"), entry.get("export"))
+            entries_by_identity.setdefault(identity, []).append(entry)
+        refreshed = 0
+        for uem_path in uem_files:
+            pkg_name = os.path.splitext(os.path.basename(uem_path))[0]
+            if args.filter and args.filter not in pkg_name:
+                continue
+            pkg = UE2Package(uem_path)
+            for exp in pkg.get_exports_by_class("EMFXMesh"):
+                entries = entries_by_identity.get((pkg_name, exp["object_name"]), [])
+                if not entries:
+                    continue
+                layers = _hidden_by_layers(
+                    pkg, pkg.get_export_data(exp), exp["object_name"]
+                )
+                for entry in entries:
+                    prior_layers = entry.get("hidden_by_layers", [])
+                    entry["hidden_by_layers"] = list(
+                        dict.fromkeys(list(prior_layers) + layers)
+                    )
+                refreshed += 1
+        with open(manifest_path, "w") as f:
+            json.dump(manifest, f, indent=2)
+        print(f"Refreshed recovered metadata for {refreshed} manifest entries")
+        print(f"Manifest: {manifest_path}")
+        return
 
     manifest = []
     total_exported = 0
@@ -197,6 +316,7 @@ def main():
                         "uv_sets": mesh.num_uv_sets,
                         "materials": [m.name for m in mesh.materials],
                         "color_variants": color_variants,
+                        "hidden_by_layers": _hidden_by_layers(pkg, data, exp_name),
                     })
                     total_exported += 1
 
@@ -208,7 +328,6 @@ def main():
 
     # Write manifest. Filtered runs are useful for small probes; merge their
     # results into the existing manifest instead of replacing the full export.
-    manifest_path = os.path.join(OUTPUT_DIR, "manifest.json")
     if args.filter and os.path.exists(manifest_path):
         try:
             with open(manifest_path) as f:

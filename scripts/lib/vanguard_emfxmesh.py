@@ -1574,7 +1574,8 @@ def _is_generic_material_name(material_name):
     import re as _re
     generic_pat = _re.compile(
         r'^(lambert\d*|blinn\d*|phong\d*|initialShadingGroup|lambert'
-        r'|standardSurface\d*|defaultMaterial|SG\d*|.*SG\d*$)',
+        r'|standardSurface\d*|defaultMaterial|SG\d*|.*SG\d*$'
+        r'|generic_[MF]_hair_eyebrows_\d+_SHD$)',
         _re.IGNORECASE,
     )
     return bool(generic_pat.match(str(material_name or "")))

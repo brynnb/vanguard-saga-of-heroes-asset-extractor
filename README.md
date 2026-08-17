@@ -235,6 +235,10 @@ wardrobe at startup. `attachment_group_catalog.json`
 decodes the 17 original `.sag` template packages. These replace the obsolete
 attachment-index-only lookup; consumers must never resolve an appearance from
 `attachment_index` without its `package_index` and actor visual profile.
+`playable_races.json` also records exact race/style skin `TintAlpha` and
+`TintPalette` assets from the canonical material manifest. This is necessary
+because modular playable bodies reuse `npcHuman` geometry while retaining
+their own race material palette.
 
 Generate authoritative world-object and vegetation placements after prefab,
 mesh-manifest, or native TerrainInfo parsing changes:

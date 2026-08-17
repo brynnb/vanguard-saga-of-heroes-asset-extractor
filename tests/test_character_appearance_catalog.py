@@ -6,10 +6,15 @@ from pathlib import Path
 
 from scripts.extractors.decode_attachment_groups import CATEGORY_ORDER
 from scripts.extractors.decode_items import RUNTIME_PACKAGE_INDEX_TO_SOURCE, write_catalog
-from scripts.generators.generate_playable_races import PLAYABLE_VISUAL_SOURCE, _entry
+from scripts.generators.generate_playable_races import (
+    PLAYABLE_VISUAL_SOURCE,
+    _entry,
+    _skin_tint_record,
+)
 from scripts.exporters.export_playable_facial_controls import (
     _modular_package_name_for_entry,
 )
+from scripts.exporters.export_character_meshes import RECOVERED_HAIR_TOP_EXPORTS
 from scripts.lib.material_memory import MaterialMemoryResolver
 from scripts.lib.vanguard_emfxmesh import (
     FXAMaterial,
@@ -58,6 +63,20 @@ class TaggedPropertyReaderTest(unittest.TestCase):
 
 
 class AppearanceCatalogContractTest(unittest.TestCase):
+    def test_missing_hair_item_templates_have_an_exact_recovery_set(self) -> None:
+        self.assertEqual(len(RECOVERED_HAIR_TOP_EXPORTS), 26)
+        self.assertIn(
+            "elf_M_char_hair_AB_WD_Messy1", RECOVERED_HAIR_TOP_EXPORTS
+        )
+        self.assertIn(
+            "orc_M_char_hair_AB_Ponytail1", RECOVERED_HAIR_TOP_EXPORTS
+        )
+        self.assertIn("human_F_hair_idara_0_C_0", RECOVERED_HAIR_TOP_EXPORTS)
+        self.assertTrue(
+            all("Brow" not in name and "Eyebrow" not in name
+                for name in RECOVERED_HAIR_TOP_EXPORTS)
+        )
+
     def test_modular_master_package_derives_from_playable_family(self) -> None:
         self.assertEqual(
             _modular_package_name_for_entry(
@@ -153,6 +172,30 @@ class AppearanceCatalogContractTest(unittest.TestCase):
 
             self.assertEqual(Path(resolved), expected)
 
+    def test_eyebrow_placeholder_material_uses_authoritative_skin_shader(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            texture_directory = Path(temp_directory)
+            expected = texture_directory / "female_brow.png"
+            expected.write_bytes(b"png")
+            source_ref = "UTX_generic_M_hair.Shader.Color_0_hair_brow_1"
+            material = FXAMaterial()
+            material.name = "generic_M_hair_eyebrows_1_SHD"
+
+            resolved = _find_clr_texture(
+                material,
+                str(texture_directory),
+                shader_map={},
+                pkg_hint="UEM_elf_F_hair",
+                skins_shaders=[source_ref],
+                material_manifest={
+                    source_ref: {
+                        "base_color": {"asset_path": str(expected)},
+                    }
+                },
+            )
+
+            self.assertEqual(Path(resolved), expected)
+
     def test_runtime_package_mapping_is_one_to_one(self) -> None:
         sources = list(RUNTIME_PACKAGE_INDEX_TO_SOURCE.values())
         self.assertEqual(len(sources), len(set(sources)))
@@ -206,6 +249,23 @@ class AppearanceCatalogContractTest(unittest.TestCase):
         unsupported = _entry("KojanBarbarian", "M")
         self.assertFalse(unsupported["visual_supported"])
         self.assertNotIn("optimized_package", unsupported)
+
+    def test_skin_tint_record_preserves_authored_material_assets(self) -> None:
+        source_ref = "UTX_halfGiant_F_char.Shader.halfGiant_F_char_head_0_SHD"
+        manifest = {
+            source_ref: {
+                "tint_alpha": {"asset_path": "output/textures/head_TNTA.png"},
+                "tint_palette": {"asset_path": "output/textures/skin_TNT.png"},
+            }
+        }
+
+        record = _skin_tint_record(manifest, "HalfGiant", "F", 0)
+
+        self.assertEqual(record["head"]["source_ref"], source_ref)
+        self.assertEqual(
+            record["palette"]["asset_path"], "output/textures/skin_TNT.png"
+        )
+        self.assertEqual(record["body"], {})
 
 
 if __name__ == "__main__":

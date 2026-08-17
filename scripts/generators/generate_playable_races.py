@@ -21,6 +21,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 CHARACTERS = ROOT / "output" / "meshes" / "characters"
 OUTPUT = ROOT / "output" / "data"
+MATERIAL_MANIFEST = OUTPUT / "material_manifest.json"
 
 
 # Values recovered from the server race table. Half Elf is the human-sized
@@ -95,7 +96,39 @@ FACE_COUNT = {
 }
 
 
-def _entry(race: str, gender: str) -> dict[str, Any]:
+def _skin_tint_record(
+    material_manifest: dict[str, Any], prefix: str, gender: str, style_index: int
+) -> dict[str, Any]:
+    source_prefix = prefix[:1].lower() + prefix[1:]
+    package = f"UTX_{source_prefix}_{gender}_char"
+
+    def material(part: str) -> dict[str, Any]:
+        source_ref = (
+            f"{package}.Shader.{source_prefix}_{gender}_char_{part}_{style_index}_SHD"
+        )
+        entry = material_manifest.get(source_ref, {})
+        tint_alpha = entry.get("tint_alpha") or {}
+        tint_palette = entry.get("tint_palette") or {}
+        if not tint_alpha.get("asset_path") or not tint_palette.get("asset_path"):
+            return {}
+        return {
+            "source_ref": source_ref,
+            "tint_alpha": tint_alpha,
+            "tint_palette": tint_palette,
+        }
+
+    body = material("body")
+    head = material("head")
+    palette = (head or body).get("tint_palette", {})
+    if not palette:
+        return {}
+    return {"body": body, "head": head, "palette": palette}
+
+
+def _entry(
+    race: str, gender: str, material_manifest: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    material_manifest = material_manifest or {}
     source = PLAYABLE_VISUAL_SOURCE.get(race)
     entry: dict[str, Any] = {
         "schema": 2,
@@ -131,13 +164,19 @@ def _entry(race: str, gender: str) -> dict[str, Any]:
             "optimized_master_export": master_export,
         }
     )
+    skin_tint = _skin_tint_record(material_manifest, prefix, gender, style_index)
+    if skin_tint:
+        entry["skin_tint"] = skin_tint
     return entry
 
 
 def main() -> int:
     OUTPUT.mkdir(parents=True, exist_ok=True)
+    material_manifest: dict[str, Any] = {}
+    if MATERIAL_MANIFEST.exists():
+        material_manifest = json.loads(MATERIAL_MANIFEST.read_text(encoding="utf-8"))
     entries = [
-        _entry(race, gender)
+        _entry(race, gender, material_manifest)
         for race in PLAYER_RACES
         for gender in ("M", "F")
     ]
