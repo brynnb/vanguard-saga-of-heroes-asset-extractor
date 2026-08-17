@@ -885,6 +885,10 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
                 # for these specialized runtime sections.
                 two_sided = True
                 material_extras["vg_speedtree_foliage"] = True
+                # Ordinary masked SpeedTree geometry is fixed frond geometry.
+                # Collapsed leaf sections are replaced later with a cloned
+                # leaf_card material by the runtime-card hybrid step.
+                material_extras["vg_speedtree_foliage_kind"] = "frond"
 
             section_materials.append(
                 (
@@ -949,6 +953,13 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
         max_pos[0] = max(max_pos[0], gx)
         max_pos[1] = max(max_pos[1], gy)
         max_pos[2] = max(max_pos[2], gz)
+
+    if is_speedtree and min_pos[1] != float("inf"):
+        for section_material in section_materials:
+            extras = section_material[8] if len(section_material) > 8 else {}
+            if extras.get("vg_speedtree_foliage"):
+                extras["vg_speedtree_bbox_min_y"] = min_pos[1]
+                extras["vg_speedtree_bbox_height"] = max(1.0, max_pos[1] - min_pos[1])
 
     pos_end = len(buffer_data)
     buffer_views.append(

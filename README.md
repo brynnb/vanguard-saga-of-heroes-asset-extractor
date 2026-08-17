@@ -74,13 +74,16 @@ On Linux the script uses Wine or an installed Steam Proton runtime. Intermediate
 SPT/FBX files live under ignored, disk-backed `output/work/`, while compact
 runtime-derived JSON sidecars live under `output/data/speedtree_runtime_leaf_cards/`.
 
-The normal StaticMesh exporter then replaces collapsed cards with explicit
-portable triangles, preserves runtime width/height/pivot/placement and UVs,
-emits normals, makes SpeedTree foliage double-sided, removes degenerate source
-triangles, and rejects corrupt tangent memory. It refuses to publish a broken
-SpeedTree when a required runtime sidecar is absent. Cesium and Godot therefore
-receive standard glTF geometry and require no Vanguard-specific billboard
-attribute or shader contract.
+The normal StaticMesh exporter then replaces collapsed cards with portable
+glTF quads. Repeated `POSITION` values preserve each runtime card center while
+`TEXCOORD_1` carries its exact width/height corner offsets; `TEXCOORD_0` keeps
+the authored atlas region. Material extras explicitly distinguish camera-facing
+`leaf_card` surfaces from fixed `frond` geometry and include the tree height
+range used for wind. Cesium for Godot maps the standard second UV set to Godot
+UV2, so Vanguard can expand leaves in camera space without a private glTF
+extension. The exporter also makes foliage double-sided, removes degenerate
+source triangles, rejects corrupt tangent memory, and refuses to publish a
+broken SpeedTree when a required runtime sidecar is absent.
 
 Keep package workers low: individual Vanguard packages can require more than
 5 GiB of transient memory while their embedded glTF and images are assembled.

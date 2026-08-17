@@ -21,6 +21,7 @@ def build_gltf(card_data: dict) -> dict:
     positions = []
     normals = []
     uvs = []
+    billboard_offsets = []
     colors = []
     indices = []
 
@@ -30,23 +31,42 @@ def build_gltf(card_data: dict) -> dict:
             continue
         base_index = len(positions) // 3
         dimming = float(card["dimming"])
+        center = card.get("avg_position_gltf")
+        if center is None:
+            center = [
+                sum(float(record["position_gltf"][axis]) for record in vertex_records) / 4.0
+                for axis in range(3)
+            ]
+        size_values = card.get("size_xy_values", [])
+        if len(size_values) != 1 or len(size_values[0]) != 2:
+            raise ValueError(
+                f"Recovered leaf card {card.get('card_id')} has no unique runtime size"
+            )
+        width, height = (float(value) for value in size_values[0])
+        uv_min_x = min(float(record["diffuse_uv"][0]) for record in vertex_records)
+        uv_max_x = max(float(record["diffuse_uv"][0]) for record in vertex_records)
+        uv_min_y = min(float(record["diffuse_uv"][1]) for record in vertex_records)
+        uv_max_y = max(float(record["diffuse_uv"][1]) for record in vertex_records)
+        uv_width = uv_max_x - uv_min_x
+        uv_height = uv_max_y - uv_min_y
+        if uv_width <= 1.0e-8 or uv_height <= 1.0e-8:
+            raise ValueError(f"Recovered leaf card {card.get('card_id')} has degenerate UVs")
         for record in vertex_records:
-            positions.extend(record["position_gltf"])
-            uvs.extend(record["diffuse_uv"])
+            positions.extend(center)
+            diffuse_uv = record["diffuse_uv"]
+            uvs.extend(diffuse_uv)
+            local_u = (float(diffuse_uv[0]) - uv_min_x) / uv_width
+            local_v = (float(diffuse_uv[1]) - uv_min_y) / uv_height
+            billboard_offsets.extend([
+                (local_u - 0.5) * width,
+                (0.5 - local_v) * height,
+            ])
             colors.extend([dimming, dimming, dimming, 1.0])
-        p0, p1, _p2, p3 = [record["position_gltf"] for record in vertex_records]
-        edge_a = [p1[axis] - p0[axis] for axis in range(3)]
-        edge_b = [p3[axis] - p0[axis] for axis in range(3)]
-        normal = [
-            edge_a[1] * edge_b[2] - edge_a[2] * edge_b[1],
-            edge_a[2] * edge_b[0] - edge_a[0] * edge_b[2],
-            edge_a[0] * edge_b[1] - edge_a[1] * edge_b[0],
-        ]
-        length = sum(value * value for value in normal) ** 0.5
-        if length <= 1.0e-8:
-            raise ValueError(f"Recovered leaf card {card.get('card_id')} is degenerate")
-        normal = [value / length for value in normal]
-        normals.extend(normal * 4)
+        # Leaf-card vertices intentionally share one center. TEXCOORD_1 carries
+        # the exact SpeedTree runtime width/height offsets that the renderer
+        # expands in camera space. A stable normal keeps the portable glTF
+        # valid; the leaf-card shader is unshaded, as in the prior client.
+        normals.extend([0.0, 0.0, 1.0] * 4)
         indices.extend([
             base_index + 0,
             base_index + 1,
@@ -63,12 +83,18 @@ def build_gltf(card_data: dict) -> dict:
     pos_bytes = b"".join(struct.pack("<f", value) for value in positions)
     normal_bytes = b"".join(struct.pack("<f", value) for value in normals)
     uv_bytes = b"".join(struct.pack("<f", value) for value in uvs)
+    billboard_offset_bytes = b"".join(
+        struct.pack("<f", value) for value in billboard_offsets
+    )
     color_bytes = b"".join(struct.pack("<f", value) for value in colors)
     idx_bytes = b"".join(struct.pack("<H", value) for value in indices)
 
     pos_start, pos_end = aligned_extend(buffer, pos_bytes)
     normal_start, normal_end = aligned_extend(buffer, normal_bytes)
     uv_start, uv_end = aligned_extend(buffer, uv_bytes)
+    billboard_offset_start, billboard_offset_end = aligned_extend(
+        buffer, billboard_offset_bytes
+    )
     color_start, color_end = aligned_extend(buffer, color_bytes)
     idx_start, idx_end = aligned_extend(buffer, idx_bytes)
 
@@ -87,6 +113,7 @@ def build_gltf(card_data: dict) -> dict:
             {"buffer": 0, "byteOffset": pos_start, "byteLength": pos_end - pos_start, "target": 34962},
             {"buffer": 0, "byteOffset": normal_start, "byteLength": normal_end - normal_start, "target": 34962},
             {"buffer": 0, "byteOffset": uv_start, "byteLength": uv_end - uv_start, "target": 34962},
+            {"buffer": 0, "byteOffset": billboard_offset_start, "byteLength": billboard_offset_end - billboard_offset_start, "target": 34962},
             {"buffer": 0, "byteOffset": color_start, "byteLength": color_end - color_start, "target": 34962},
             {"buffer": 0, "byteOffset": idx_start, "byteLength": idx_end - idx_start, "target": 34963},
         ],
@@ -101,8 +128,9 @@ def build_gltf(card_data: dict) -> dict:
             },
             {"bufferView": 1, "componentType": 5126, "count": len(normals) // 3, "type": "VEC3"},
             {"bufferView": 2, "componentType": 5126, "count": len(uvs) // 2, "type": "VEC2"},
-            {"bufferView": 3, "componentType": 5126, "count": len(colors) // 4, "type": "VEC4"},
-            {"bufferView": 4, "componentType": 5123, "count": len(indices), "type": "SCALAR"},
+            {"bufferView": 3, "componentType": 5126, "count": len(billboard_offsets) // 2, "type": "VEC2"},
+            {"bufferView": 4, "componentType": 5126, "count": len(colors) // 4, "type": "VEC4"},
+            {"bufferView": 5, "componentType": 5123, "count": len(indices), "type": "SCALAR"},
         ],
         "materials": [
             {
@@ -121,10 +149,11 @@ def build_gltf(card_data: dict) -> dict:
                 "name": "RecoveredLeafCards",
                 "primitives": [
                     {
-                        "attributes": {"POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2, "COLOR_0": 3},
-                        "indices": 4,
+                        "attributes": {"POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2, "TEXCOORD_1": 3, "COLOR_0": 4},
+                        "indices": 5,
                         "material": 0,
                         "mode": 4,
+                        "extras": {"vg_speedtree_foliage_kind": "leaf_card"},
                     }
                 ],
             }

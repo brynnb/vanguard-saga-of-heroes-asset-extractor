@@ -87,15 +87,22 @@ def build_hybrid(our_gltf_path: Path, leaf_gltf_path: Path) -> dict:
             "Expected exactly one collapsed SpeedTree leaf primitive, found "
             f"{len(collapsed_primitives)}"
         )
-    foliage_material_index = next(
+    source_foliage_material_index = next(
         primitive["material"]
         for primitive in collapsed_primitives
     )
-    foliage_material = our_materials[foliage_material_index]
+    # A source package may reuse one masked material for fixed fronds and
+    # runtime leaf cards. Clone it so camera-facing leaf behavior can never be
+    # applied to a surviving frond primitive.
+    foliage_material = copy.deepcopy(our_materials[source_foliage_material_index])
     foliage_material["doubleSided"] = True
     foliage_material["alphaMode"] = "MASK"
     foliage_material["alphaCutoff"] = 0.38
-    foliage_material.setdefault("extras", {})["vg_speedtree_foliage"] = True
+    foliage_extras = foliage_material.setdefault("extras", {})
+    foliage_extras["vg_speedtree_foliage"] = True
+    foliage_extras["vg_speedtree_foliage_kind"] = "leaf_card"
+    foliage_material_index = len(our_materials)
+    our_materials.append(foliage_material)
 
     surviving_primitives = [
         primitive
@@ -107,6 +114,9 @@ def build_hybrid(our_gltf_path: Path, leaf_gltf_path: Path) -> dict:
     leaf_positions = read_accessor(leaf_data, leaf_blob, leaf_primitive["attributes"]["POSITION"])
     leaf_normals = read_accessor(leaf_data, leaf_blob, leaf_primitive["attributes"]["NORMAL"])
     leaf_uvs = read_accessor(leaf_data, leaf_blob, leaf_primitive["attributes"]["TEXCOORD_0"])
+    leaf_billboard_offsets = read_accessor(
+        leaf_data, leaf_blob, leaf_primitive["attributes"]["TEXCOORD_1"]
+    )
     leaf_colors = read_accessor(leaf_data, leaf_blob, leaf_primitive["attributes"]["COLOR_0"])
     leaf_indices = read_accessor(leaf_data, leaf_blob, leaf_primitive["indices"])
 
@@ -171,6 +181,9 @@ def build_hybrid(our_gltf_path: Path, leaf_gltf_path: Path) -> dict:
     pos_accessor = append_accessor(leaf_positions, 5126, "VEC3", target=34962, minmax={"min": pos_min, "max": pos_max})
     normal_accessor = append_accessor(leaf_normals, 5126, "VEC3", target=34962)
     uv_accessor = append_accessor(leaf_uvs, 5126, "VEC2", target=34962)
+    billboard_offset_accessor = append_accessor(
+        leaf_billboard_offsets, 5126, "VEC2", target=34962
+    )
     color_accessor = append_accessor(leaf_colors, 5126, "VEC4", target=34962)
     idx_accessor = append_accessor(leaf_indices, 5123, "SCALAR", target=34963)
     new_primitives.append(
@@ -179,11 +192,13 @@ def build_hybrid(our_gltf_path: Path, leaf_gltf_path: Path) -> dict:
                 "POSITION": pos_accessor,
                 "NORMAL": normal_accessor,
                 "TEXCOORD_0": uv_accessor,
+                "TEXCOORD_1": billboard_offset_accessor,
                 "COLOR_0": color_accessor,
             },
             "indices": idx_accessor,
             "material": foliage_material_index,
             "mode": 4,
+            "extras": {"vg_speedtree_foliage_kind": "leaf_card"},
         }
     )
 

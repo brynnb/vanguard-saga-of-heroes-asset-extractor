@@ -54,6 +54,8 @@ class SpeedTreeStaticMeshTests(unittest.TestCase):
                 {
                     "card_id": 1,
                     "dimming": 0.75,
+                    "size_xy_values": [[2.0, 4.0]],
+                    "avg_position_gltf": [0.5, 0.5, 0.0],
                     "vertex_records": [
                         {"position_gltf": [0, 0, 0], "diffuse_uv": [0, 0]},
                         {"position_gltf": [0, 1, 0], "diffuse_uv": [0, 1]},
@@ -64,6 +66,8 @@ class SpeedTreeStaticMeshTests(unittest.TestCase):
                 {
                     "card_id": 2,
                     "dimming": 1.0,
+                    "size_xy_values": [[2.0, 4.0]],
+                    "avg_position_gltf": [2.5, 0.5, 0.0],
                     "vertex_records": [
                         {"position_gltf": [2, 0, 0], "diffuse_uv": [0, 0]},
                         {"position_gltf": [2, 1, 0], "diffuse_uv": [0, 1]},
@@ -76,6 +80,10 @@ class SpeedTreeStaticMeshTests(unittest.TestCase):
         gltf = build_gltf(payload)
         primitive = gltf["meshes"][0]["primitives"][0]
         self.assertIn("NORMAL", primitive["attributes"])
+        self.assertIn("TEXCOORD_1", primitive["attributes"])
+        self.assertEqual(
+            primitive["extras"]["vg_speedtree_foliage_kind"], "leaf_card"
+        )
         index_accessor = gltf["accessors"][primitive["indices"]]
         self.assertEqual(index_accessor["count"], 12)
         index_view = gltf["bufferViews"][index_accessor["bufferView"]]
@@ -87,6 +95,23 @@ class SpeedTreeStaticMeshTests(unittest.TestCase):
         )
         self.assertEqual(max(indices), 7)
         self.assertTrue(gltf["materials"][0]["doubleSided"])
+
+        position_accessor = gltf["accessors"][primitive["attributes"]["POSITION"]]
+        position_view = gltf["bufferViews"][position_accessor["bufferView"]]
+        positions = struct.unpack_from(
+            "<" + "f" * position_accessor["count"] * 3,
+            blob,
+            position_view["byteOffset"],
+        )
+        self.assertEqual(positions[:12], (0.5, 0.5, 0.0) * 4)
+        offset_accessor = gltf["accessors"][primitive["attributes"]["TEXCOORD_1"]]
+        offset_view = gltf["bufferViews"][offset_accessor["bufferView"]]
+        offsets = struct.unpack_from(
+            "<" + "f" * offset_accessor["count"] * 2,
+            blob,
+            offset_view["byteOffset"],
+        )
+        self.assertEqual(offsets[:8], (-1.0, 2.0, -1.0, -2.0, 1.0, 2.0, 1.0, -2.0))
 
 
 if __name__ == "__main__":
