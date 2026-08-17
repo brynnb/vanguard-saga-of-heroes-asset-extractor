@@ -22,6 +22,7 @@ import sqlite3
 import struct
 import argparse
 import math
+import re
 import time
 import hashlib
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -89,6 +90,27 @@ TREE_KEYWORDS = (
     "beech",
     "plane",
 )
+
+COLLISION_HELPER_SUFFIX_RE = re.compile(
+    r"(?i)(?:_?(?:collision|collobj|coll))\d*$"
+)
+LOD_SUFFIX_RE = re.compile(r"(?i)_l\d+$")
+INSTANCE_SUFFIX_RE = re.compile(r"\d+$")
+
+
+def collision_helper_base(name: str) -> str | None:
+    stem = Path(name).stem
+    match = COLLISION_HELPER_SUFFIX_RE.search(stem)
+    if match is None:
+        return None
+    return stem[: match.start()].rstrip("_").casefold()
+
+
+def collision_family_base(name: str) -> str:
+    stem = Path(name).stem
+    helper_base = collision_helper_base(stem)
+    normalized = helper_base if helper_base is not None else LOD_SUFFIX_RE.sub("", stem).casefold()
+    return INSTANCE_SUFFIX_RE.sub("", normalized).rstrip("_")
 
 
 def is_tree_mesh_name(name: str) -> bool:
@@ -312,6 +334,9 @@ class ParsedMesh:
     tangent_vs: Optional[List[Tuple[float, float, float]]] = None
     basis_streams: Optional[List[List[Tuple[float, float, float]]]] = None
     is_speedtree: bool = False
+    collision_slots: Optional[List[bool]] = None
+    simple_collision_flags: Optional[Dict[str, bool]] = None
+    collision_metadata_status: str = "absent"
 
 
 # =============================================================================
@@ -459,6 +484,9 @@ def parse_staticmesh_file(pkg_path: str) -> List[ParsedMesh]:
                     tangent_vs=mesh_data.tangent_vs,
                     basis_streams=mesh_data.basis_streams,
                     is_speedtree=is_speedtree,
+                    collision_slots=list(mesh_data.collision_slots),
+                    simple_collision_flags=dict(mesh_data.simple_collision_flags),
+                    collision_metadata_status=mesh_data.collision_metadata_status,
                 )
             )
 
@@ -1671,8 +1699,31 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
         primitives.append(prim)
 
     # --- Assemble glTF ---
+    collision_slots = list(mesh.collision_slots or [])
+    simple_collision_flags = dict(mesh.simple_collision_flags or {})
+    collision_metadata = {
+        "version": 1,
+        "source": "ue2_staticmesh_properties",
+        "status": mesh.collision_metadata_status,
+        "section_slots": collision_slots,
+        "simple_flags": simple_collision_flags,
+        "matches_section_count": bool(
+            collision_slots and len(collision_slots) == len(mesh.sections or [])
+        ),
+        "source_identity": {
+            "package": Path(mesh.package_path).stem,
+            "outer": mesh.outer_name,
+            "outer_index": mesh.outer_index,
+            "export_index": mesh.export_index,
+            "mesh": mesh.name,
+        },
+    }
     gltf = {
-        "asset": {"version": "2.0", "generator": "Vanguard StaticMesh Pipeline v2"},
+        "asset": {
+            "version": "2.0",
+            "generator": "Vanguard StaticMesh Pipeline v2",
+            "extras": {"vg_collision": collision_metadata},
+        },
         "scene": 0,
         "scenes": [{"nodes": [0]}],
         "nodes": [{"mesh": 0, "name": mesh.name}],
@@ -1739,6 +1790,17 @@ def process_package(
     file_id = get_or_create_file_id(conn, pkg_path) if conn else 0
     # sys.stderr.write(f"DEBUG: Processing {os.path.basename(pkg_path)}\n")
     meshes = parse_staticmesh_file(pkg_path)
+
+    if required_mesh_names is not None:
+        requested_families = {
+            collision_family_base(name) for name in required_mesh_names
+        }
+        required_mesh_names = set(required_mesh_names)
+        required_mesh_names.update(
+            mesh.name.casefold()
+            for mesh in meshes
+            if collision_helper_base(mesh.name) in requested_families
+        )
 
     eligible_meshes = []
     by_output_name: dict[str, list[ParsedMesh]] = {}
@@ -2203,6 +2265,8 @@ def write_mesh_manifest(
         for path in output_path.rglob("*.gltf")
         if path.relative_to(output_path).as_posix() not in claimed_outputs
     )
+    helper_catalog = build_collision_helper_catalog(output_path, meshes)
+    _atomic_json(output_path / "collision_helpers.json", helper_catalog)
     manifest_path = output_path / "manifest.json"
     _atomic_json(
         manifest_path,
@@ -2218,9 +2282,106 @@ def write_mesh_manifest(
             "unclaimed_gltf_examples": unclaimed_outputs[:100],
             "flat_name_collision_count": len(name_collisions or []),
             "flat_name_collisions": name_collisions or [],
+            "collision_helper_catalog": "collision_helpers.json",
+            "collision_helper_links": int(helper_catalog["link_count"]),
         },
     )
     return len(meshes)
+
+
+def _gltf_geometry_summary(path: Path) -> tuple[list[float], list[float], int]:
+    document = json.loads(path.read_text(encoding="utf-8"))
+    minimum = [float("inf")] * 3
+    maximum = [float("-inf")] * 3
+    triangles = 0
+    for mesh in document.get("meshes", []):
+        for primitive in mesh.get("primitives", []):
+            position = document["accessors"][primitive["attributes"]["POSITION"]]
+            for axis in range(3):
+                minimum[axis] = min(minimum[axis], float(position["min"][axis]))
+                maximum[axis] = max(maximum[axis], float(position["max"][axis]))
+            if int(primitive.get("mode", 4)) == 4:
+                triangles += int(document["accessors"][primitive["indices"]]["count"]) // 3
+    if not all(math.isfinite(value) for value in minimum + maximum):
+        raise ValueError(f"collision helper candidate has no finite bounds: {path}")
+    return minimum, maximum, triangles
+
+
+def _matching_collision_bounds(
+    visible: tuple[list[float], list[float], int],
+    helper: tuple[list[float], list[float], int],
+) -> bool:
+    visible_min, visible_max, _ = visible
+    helper_min, helper_max, _ = helper
+    visible_center = [(a + b) * 0.5 for a, b in zip(visible_min, visible_max)]
+    helper_center = [(a + b) * 0.5 for a, b in zip(helper_min, helper_max)]
+    visible_size = [b - a for a, b in zip(visible_min, visible_max)]
+    helper_size = [b - a for a, b in zip(helper_min, helper_max)]
+    diagonal = math.sqrt(sum(value * value for value in visible_size))
+    center_distance = math.sqrt(
+        sum((a - b) ** 2 for a, b in zip(visible_center, helper_center))
+    )
+    if center_distance > max(1.0, diagonal * 0.05):
+        return False
+    for visible_axis, helper_axis in zip(visible_size, helper_size):
+        if visible_axis <= 1e-6 and helper_axis <= 1e-6:
+            continue
+        ratio = helper_axis / max(visible_axis, 1e-6)
+        if ratio < 0.5 or ratio > 2.0:
+            return False
+    return True
+
+
+def build_collision_helper_catalog(output_root: Path, meshes: list[str]) -> dict[str, Any]:
+    """Link safe terminal-named collision helpers to visible mesh families."""
+    by_package: dict[str, list[str]] = {}
+    for relative in meshes:
+        by_package.setdefault(Path(relative).parent.as_posix(), []).append(relative)
+    summaries: dict[str, tuple[list[float], list[float], int]] = {}
+    links: dict[str, dict[str, Any]] = {}
+    rejected = []
+    for package, package_meshes in sorted(by_package.items()):
+        helpers = [path for path in package_meshes if collision_helper_base(path)]
+        visible = [path for path in package_meshes if not collision_helper_base(path)]
+        for helper_path in helpers:
+            base = collision_helper_base(helper_path)
+            candidates = [
+                path for path in visible if collision_family_base(path) == base
+            ]
+            if not candidates:
+                continue
+            helper_summary = summaries.setdefault(
+                helper_path, _gltf_geometry_summary(output_root / helper_path)
+            )
+            matching = []
+            for visible_path in candidates:
+                visible_summary = summaries.setdefault(
+                    visible_path, _gltf_geometry_summary(output_root / visible_path)
+                )
+                if _matching_collision_bounds(visible_summary, helper_summary):
+                    matching.append((visible_path, visible_summary))
+                else:
+                    rejected.append(
+                        {"visible_mesh_path": visible_path, "helper_mesh_path": helper_path}
+                    )
+            for visible_path, visible_summary in matching:
+                previous = links.get(visible_path)
+                candidate = {
+                    "helper_mesh_path": helper_path,
+                    "visible_triangles": visible_summary[2],
+                    "helper_triangles": helper_summary[2],
+                    "authority": "authored_same_package_name_and_bounds",
+                }
+                if previous is None or candidate["helper_triangles"] < previous["helper_triangles"]:
+                    links[visible_path] = candidate
+    return {
+        "schema": "vanguard_staticmesh_collision_helpers",
+        "version": 1,
+        "link_count": len(links),
+        "rejected_bounds_mismatch_count": len(rejected),
+        "rejected_bounds_mismatch_examples": rejected[:100],
+        "links": dict(sorted(links.items())),
+    }
 
 
 def mesh_manifest_entries_from_object_artifact(

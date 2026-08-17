@@ -15,10 +15,14 @@ Source: UEViewer/Unreal/UnrealMesh/UnMesh2.cpp SerializeVanguardMesh
 import struct
 import math
 try:
-    from .ue2_property_reader import BinaryReader, skip_ue2_properties
+    from .ue2_property_reader import (
+        BinaryReader,
+        read_ue2_properties,
+        skip_ue2_properties,
+    )
     from .staticmesh_topology import section_triangle_indices
 except ImportError:  # Direct script imports used by the extraction CLI.
-    from ue2_property_reader import BinaryReader, skip_ue2_properties
+    from ue2_property_reader import BinaryReader, read_ue2_properties, skip_ue2_properties
     from staticmesh_topology import section_triangle_indices
 
 
@@ -47,6 +51,9 @@ class VanguardMeshData:
         "internal_version",
         "is_new_format",
         "bytes_consumed",
+        "collision_slots",
+        "simple_collision_flags",
+        "collision_metadata_status",
     )
 
     def __init__(self):
@@ -69,6 +76,95 @@ class VanguardMeshData:
         self.internal_version = 0
         self.is_new_format = False
         self.bytes_consumed = 0
+        self.collision_slots = []
+        self.simple_collision_flags = {}
+        self.collision_metadata_status = "absent"
+
+
+SIMPLE_COLLISION_PROPERTY_NAMES = (
+    "UseSimpleLineCollision",
+    "UseSimpleBoxCollision",
+    "UseSimpleKarmaCollision",
+)
+
+
+def read_staticmesh_collision_metadata(data, names):
+    """Decode the authoritative collision policy in a StaticMesh property block.
+
+    Vanguard's ``Collision`` ArrayProperty contains one nested UE2 property
+    record per material/section slot. Each observed record contains an
+    ``Enable Collision`` BoolProperty. Keep this decoder beside the active mesh
+    parser so normal exports, not a separate research corpus, own the metadata.
+    """
+
+    reader = BinaryReader(data)
+    try:
+        properties = read_ue2_properties(reader, names)
+    except (IndexError, struct.error):
+        # A handful of Vanguard StaticMesh exports do not expose a conventional
+        # leading UE2 property stream. The geometry parser already has a
+        # structurally validated header-anchor fallback for those exports.
+        return {
+            "status": "unsupported_property_stream",
+            "slots": [],
+            "simple_flags": {},
+            "properties_end_offset": 0,
+        }
+    simple_flags = {
+        name: bool(properties[name])
+        for name in SIMPLE_COLLISION_PROPERTY_NAMES
+        if isinstance(properties.get(name), bool)
+    }
+    raw_collision = properties.get("Collision")
+    if raw_collision is None:
+        return {
+            "status": "absent",
+            "slots": [],
+            "simple_flags": simple_flags,
+            "properties_end_offset": reader.tell(),
+        }
+    if not isinstance(raw_collision, (bytes, bytearray)):
+        raise StaticMeshParseError("Collision property payload is not an array")
+
+    nested = BinaryReader(raw_collision)
+    slots = []
+    try:
+        count = nested.read_compact_index()
+        if count < 0 or count > 65536:
+            raise StaticMeshParseError(f"Collision slot count is invalid: {count}")
+        for index in range(count):
+            before = nested.tell()
+            record = read_ue2_properties(nested, names)
+            enabled = record.get("Enable Collision")
+            if not isinstance(enabled, bool):
+                raise StaticMeshParseError(
+                    f"Collision slot {index} has no Enable Collision BoolProperty"
+                )
+            if nested.tell() <= before:
+                raise StaticMeshParseError(f"Collision slot {index} made no progress")
+            slots.append(enabled)
+        if nested.tell() != len(raw_collision):
+            raise StaticMeshParseError(
+                "Collision property has trailing bytes: "
+                f"{len(raw_collision) - nested.tell()}"
+            )
+    except (IndexError, struct.error, StaticMeshParseError):
+        # Some Vanguard packages serialize a different Collision array payload.
+        # Do not corrupt otherwise-valid mesh extraction by guessing its layout;
+        # publish an explicit unsupported status so the compiler can use the
+        # independently recovered legacy table until this variant is decoded.
+        return {
+            "status": "unsupported_payload",
+            "slots": [],
+            "simple_flags": simple_flags,
+            "properties_end_offset": reader.tell(),
+        }
+    return {
+        "status": "decoded",
+        "slots": slots,
+        "simple_flags": simple_flags,
+        "properties_end_offset": reader.tell(),
+    }
 
 
 def _remaining(r):
@@ -215,6 +311,10 @@ def parse_vanguard_staticmesh(data, names, serial_offset=0, imports=None):
     Source: UEViewer SerializeVanguardMesh (UnMesh2.cpp:1801-1883)
     """
     mesh = VanguardMeshData()
+    collision = read_staticmesh_collision_metadata(data, names)
+    mesh.collision_slots = collision["slots"]
+    mesh.simple_collision_flags = collision["simple_flags"]
+    mesh.collision_metadata_status = collision["status"]
     r = BinaryReader(data)
 
     # Prefer the exact end of the UE2 property stream. A bounded byte scan is

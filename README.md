@@ -41,6 +41,15 @@ The original Vanguard client data is spread across UE2 package files, Vanguard-s
   preserve the recoverable UE2.5 `Shader` / `Combiner` / `TexScaler` graph,
   bump, specular, detail, opacity, and self-illumination inputs in glTF extras
   so a runtime adapter can reproduce them without flattening layered materials.
+  Each glTF also carries its package/outer/export identity, decoded per-section
+  `Collision.Enable Collision` policy, and authored simple-collision flags in
+  `asset.extras.vg_collision`. Downstream collision compilers should consume
+  this embedded contract instead of joining against a separately generated,
+  flat mesh-name table. Unknown serialized Collision-array variants are marked
+  `unsupported_payload` rather than guessed or allowed to fail mesh extraction.
+  Object-scoped runs also retain same-package terminal `_collision` / `_coll`
+  helper meshes and publish bounds-validated links in
+  `output/meshes/buildings/collision_helpers.json`.
 - Character meshes, playable race metadata, customization data, and item attachment references.
 - EMotion FX and UE2 skeletal animations, including static hand/finger pose clips and playable facial-control sidecars.
 - UAX, ISB, and ICB audio data.
