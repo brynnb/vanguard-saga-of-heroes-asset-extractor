@@ -96,6 +96,33 @@ def is_tree_mesh_name(name: str) -> bool:
     return any(keyword in lower_name for keyword in TREE_KEYWORDS)
 
 
+def _remove_speedtree_shadow_detail(
+    material_extras: dict[str, Any],
+    detail_asset: dict[str, Any] | None,
+) -> bool:
+    """Keep SpeedTree shadow provenance without treating it as tiled detail.
+
+    Vanguard's ``*_shadow*`` SpeedTree textures contain a whole-tree shadow
+    silhouette. They are not UV-space bark/leaf detail textures. Repeating one
+    across geometry produces the characteristic stippled-dot corruption.
+    """
+    if not detail_asset:
+        return False
+    asset_name = str(detail_asset.get("asset_name") or "")
+    if "shadow" not in asset_name.lower():
+        return False
+
+    material_extras["vg_speedtree_shadow_texture_asset"] = detail_asset
+    material_extras.pop("vg_detail_texture_asset", None)
+    runtime_graph = material_extras.get("vg_runtime_material_graph")
+    if isinstance(runtime_graph, dict):
+        roots = runtime_graph.get("roots")
+        if isinstance(roots, dict):
+            roots.pop("detail", None)
+        runtime_graph.pop("detail_scale", None)
+    return True
+
+
 def _runtime_leaf_card_json_candidates(
     mesh_name: str, package_path: str | None = None
 ) -> list[str]:
@@ -878,6 +905,12 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
                         detail_texture_name = detail_asset["asset_name"]
                         material_extras["vg_detail_texture_asset"] = detail_asset
                     detail_scale = shader_info.detail_scale
+
+                    if is_speedtree and _remove_speedtree_shadow_detail(
+                        material_extras, detail_asset
+                    ):
+                        detail_texture_name = None
+                        detail_scale = None
 
             if is_speedtree and alpha_mode == "mask":
                 # The SpeedTree runtime renders leaf/frond cards from either

@@ -5,6 +5,7 @@ import argparse
 import base64
 import copy
 import json
+import math
 import struct
 from pathlib import Path
 
@@ -70,6 +71,43 @@ def pack_uint16(values) -> bytes:
     return b"".join(struct.pack("<H", int(item)) for item in values)
 
 
+def _referenced_positions(data: dict, blob: bytes, primitive: dict) -> list[tuple]:
+    """Return only positions referenced by a primitive's index buffer."""
+    positions = read_accessor(data, blob, primitive["attributes"]["POSITION"])
+    if "indices" not in primitive:
+        return positions
+    indices = read_accessor(data, blob, primitive["indices"])
+    return [positions[int(index)] for index in sorted(set(indices))]
+
+
+def _runtime_to_static_scale(
+    source_positions: list[tuple], runtime_positions: list[tuple]
+) -> float:
+    """Recover the per-tree scale baked into Vanguard's StaticMesh.
+
+    Spt2Fbx reports leaf cards in the SpeedTree model's native units, while the
+    UE2 StaticMesh has already baked a model-specific uniform scale.  Both use
+    the same rooted, upright coordinate system after glTF conversion, so the
+    ratio of their vertical canopy spans is the lossless scale conversion.
+    """
+    if not source_positions or not runtime_positions:
+        raise ValueError("Cannot align empty SpeedTree leaf position sets")
+    source_y = [float(position[1]) for position in source_positions]
+    runtime_y = [float(position[1]) for position in runtime_positions]
+    source_span = max(source_y) - min(source_y)
+    runtime_span = max(runtime_y) - min(runtime_y)
+    if not math.isfinite(source_span) or not math.isfinite(runtime_span):
+        raise ValueError("SpeedTree leaf bounds contain non-finite values")
+    if source_span <= 1.0e-6 or runtime_span <= 1.0e-6:
+        raise ValueError(
+            "Cannot align SpeedTree leaf cards with a degenerate vertical span"
+        )
+    scale = source_span / runtime_span
+    if not math.isfinite(scale) or scale <= 0.0:
+        raise ValueError(f"Invalid SpeedTree runtime-to-static scale {scale}")
+    return scale
+
+
 def build_hybrid(our_gltf_path: Path, leaf_gltf_path: Path) -> dict:
     our_data, our_blob = load_gltf(our_gltf_path)
     leaf_data, leaf_blob = load_gltf(leaf_gltf_path)
@@ -119,6 +157,22 @@ def build_hybrid(our_gltf_path: Path, leaf_gltf_path: Path) -> dict:
     )
     leaf_colors = read_accessor(leaf_data, leaf_blob, leaf_primitive["attributes"]["COLOR_0"])
     leaf_indices = read_accessor(leaf_data, leaf_blob, leaf_primitive["indices"])
+
+    source_leaf_positions = _referenced_positions(
+        our_data, our_blob, collapsed_primitives[0]
+    )
+    runtime_to_static_scale = _runtime_to_static_scale(
+        source_leaf_positions, leaf_positions
+    )
+    leaf_positions = [
+        tuple(float(component) * runtime_to_static_scale for component in position)
+        for position in leaf_positions
+    ]
+    leaf_billboard_offsets = [
+        tuple(float(component) * runtime_to_static_scale for component in offset)
+        for offset in leaf_billboard_offsets
+    ]
+    foliage_extras["vg_speedtree_runtime_to_static_scale"] = runtime_to_static_scale
 
     buffer = bytearray()
     buffer_views = []

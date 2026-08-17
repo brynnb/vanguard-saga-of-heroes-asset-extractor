@@ -77,13 +77,19 @@ runtime-derived JSON sidecars live under `output/data/speedtree_runtime_leaf_car
 The normal StaticMesh exporter then replaces collapsed cards with portable
 glTF quads. Repeated `POSITION` values preserve each runtime card center while
 `TEXCOORD_1` carries its exact width/height corner offsets; `TEXCOORD_0` keeps
-the authored atlas region. Material extras explicitly distinguish camera-facing
+the authored atlas region. Spt2Fbx reports cards in the SpeedTree model's native
+units, so the hybrid exporter recovers each tree's UE2-baked uniform scale from
+the original collapsed canopy bounds and applies it to both card centers and
+corner offsets. Material extras explicitly distinguish camera-facing
 `leaf_card` surfaces from fixed `frond` geometry and include the tree height
 range used for wind. Cesium for Godot maps the standard second UV set to Godot
 UV2, so Vanguard can expand leaves in camera space without a private glTF
 extension. The exporter also makes foliage double-sided, removes degenerate
 source triangles, rejects corrupt tangent memory, and refuses to publish a
-broken SpeedTree when a required runtime sidecar is absent.
+broken SpeedTree when a required runtime sidecar is absent. SpeedTree
+`*_shadow*` textures are retained as provenance metadata, but are deliberately
+excluded from generic tiled detail modulation: they contain a projected
+whole-tree silhouette, not bark- or leaf-space detail.
 
 Keep package workers low: individual Vanguard packages can require more than
 5 GiB of transient memory while their embedded glTF and images are assembled.
