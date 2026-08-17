@@ -47,6 +47,12 @@ from ue2 import UE2Package
 from material_memory import MaterialMemoryResolver
 from vanguard_staticmesh import parse_vanguard_staticmesh
 from staticmesh_topology import section_triangle_indices
+from speedtree_staticmesh import (
+    collapsed_leaf_section,
+    discard_degenerate_triangles,
+    has_embedded_speedtree_payload,
+    tangent_stream_is_usable,
+)
 from scripts.speedtree.build_spt2fbx_leaf_hybrid_gltf import build_hybrid as build_runtime_leaf_hybrid
 from scripts.speedtree.export_reconstructed_spt2fbx_leaf_cards_gltf import build_gltf as build_runtime_leaf_gltf
 
@@ -57,6 +63,9 @@ CANONICAL_DB = config.DB_PATH
 MESHES_DIR = os.path.join(config.ASSETS_PATH, "Meshes")
 OUTPUT_DIR = config.MESH_BUILDINGS_DIR  # Where glTF files go
 RUNTIME_LEAF_COMPARE_DIR = os.path.join(PROJECT_ROOT, "output", "data", "spt2fbx_attachment_compare")
+RUNTIME_LEAF_CARD_DIR = os.path.join(
+    PROJECT_ROOT, "output", "data", "speedtree_runtime_leaf_cards"
+)
 OUTPUT_TEXTURES_DIR = os.path.join(PROJECT_ROOT, "output", "textures")
 
 TREE_KEYWORDS = (
@@ -87,7 +96,16 @@ def is_tree_mesh_name(name: str) -> bool:
     return any(keyword in lower_name for keyword in TREE_KEYWORDS)
 
 
-def _runtime_leaf_card_json_candidates(mesh_name: str) -> list[str]:
+def _runtime_leaf_card_json_candidates(
+    mesh_name: str, package_path: str | None = None
+) -> list[str]:
+    candidates: list[str] = []
+    if package_path:
+        package_name = Path(package_path).stem
+        candidates.append(
+            os.path.join(RUNTIME_LEAF_CARD_DIR, package_name, f"{mesh_name}.json")
+        )
+
     lower_name = (mesh_name or "").lower()
     name_variants = []
     if lower_name:
@@ -106,34 +124,62 @@ def _runtime_leaf_card_json_candidates(mesh_name: str) -> list[str]:
             ordered_variants.append(variant)
             seen.add(variant)
 
-    return [os.path.join(RUNTIME_LEAF_COMPARE_DIR, f"{variant}_leaf_cards.json") for variant in ordered_variants]
+    candidates.extend(
+        os.path.join(RUNTIME_LEAF_COMPARE_DIR, f"{variant}_leaf_cards.json")
+        for variant in ordered_variants
+    )
+    return candidates
 
 
-def _maybe_export_runtime_leaf_hybrid(gltf_path: str, mesh_name: str) -> str | None:
-    sidecar_path = next((path for path in _runtime_leaf_card_json_candidates(mesh_name) if os.path.exists(path)), None)
-    if not sidecar_path and not is_tree_mesh_name(mesh_name):
-        return None
+def _runtime_leaf_card_path(mesh: "ParsedMesh") -> str | None:
+    return next(
+        (
+            path
+            for path in _runtime_leaf_card_json_candidates(
+                mesh.name, mesh.package_path
+            )
+            if os.path.exists(path)
+        ),
+        None,
+    )
+
+
+def _apply_runtime_leaf_hybrid(
+    base_gltf_path: str, output_path: str, mesh: "ParsedMesh"
+) -> None:
+    sidecar_path = _runtime_leaf_card_path(mesh)
     if not sidecar_path:
-        return None
+        raise ValueError(f"{mesh.name}: no runtime leaf-card sidecar is available")
 
     with open(sidecar_path, "r", encoding="utf-8") as handle:
         card_payload = json.load(handle)
 
-    sidecar_stem = os.path.basename(sidecar_path).removesuffix("_leaf_cards.json")
-    leaf_gltf_path = os.path.join(RUNTIME_LEAF_COMPARE_DIR, f"{sidecar_stem}_leaf_cards.gltf")
-    if not os.path.exists(leaf_gltf_path):
+    leaf_gltf_path = f"{base_gltf_path}.runtime-leaves"
+    candidate_path = f"{output_path}.writing-{os.getpid()}"
+    try:
         leaf_gltf = build_runtime_leaf_gltf(card_payload)
         with open(leaf_gltf_path, "w", encoding="utf-8") as handle:
-            json.dump(leaf_gltf, handle, indent=2)
-            handle.write("\n")
+            json.dump(leaf_gltf, handle)
+        hybrid_gltf = build_runtime_leaf_hybrid(
+            Path(base_gltf_path), Path(leaf_gltf_path)
+        )
+        with open(candidate_path, "w", encoding="utf-8") as handle:
+            json.dump(hybrid_gltf, handle)
+        os.replace(candidate_path, output_path)
+    finally:
+        for temporary_path in (leaf_gltf_path, candidate_path):
+            if os.path.exists(temporary_path):
+                os.unlink(temporary_path)
 
-    hybrid_output_path = gltf_path[:-5] + "_runtime_leaves_hybrid.gltf" if gltf_path.endswith(".gltf") else gltf_path + "_runtime_leaves_hybrid.gltf"
-    hybrid_gltf = build_runtime_leaf_hybrid(Path(gltf_path), Path(leaf_gltf_path))
-    with open(hybrid_output_path, "w", encoding="utf-8") as handle:
-        json.dump(hybrid_gltf, handle, indent=2)
-        handle.write("\n")
 
-    return hybrid_output_path
+def _gltf_has_collapsed_speedtree_leaves(path: str) -> bool:
+    with open(path, "r", encoding="utf-8") as handle:
+        gltf = json.load(handle)
+    return any(
+        primitive.get("extras", {}).get("vg_speedtree_collapsed_leaves")
+        for gltf_mesh in gltf.get("meshes", [])
+        for primitive in gltf_mesh.get("primitives", [])
+    )
 
 
 def print_progress_bar(
@@ -238,6 +284,7 @@ class ParsedMesh:
     tangent_us: Optional[List[Tuple[float, float, float]]] = None
     tangent_vs: Optional[List[Tuple[float, float, float]]] = None
     basis_streams: Optional[List[List[Tuple[float, float, float]]]] = None
+    is_speedtree: bool = False
 
 
 # =============================================================================
@@ -292,6 +339,7 @@ def parse_staticmesh_file(pkg_path: str) -> List[ParsedMesh]:
         try:
             data = pkg.get_export_data(exp)
             serial_offset = exp["serial_offset"]
+            is_speedtree = has_embedded_speedtree_payload(data)
 
             mesh_data = parse_vanguard_staticmesh(
                 data, pkg.names, serial_offset, imports=pkg.imports
@@ -383,6 +431,7 @@ def parse_staticmesh_file(pkg_path: str) -> List[ParsedMesh]:
                     tangent_us=mesh_data.tangent_us,
                     tangent_vs=mesh_data.tangent_vs,
                     basis_streams=mesh_data.basis_streams,
+                    is_speedtree=is_speedtree,
                 )
             )
 
@@ -664,110 +713,6 @@ def _load_texture_image_b64(texture_name):
     return None, None
 
 
-def _compute_leaf_billboard_data(mesh: "ParsedMesh", eligible_vertices=None):
-    """
-    Compute billboard corner offsets for collapsed SpeedTree leaf card quads.
-
-    SpeedTree stores leaf cards as 4 vertices at the same center position
-    with different UVs (quad corners). The game engine expands them at runtime
-    via a vertex shader into camera-facing billboards.
-
-    We detect collapsed quads, compute the corner offset each vertex needs
-    (right/up in screen space × half_size), and store it in mesh._billboard_offsets.
-    The vertex positions remain at the center. The viewer's vertex shader will
-    expand them toward the camera.
-
-    mesh._billboard_offsets: list of (sx, sy) per vertex, where:
-        sx = -1 or +1 (right direction)
-        sy = -1 or +1 (up direction)
-        Multiplied by the card's half_size at render time.
-    mesh._billboard_sizes: list of float per vertex (half_size for this card, 0 if not a billboard)
-    """
-    import math
-
-    if not mesh.indices or not mesh.vertices:
-        return
-
-    eligible_vertices = set(eligible_vertices or [])
-
-    # Initialize per-vertex billboard data (0 = not a billboard vertex)
-    n = len(mesh.vertices)
-    bb_sx = [0.0] * n  # corner x: -1 or +1
-    bb_sy = [0.0] * n  # corner y: -1 or +1
-    bb_size = [0.0] * n  # half_size (0 = non-billboard)
-
-    # Pass 1: detect all collapsed quads and collect centers + vertex lists
-    collapsed_quads = []  # list of (center_pos, quad_verts, uv_data)
-    
-    # Group vertices by their rounded spatial position
-    from collections import defaultdict
-    pos_map = defaultdict(list)
-    for vi, v in enumerate(mesh.vertices):
-        if eligible_vertices and vi not in eligible_vertices:
-            continue
-        # Round to 2 decimal places to handle floating point inaccuracies
-        k = (round(v.x, 2), round(v.y, 2), round(v.z, 2))
-        pos_map[k].append(vi)
-        
-    for center_k, vert_indices in pos_map.items():
-        # A collapsed leaf quad has exactly 4 vertices at the same spot.
-        # (Sometimes 8 if double-sided or multiple leaves at one spot, but we handle in chunks of 4)
-        if len(vert_indices) >= 4:
-            # We process them in chunks of 4
-            for chunk_start in range(0, len(vert_indices) - 3, 4):
-                quad_verts = vert_indices[chunk_start:chunk_start+4]
-                uvs = [(mesh.vertices[vi].u, mesh.vertices[vi].v) for vi in quad_verts]
-                collapsed_quads.append((center_k, quad_verts, uvs))
-
-    if not collapsed_quads:
-        mesh._billboard_sx = bb_sx
-        mesh._billboard_sy = bb_sy
-        mesh._billboard_size = bb_size
-        return
-
-    # Pass 2: compute half_size from average nearest-neighbor distance
-    # Card diameter should match avg spacing for seamless coverage
-    centers = [q[0] for q in collapsed_quads]
-    if len(centers) >= 2:
-        nn_dists = []
-        for i, c1 in enumerate(centers):
-            min_d = float('inf')
-            for j, c2 in enumerate(centers):
-                if i == j:
-                    continue
-                d = math.sqrt((c1[0]-c2[0])**2 + (c1[1]-c2[1])**2 + (c1[2]-c2[2])**2)
-                if d < min_d:
-                    min_d = d
-            nn_dists.append(min_d)
-        avg_nn = sum(nn_dists) / len(nn_dists)
-        half_size = avg_nn  # card diameter = 2× avg spacing for heavy overlap
-    else:
-        # Fallback for single card: use 5% of mesh height
-        all_z = [v.z for v in mesh.vertices]
-        tree_height = max(all_z) - min(all_z) if all_z else 0
-        half_size = tree_height * 0.05
-
-    # Pass 3: assign corner offsets and sizes
-    for center, quad_verts, uvs in collapsed_quads:
-        u_min = min(uv[0] for uv in uvs)
-        u_max = max(uv[0] for uv in uvs)
-        v_min = min(uv[1] for uv in uvs)
-        v_max = max(uv[1] for uv in uvs)
-        u_mid = (u_min + u_max) / 2
-        v_mid = (v_min + v_max) / 2
-
-        for vi in quad_verts:
-            v = mesh.vertices[vi]
-            bb_sx[vi] = 1.0 if v.u > u_mid else -1.0
-            bb_sy[vi] = -1.0 if v.v > v_mid else 1.0  # V flipped (UV v increases downward)
-            bb_size[vi] = half_size
-
-    # Store on mesh for the glTF exporter to pick up
-    mesh._billboard_sx = bb_sx
-    mesh._billboard_sy = bb_sy
-    mesh._billboard_size = bb_size
-
-
 def _gltf_basis_vector(vector: tuple[float, float, float]) -> tuple[float, float, float]:
     x, y, z = vector
     return (
@@ -809,14 +754,24 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
 
     import base64
 
+    is_speedtree = bool(getattr(mesh, "is_speedtree", False))
+    normals = [(vertex.nx, vertex.ny, vertex.nz) for vertex in mesh.vertices]
     has_uvs = any(v.u != 0.0 or v.v != 0.0 for v in mesh.vertices)
-    has_uv1s = bool(mesh.uv1s) and len(mesh.uv1s) == len(mesh.vertices)
-    has_tangent_us = bool(mesh.tangent_us) and len(mesh.tangent_us) == len(mesh.vertices)
-    has_tangent_vs = bool(mesh.tangent_vs) and len(mesh.tangent_vs) == len(mesh.vertices)
+    # SpeedTree uses the additional streams for runtime card controls, not as
+    # a second render UV set. Publishing them as TEXCOORD_1 is misleading.
+    has_uv1s = (
+        not is_speedtree
+        and bool(mesh.uv1s)
+        and len(mesh.uv1s) == len(mesh.vertices)
+    )
+    has_tangent_us = tangent_stream_is_usable(mesh.tangent_us, normals)
+    has_tangent_vs = has_tangent_us and tangent_stream_is_usable(
+        mesh.tangent_vs, normals
+    )
     basis_streams = [
         stream
         for stream in (mesh.basis_streams or [])
-        if stream and len(stream) == len(mesh.vertices)
+        if not is_speedtree and stream and len(stream) == len(mesh.vertices)
     ]
 
     # --- Resolve materials for each section ---
@@ -924,6 +879,13 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
                         material_extras["vg_detail_texture_asset"] = detail_asset
                     detail_scale = shader_info.detail_scale
 
+            if is_speedtree and alpha_mode == "mask":
+                # The SpeedTree runtime renders leaf/frond cards from either
+                # side. Generic UE2 Shader.TwoSided metadata is not reliable
+                # for these specialized runtime sections.
+                two_sided = True
+                material_extras["vg_speedtree_foliage"] = True
+
             section_materials.append(
                 (
                     shader_ref,
@@ -949,58 +911,6 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
                 or detail_texture_name
             ):
                 has_any_texture = True
-
-    # --- Expand collapsed SpeedTree leaf card quads ---
-    # SpeedTree stores leaf cards as 4 vertices at the same center position
-    # with different UVs (quad corners). We expand them into real quads.
-    # Only run on SpeedTree / tree meshes — on buildings it corrupts geometry
-    # where thin faces happen to share vertex positions.
-    path_lower = output_path.lower()
-    is_tree_mesh = is_tree_mesh_name(path_lower)
-    if is_tree_mesh and mesh.sections and mesh.indices:
-        billboard_vertices = set()
-        non_billboard_vertices = set()
-        for si, sec in enumerate(mesh.sections):
-            if sec.get("num_primitives", 0) <= 0:
-                continue
-            sec_indices = section_triangle_indices(
-                mesh.indices, sec, vertex_count=len(mesh.vertices)
-            )
-            sec_vertices = {idx for idx in sec_indices if 0 <= idx < len(mesh.vertices)}
-            if not sec_vertices:
-                continue
-
-            sm = (
-                section_materials[si]
-                if si < len(section_materials)
-                else (
-                    None,
-                    None,
-                    None,
-                    None,
-                    False,
-                    False,
-                    None,
-                    None,
-                    {},
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                )
-            )
-            alpha_mode = sm[3] if len(sm) > 3 else None
-            if alpha_mode == "mask":
-                billboard_vertices.update(sec_vertices)
-            else:
-                non_billboard_vertices.update(sec_vertices)
-
-        eligible_billboard_vertices = billboard_vertices - non_billboard_vertices
-        _compute_leaf_billboard_data(mesh, eligible_billboard_vertices)
-
-    # Check if billboard data was computed
-    has_billboards = hasattr(mesh, '_billboard_size') and any(s > 0 for s in mesh._billboard_size)
 
     # Build attribute accessor indices
     attr_pos_idx = 0
@@ -1245,36 +1155,6 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
         )
         attributes[f"_BASIS{basis_idx}"] = basis_acc_idx
 
-    # --- Billboard attribute for SpeedTree leaf cards ---
-    attr_bb_idx = None
-    if has_billboards:
-        bb_start = len(buffer_data)
-        for i in range(len(mesh.vertices)):
-            sx = mesh._billboard_sx[i]
-            sy = mesh._billboard_sy[i]
-            sz = mesh._billboard_size[i]
-            buffer_data.extend(struct.pack("<fff", sx, sy, sz))
-        bb_end = len(buffer_data)
-
-        bb_bv_idx = len(buffer_views)
-        buffer_views.append(
-            {
-                "buffer": 0,
-                "byteOffset": bb_start,
-                "byteLength": bb_end - bb_start,
-                "target": 34962,
-            }
-        )
-        attr_bb_idx = len(accessors)
-        accessors.append(
-            {
-                "bufferView": bb_bv_idx,
-                "componentType": 5126,
-                "count": len(mesh.vertices),
-                "type": "VEC3",
-            }
-        )
-
     # --- Vertex colors (COLOR_0) for SpeedTree shadow/AO tinting ---
     has_colors = any(
         v.r != 1.0 or v.g != 1.0 or v.b != 1.0 or v.a != 1.0
@@ -1517,7 +1397,11 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
                 }
                 if alpha_mode == "mask":
                     mat_def["alphaMode"] = "MASK"
-                    mat_def["alphaCutoff"] = 0.01
+                    mat_def["alphaCutoff"] = (
+                        0.38
+                        if (material_extras or {}).get("vg_speedtree_foliage")
+                        else 0.01
+                    )
 
                 apply_material_metadata(
                     mat_def,
@@ -1569,9 +1453,25 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
         for si, sec in enumerate(mesh.sections):
             if sec.get("num_primitives", 0) == 0:
                 continue
+            section_alpha_mode = (
+                section_materials[si][3]
+                if si < len(section_materials) and len(section_materials[si]) > 3
+                else None
+            )
             sec_indices = section_triangle_indices(
                 mesh.indices, sec, vertex_count=len(mesh.vertices)
             )
+            is_collapsed_leaf = (
+                is_speedtree
+                and section_alpha_mode == "mask"
+                and collapsed_leaf_section(mesh.vertices, sec_indices)
+            )
+            if not is_collapsed_leaf:
+                sec_indices = discard_degenerate_triangles(
+                    mesh.vertices, sec_indices
+                )
+            if not sec_indices:
+                continue
 
             # Pad to 4-byte alignment
             while len(buffer_data) % 4 != 0:
@@ -1657,9 +1557,6 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
             )
 
             prim_attributes = dict(attributes)
-            if attr_bb_idx is not None and alpha_mode == "mask":
-                if any(mesh._billboard_size[idx] > 0 for idx in sec_indices if 0 <= idx < len(mesh._billboard_size)):
-                    prim_attributes["_BILLBOARD"] = attr_bb_idx
 
             prim = {
                 "attributes": prim_attributes,
@@ -1667,6 +1564,8 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
                 "material": mat_idx,
                 "mode": 4,
             }
+            if is_collapsed_leaf:
+                prim["extras"] = {"vg_speedtree_collapsed_leaves": True}
             primitives.append(prim)
 
     if not primitives:
@@ -1714,9 +1613,6 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
         )
 
         prim_attributes = dict(attributes)
-        if attr_bb_idx is not None:
-            prim_attributes["_BILLBOARD"] = attr_bb_idx
-
         prim = {"attributes": prim_attributes, "indices": idx_accessor, "mode": 4}
         # Add default material if we have any materials
         if gltf_materials:
@@ -1781,7 +1677,6 @@ def process_package(
     export_gltf: bool = True,
     output_dir: str = None,
     only_trees: bool = False,
-    export_runtime_leaf_hybrids: bool = False,
     required_mesh_names: Optional[set[str]] = None,
 ) -> Dict[str, Any]:
     """
@@ -1859,7 +1754,31 @@ def process_package(
                     )
                     continue
                 try:
-                    exported = mesh_to_gltf(mesh, gltf_path)
+                    is_speedtree = bool(getattr(mesh, "is_speedtree", False))
+                    base_path = (
+                        f"{gltf_path}.speedtree-base-{os.getpid()}"
+                        if is_speedtree
+                        else gltf_path
+                    )
+                    requires_runtime_leaves = False
+                    try:
+                        exported = mesh_to_gltf(mesh, base_path)
+                        if exported and is_speedtree:
+                            requires_runtime_leaves = (
+                                _gltf_has_collapsed_speedtree_leaves(base_path)
+                            )
+                            if requires_runtime_leaves:
+                                if _runtime_leaf_card_path(mesh) is None:
+                                    raise ValueError(
+                                        f"{mesh.name}: exact SpeedTree leaf-card data is missing; "
+                                        "run generate_speedtree_runtime_leaf_cards.py before export"
+                                    )
+                                _apply_runtime_leaf_hybrid(base_path, gltf_path, mesh)
+                            else:
+                                os.replace(base_path, gltf_path)
+                    finally:
+                        if is_speedtree and os.path.exists(base_path):
+                            os.unlink(base_path)
                 except Exception as exc:
                     stats["error"] += 1
                     stats["failures"].append(
@@ -1875,13 +1794,8 @@ def process_package(
                     stats["outputs"].append(
                         Path(gltf_path).relative_to(output_dir).as_posix()
                     )
-                    if export_runtime_leaf_hybrids:
-                        hybrid_path = _maybe_export_runtime_leaf_hybrid(gltf_path, mesh.name)
-                        if hybrid_path:
-                            stats["hybrid_exported"] += 1
-                            stats["outputs"].append(
-                                Path(hybrid_path).relative_to(output_dir).as_posix()
-                            )
+                    if requires_runtime_leaves:
+                        stats["hybrid_exported"] += 1
                     # Mark as exported in database
                     if conn:
                         cursor = conn.cursor()
@@ -1946,7 +1860,6 @@ def process_package_worker(args) -> Tuple[str, Dict[str, int], Optional[str]]:
         export_gltf,
         output_dir,
         only_trees,
-        export_runtime_leaf_hybrids,
         required_mesh_names,
     ) = args
     try:
@@ -1957,7 +1870,6 @@ def process_package_worker(args) -> Tuple[str, Dict[str, int], Optional[str]]:
             export_gltf=export_gltf,
             output_dir=output_dir,
             only_trees=only_trees,
-            export_runtime_leaf_hybrids=export_runtime_leaf_hybrids,
             required_mesh_names=required_mesh_names,
         )
         return pkg_path, stats, None
@@ -1982,7 +1894,6 @@ def run_pipeline(
     limit: int = 0,
     silent: bool = False,
     only_trees: bool = False,
-    export_runtime_leaf_hybrids: bool = False,
     workers: int = 1,
 ):
     """
@@ -2006,8 +1917,6 @@ def run_pipeline(
                 print("Mode: PARALLEL EXPORT (Skipping database updates)")
         if only_trees:
             print("Filter: TREE MESHES ONLY")
-        if export_runtime_leaf_hybrids:
-            print("Extra Export: RUNTIME-LEAF HYBRIDS")
         print()
 
     # Find files to process
@@ -2079,7 +1988,6 @@ def run_pipeline(
                 export_gltf,
                 OUTPUT_DIR,
                 only_trees,
-                export_runtime_leaf_hybrids,
                 required_mesh_names_by_package.get(Path(pkg_path).stem.casefold()),
             )
             for pkg_path in files
@@ -2120,7 +2028,6 @@ def run_pipeline(
                     export_gltf=export_gltf,
                     output_dir=OUTPUT_DIR,
                     only_trees=only_trees,
-                    export_runtime_leaf_hybrids=export_runtime_leaf_hybrids,
                     required_mesh_names=required_mesh_names_by_package.get(
                         Path(pkg_path).stem.casefold()
                     ),
@@ -2307,11 +2214,6 @@ def main():
         "--trees", action="store_true", help="Only process/export tree meshes"
     )
     parser.add_argument(
-        "--runtime-leaf-hybrids",
-        action="store_true",
-        help="When recovered leaf-card sidecars exist, write sibling *_runtime_leaves_hybrid.gltf assets",
-    )
-    parser.add_argument(
         "--workers",
         type=int,
         default=1,
@@ -2323,13 +2225,11 @@ def main():
     stats = run_pipeline(
         file_pattern=args.file,
         object_artifact=args.object_artifact,
-        name_collisions=stats["name_collisions"],
         export_gltf=True,
         export_only=args.export_only,
         limit=args.limit,
         silent=args.silent,
         only_trees=args.trees,
-        export_runtime_leaf_hybrids=args.runtime_leaf_hybrids,
         workers=args.workers,
     )
 
@@ -2347,6 +2247,7 @@ def main():
         stats["outputs"],
         stats["files"],
         object_artifact=args.object_artifact,
+        name_collisions=stats["name_collisions"],
     )
     failure_report = Path(OUTPUT_DIR) / "staticmesh-last-failure.json"
     if failure_report.exists():

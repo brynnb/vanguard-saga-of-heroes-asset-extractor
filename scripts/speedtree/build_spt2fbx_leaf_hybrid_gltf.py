@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import copy
 import json
 import struct
 from pathlib import Path
@@ -74,17 +75,37 @@ def build_hybrid(our_gltf_path: Path, leaf_gltf_path: Path) -> dict:
     leaf_data, leaf_blob = load_gltf(leaf_gltf_path)
 
     our_mesh = our_data["meshes"][0]
-    our_materials = our_data["materials"]
+    our_materials = copy.deepcopy(our_data["materials"])
+    collapsed_primitives = [
+        primitive
+        for primitive in our_mesh["primitives"]
+        if primitive.get("extras", {}).get("vg_speedtree_collapsed_leaves")
+        or "_BILLBOARD" in primitive["attributes"]
+    ]
+    if len(collapsed_primitives) != 1:
+        raise ValueError(
+            "Expected exactly one collapsed SpeedTree leaf primitive, found "
+            f"{len(collapsed_primitives)}"
+        )
     foliage_material_index = next(
         primitive["material"]
-        for primitive in our_mesh["primitives"]
-        if "_BILLBOARD" in primitive["attributes"]
+        for primitive in collapsed_primitives
     )
+    foliage_material = our_materials[foliage_material_index]
+    foliage_material["doubleSided"] = True
+    foliage_material["alphaMode"] = "MASK"
+    foliage_material["alphaCutoff"] = 0.38
+    foliage_material.setdefault("extras", {})["vg_speedtree_foliage"] = True
 
-    surviving_primitives = [primitive for primitive in our_mesh["primitives"] if "_BILLBOARD" not in primitive["attributes"]]
+    surviving_primitives = [
+        primitive
+        for primitive in our_mesh["primitives"]
+        if primitive not in collapsed_primitives
+    ]
 
     leaf_primitive = leaf_data["meshes"][0]["primitives"][0]
     leaf_positions = read_accessor(leaf_data, leaf_blob, leaf_primitive["attributes"]["POSITION"])
+    leaf_normals = read_accessor(leaf_data, leaf_blob, leaf_primitive["attributes"]["NORMAL"])
     leaf_uvs = read_accessor(leaf_data, leaf_blob, leaf_primitive["attributes"]["TEXCOORD_0"])
     leaf_colors = read_accessor(leaf_data, leaf_blob, leaf_primitive["attributes"]["COLOR_0"])
     leaf_indices = read_accessor(leaf_data, leaf_blob, leaf_primitive["indices"])
@@ -148,6 +169,7 @@ def build_hybrid(our_gltf_path: Path, leaf_gltf_path: Path) -> dict:
     pos_min = [min(axis) for axis in zip(*leaf_positions)]
     pos_max = [max(axis) for axis in zip(*leaf_positions)]
     pos_accessor = append_accessor(leaf_positions, 5126, "VEC3", target=34962, minmax={"min": pos_min, "max": pos_max})
+    normal_accessor = append_accessor(leaf_normals, 5126, "VEC3", target=34962)
     uv_accessor = append_accessor(leaf_uvs, 5126, "VEC2", target=34962)
     color_accessor = append_accessor(leaf_colors, 5126, "VEC4", target=34962)
     idx_accessor = append_accessor(leaf_indices, 5123, "SCALAR", target=34963)
@@ -155,6 +177,7 @@ def build_hybrid(our_gltf_path: Path, leaf_gltf_path: Path) -> dict:
         {
             "attributes": {
                 "POSITION": pos_accessor,
+                "NORMAL": normal_accessor,
                 "TEXCOORD_0": uv_accessor,
                 "COLOR_0": color_accessor,
             },

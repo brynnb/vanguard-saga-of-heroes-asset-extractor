@@ -35,7 +35,9 @@ The original Vanguard client data is spread across UE2 package files, Vanguard-s
 
 - Terrain from `.vgr` chunk files, including heightmaps, layer masks, terrain textures, baked vegetation-shadow masks, and chunk transforms.
 - Static meshes from UE2 package data, exported to glTF with authored tangent
-  handedness and package-qualified material metadata. Static material exports
+  handedness when the source tangent basis is valid, and package-qualified
+  material metadata. Invalid/uninitialized tangent streams are omitted so the
+  target renderer can generate a correct basis. Static material exports
   preserve the recoverable UE2.5 `Shader` / `Combiner` / `TexScaler` graph,
   bump, specular, detail, opacity, and self-illumination inputs in glTF extras
   so a runtime adapter can reproduce them without flattening layered materials.
@@ -53,6 +55,32 @@ outputs, while retaining package-level parallelism:
 .venv/bin/python scripts/extractors/staticmesh_pipeline.py --export-only \
   --object-artifact /path/to/objects-world-v7 --workers 2
 ```
+
+Genuine SpeedTree RT assets need one authoritative preprocessing pass before
+their first static-mesh export. Vanguard stores leaf cards as collapsed runtime
+data rather than ordinary triangles. Generate exact card sidecars through the
+original runtime, then run the normal StaticMesh command:
+
+```bash
+.venv/bin/python scripts/speedtree/generate_speedtree_runtime_leaf_cards.py \
+  --converter /path/to/Spt2Fbx.exe \
+  --object-artifact /path/to/objects-world-v7
+```
+
+`Spt2Fbx.exe` and a compatible `SpeedTreeRT.dll` must be together. The
+extractor does not distribute either binary; the open-source bridge and its
+release are available from [VenoMKO/Spt2Fbx](https://github.com/VenoMKO/Spt2Fbx).
+On Linux the script uses Wine or an installed Steam Proton runtime. Intermediate
+SPT/FBX files live under ignored, disk-backed `output/work/`, while compact
+runtime-derived JSON sidecars live under `output/data/speedtree_runtime_leaf_cards/`.
+
+The normal StaticMesh exporter then replaces collapsed cards with explicit
+portable triangles, preserves runtime width/height/pivot/placement and UVs,
+emits normals, makes SpeedTree foliage double-sided, removes degenerate source
+triangles, and rejects corrupt tangent memory. It refuses to publish a broken
+SpeedTree when a required runtime sidecar is absent. Cesium and Godot therefore
+receive standard glTF geometry and require no Vanguard-specific billboard
+attribute or shader contract.
 
 Keep package workers low: individual Vanguard packages can require more than
 5 GiB of transient memory while their embedded glTF and images are assembled.
@@ -335,7 +363,9 @@ future renderer can stream it without repeating the reverse engineering.
 
 ## Areas Remaining
 
-- Exact runtime rendering logic for SpeedTree leaf billboards, mostly around the exact size and placement. Trees look very good as-is, though.
+- SpeedTree wind animation and camera-facing runtime motion. Exact static leaf
+  size, pivot, placement, UVs, and geometry are recovered through the original
+  runtime; dynamic motion remains future work.
 - Playable race assembly details around mixing heads with bodies, body sizing/proportions, and body texture selection.
 - Skeleton customization logic for playable races, especially how character creation sliders drive the extra facial/body deformer bones.
 - Animation usage around specific hand poses, weapon/attachment sockets, and left-hand/right-hand action variants is still being mapped for runtime use.
@@ -365,7 +395,7 @@ The effort for this project was largely unique and without much precedent. The f
 - [Unreal Library (UELib)](https://github.com/EliotVU/Unreal-Library) by Eliot Van Uytfanghe: .NET library for reading and deserializing Unreal Engine package files; referenced for package format conventions and used optionally for text/object dumps.
 - [UTPackage.js](https://github.com/fserb/UTPackage.js) by Fernando Serboncini: JavaScript Unreal Tournament package reader; referenced for JS-side binary parsing of UE2 package structures.
 - [Ghidra](https://ghidra-sre.org/) by NSA Research Directorate: open-source software reverse engineering framework; used for decompiling VGClient.exe and analyzing engine functions, audio dispatch, animation, and locomotion systems.
-- [Spt2Fbx](https://github.com/nickvdyck/Spt2Fbx) by the SpeedTree community: referenced for understanding SpeedTree RT 4.x leaf card and branch geometry as used in the original engine.
+- [Spt2Fbx](https://github.com/VenoMKO/Spt2Fbx) by the SpeedTree community: used as the bridge to SpeedTree RT 4.x leaf card and branch geometry as used in the original engine.
 - [vgmstream](https://vgmstream.org/) by vgmstream contributors: library for streamed video game audio formats; used as a reference for ISACT ICB/ISB codec identifiers and field naming conventions.
 - [Legendary Explorer](https://github.com/ME3Tweaks/LegendaryExplorer) by ME3Tweaks: Mass Effect package editor and toolkit; referenced for ISACT codec conventions and Unreal package parsing approaches.
 - [VGO Emulator Wiki](https://wiki.vgoemulator.net/Docs/Main_Page) by the VGO Emulator community: community wiki for the Vanguard emulator project; used as a reference for game mechanics, zone data, and server-side systems.
