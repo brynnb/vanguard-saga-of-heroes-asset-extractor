@@ -290,9 +290,14 @@ def iter_decoinstance_records(
         mesh_index = struct.unpack_from("<h", ti_data, offset)[0]
         px, py, pz = struct.unpack_from("<3f", ti_data, offset + 2)
         flag1 = ti_data[offset + 14]
-        flag2 = ti_data[offset + 15]
-        yaw_byte = ti_data[offset + 16]
-        flag3 = ti_data[offset + 17]
+        # The placement heading is the first byte after Flag1. It is authored
+        # in sixteen 22.5-degree buckets (0, 16, ... 240). Bytes 16 and 17 are
+        # the remaining compact rotation/control fields. Reading byte 16 as
+        # yaw makes most full-size trees identity-rotated because that field is
+        # normally zero for upright vegetation.
+        yaw_byte = ti_data[offset + 15]
+        pitch_byte = ti_data[offset + 16]
+        roll_byte = ti_data[offset + 17]
         scale = struct.unpack_from("<f", ti_data, offset + 18)[0]
         if px == 0 and py == 0 and pz == 0 and scale == 0:
             continue
@@ -306,9 +311,9 @@ def iter_decoinstance_records(
             "mesh_lookup": lookup_record,
             "position": (px, py, pz),
             "flag1": flag1,
-            "flag2": flag2,
             "yaw_byte": yaw_byte,
-            "flag3": flag3,
+            "pitch_byte": pitch_byte,
+            "roll_byte": roll_byte,
             "scale": scale,
         }
 

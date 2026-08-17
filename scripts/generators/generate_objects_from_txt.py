@@ -90,9 +90,9 @@ DECOINSTANCE_EXTRA_KEYS = (
     "deco_mesh_lookup_object_ref",
     "deco_mesh_lookup_draw_distance",
     "deco_flag1",
-    "deco_flag2",
     "deco_yaw_byte",
-    "deco_flag3",
+    "deco_pitch_byte",
+    "deco_roll_byte",
     "deco_native_body_offset",
     "deco_validation_ratio",
 )
@@ -108,9 +108,9 @@ def extract_decoinstances(vgr_path, by_name, by_base):
         INT16   MeshIndex   - indexes into mesh lookup table at this+0x658 (offset 0, 2 bytes)
         FVector Position    - 12 bytes: world XYZ (offset 2)
         BYTE    Flag1       - usually 1 (offset 14)
-        BYTE    Flag2       - various values (offset 15)
-        BYTE    Yaw         - rotation (offset 16)
-        BYTE    Flag3       - (offset 17)
+        BYTE    Yaw         - 16-bucket heading (offset 15)
+        BYTE    Pitch       - compact pitch/control field (offset 16)
+        BYTE    Roll        - compact roll/control field (offset 17)
         FLOAT   Scale       - uniform scale (offset 18, 4 bytes)
 
     Returns list of object dicts compatible with generate_objects_gltf.
@@ -205,9 +205,9 @@ def extract_decoinstances(vgr_path, by_name, by_base):
             "deco_mesh_lookup_object_ref": int(lookup_record.object_ref),
             "deco_mesh_lookup_draw_distance": float(lookup_record.draw_distance),
             "deco_flag1": int(record["flag1"]),
-            "deco_flag2": int(record["flag2"]),
             "deco_yaw_byte": yaw_byte,
-            "deco_flag3": int(record["flag3"]),
+            "deco_pitch_byte": int(record["pitch_byte"]),
+            "deco_roll_byte": int(record["roll_byte"]),
             "deco_validation_ratio": float(native_parse.deco_array.validation_ratio),
             "authoritative_source_object_id": authoritative_source_object_id(
                 Path(vgr_path).stem,
