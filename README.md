@@ -53,8 +53,22 @@ outputs, while retaining package-level parallelism:
 
 ```bash
 .venv/bin/python scripts/extractors/staticmesh_pipeline.py --export-only \
-  --object-artifact /path/to/objects-world-v7 --workers 2
+  --object-artifact /path/to/objects-world-v12 --workers 2
 ```
+
+If those exact mesh files are already present and only the canonical inventory
+was lost or replaced by a bounded extraction, recover it without decoding or
+rewriting any mesh payloads:
+
+```bash
+.venv/bin/python scripts/extractors/staticmesh_pipeline.py --manifest-only \
+  --object-artifact /path/to/objects-world-v12
+```
+
+This mode verifies every referenced extracted glTF before publishing a
+`status: complete`, `scope: object_artifact` manifest. A selected-package
+manifest is intentionally not interchangeable with that full inventory;
+downstream full-world builders must reject the bounded form.
 
 Genuine SpeedTree RT assets need one authoritative preprocessing pass before
 their first static-mesh export. Vanguard stores leaf cards as collapsed runtime
@@ -64,7 +78,7 @@ original runtime, then run the normal StaticMesh command:
 ```bash
 .venv/bin/python scripts/speedtree/generate_speedtree_runtime_leaf_cards.py \
   --converter /path/to/Spt2Fbx.exe \
-  --object-artifact /path/to/objects-world-v7
+  --object-artifact /path/to/objects-world-v12
 ```
 
 `Spt2Fbx.exe` and a compatible `SpeedTreeRT.dll` must be together. The
@@ -73,6 +87,8 @@ release are available from [VenoMKO/Spt2Fbx](https://github.com/VenoMKO/Spt2Fbx)
 On Linux the script uses Wine or an installed Steam Proton runtime. Intermediate
 SPT/FBX files live under ignored, disk-backed `output/work/`, while compact
 runtime-derived JSON sidecars live under `output/data/speedtree_runtime_leaf_cards/`.
+Spt2Fbx and SpeedTreeRT are preprocessing tools only; exported glTF and the
+runtime viewer do not depend on either executable.
 
 The normal StaticMesh exporter then replaces collapsed cards with portable
 glTF quads. Repeated `POSITION` values preserve each runtime card center while
@@ -91,6 +107,35 @@ broken SpeedTree when a required runtime sidecar is absent. SpeedTree
 excluded from generic tiled detail modulation: they contain a projected
 whole-tree silhouette, not bark- or leaf-space detail.
 
+The recovered tree contract has three separate parts and they must not be
+flattened together:
+
+- Trunks, branches, and fixed fronds remain ordinary authored StaticMesh
+  geometry. Masked fronds are tagged `vg_speedtree_foliage_kind: frond` and
+  are not camera-facing leaf cards.
+- Runtime leaves replace the collapsed SpeedTree leaf section. Their repeated
+  `POSITION` is the card center, `TEXCOORD_1` is the scaled corner offset,
+  `TEXCOORD_0` selects the authored atlas region, and `COLOR_0` carries the
+  SpeedTree runtime's card dimming. The JSON sidecar also retains the recovered
+  `PivotXY` values even though the current portable glTF contract does not need
+  a separate pivot attribute. Authored vertex colors on surviving static
+  geometry remain available for tree shadow/AO tint. Leaf and frond materials
+  are double-sided; bark remains normally one-sided.
+- World placement comes from the native 22-byte `DecoInstance` records in each
+  terrain chunk, not from the mesh or Spt2Fbx. The native mesh lookup chooses
+  the tree type, position and uniform scale are authored per instance, and the
+  byte at offset 15 is the heading. The generator preserves it as
+  `deco_yaw_byte`, converts it to UE2 rotation units with `yaw * 256`, and emits
+  the resulting glTF node rotation. Bytes 16 and 17 are retained separately as
+  the compact pitch/control and roll/control fields. Treating offset 15 as an
+  unknown flag makes every repeated tree face the same direction.
+
+The placement mesh index is resolved through TerrainInfo's native mesh-lookup
+table. It must never fall back to a flat list of package imports: those indices
+are not equivalent and the fallback can assign thousands of vegetation
+instances to the wrong tree. Whole-tree far impostors are separate from leaf
+cards and are not required by the current runtime pipeline.
+
 Keep package workers low: individual Vanguard packages can require more than
 5 GiB of transient memory while their embedded glTF and images are assembled.
 Each mesh is published with a same-directory atomic rename, so an interrupted
@@ -98,6 +143,11 @@ worker cannot replace a valid prior glTF with a partial JSON document.
 Static-mesh sections are decoded from UE2's explicit `IsStrip` and
 `NumPrimitives` fields; the exporter never guesses topology from vertex
 coverage, and incomplete triangle lists are rejected before publication.
+The Vanguard-to-glTF coordinate conversion changes handedness, so every
+triangle is reversed exactly once after section decoding. This keeps glTF's
+front face aligned with the exported normals and prevents one-sided bark,
+rocks, and buildings from appearing inside-out. Foliage being double-sided is
+not a substitute for correct winding.
 The command exits nonzero if any requested mesh fails and writes
 `staticmesh-last-failure.json` without replacing the last successful manifest.
 A successful manifest lists only the files produced by that run and records a
@@ -185,6 +235,21 @@ wardrobe at startup. `attachment_group_catalog.json`
 decodes the 17 original `.sag` template packages. These replace the obsolete
 attachment-index-only lookup; consumers must never resolve an appearance from
 `attachment_index` without its `package_index` and actor visual profile.
+
+Generate authoritative world-object and vegetation placements after prefab,
+mesh-manifest, or native TerrainInfo parsing changes:
+
+```bash
+.venv/bin/python scripts/extractors/parse_sgo_prefabs.py
+.venv/bin/python scripts/generators/generate_objects_from_txt.py --all --workers 4
+```
+
+The generated `chunk_*_objects.gltf` and `chunk_*_sgo.json` files carry
+the stable native placement identity and diagnostic `deco_*` fields used by
+downstream cell and Cesium builders. When the sibling Eternal Sagas client is
+available, prefer `./dev world-assets` there: it fingerprints this manifest,
+prefab data, placements, cell indexes, and immutable object/collision artifacts
+so unchanged stages are not needlessly rebuilt.
 
 Generate Godot runtime mesh packs for the viewer. The default layout stores
 shared mesh assets once under `output/godot_runtime/assets/` and lets each chunk
@@ -372,9 +437,10 @@ future renderer can stream it without repeating the reverse engineering.
 
 ## Areas Remaining
 
-- SpeedTree wind animation and camera-facing runtime motion. Exact static leaf
-  size, pivot, placement, UVs, and geometry are recovered through the original
-  runtime; dynamic motion remains future work.
+- Exact original SpeedTree branch-wind simulation and whole-tree far impostors.
+  Leaf-card size, pivot, placement, UVs, dimming, camera-facing metadata, fixed
+  fronds, and the height range needed for runtime wind are now recovered; the
+  actual animation is intentionally a renderer responsibility.
 - Playable race assembly details around mixing heads with bodies, body sizing/proportions, and body texture selection.
 - Skeleton customization logic for playable races, especially how character creation sliders drive the extra facial/body deformer bones.
 - Animation usage around specific hand poses, weapon/attachment sockets, and left-hand/right-hand action variants is still being mapped for runtime use.
@@ -404,7 +470,7 @@ The effort for this project was largely unique and without much precedent. The f
 - [Unreal Library (UELib)](https://github.com/EliotVU/Unreal-Library) by Eliot Van Uytfanghe: .NET library for reading and deserializing Unreal Engine package files; referenced for package format conventions and used optionally for text/object dumps.
 - [UTPackage.js](https://github.com/fserb/UTPackage.js) by Fernando Serboncini: JavaScript Unreal Tournament package reader; referenced for JS-side binary parsing of UE2 package structures.
 - [Ghidra](https://ghidra-sre.org/) by NSA Research Directorate: open-source software reverse engineering framework; used for decompiling VGClient.exe and analyzing engine functions, audio dispatch, animation, and locomotion systems.
-- [Spt2Fbx](https://github.com/VenoMKO/Spt2Fbx) by the SpeedTree community: used as the bridge to SpeedTree RT 4.x leaf card and branch geometry as used in the original engine.
+- [Spt2Fbx](https://github.com/VenoMKO/Spt2Fbx) by the SpeedTree community: used as the bridge to SpeedTree RT 4.x leaf-card geometry as used in the original engine.
 - [vgmstream](https://vgmstream.org/) by vgmstream contributors: library for streamed video game audio formats; used as a reference for ISACT ICB/ISB codec identifiers and field naming conventions.
 - [Legendary Explorer](https://github.com/ME3Tweaks/LegendaryExplorer) by ME3Tweaks: Mass Effect package editor and toolkit; referenced for ISACT codec conventions and Unreal package parsing approaches.
 - [VGO Emulator Wiki](https://wiki.vgoemulator.net/Docs/Main_Page) by the VGO Emulator community: community wiki for the Vanguard emulator project; used as a reference for game mechanics, zone data, and server-side systems.

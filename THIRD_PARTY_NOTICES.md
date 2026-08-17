@@ -43,3 +43,13 @@ Unreal-Library is an optional external helper for decompiling UE2 object text
 used by a small part of the pipeline. It is not vendored in this repository.
 `python vanguard.py fetch-unreal-library` clones it into `external/`, which is
 ignored by git; the fetched project retains its own license and notices.
+
+## Spt2Fbx and SpeedTreeRT
+
+`scripts/speedtree/generate_speedtree_runtime_leaf_cards.py` can invoke the
+external open-source [VenoMKO/Spt2Fbx](https://github.com/VenoMKO/Spt2Fbx)
+bridge to ask a compatible SpeedTree RT 4.x runtime for the leaf-card geometry
+stored in Vanguard's embedded `.spt` payloads. Neither `Spt2Fbx.exe` nor the
+proprietary `SpeedTreeRT.dll` is copied, linked, or distributed by this
+repository. Users supply both files locally, and those files remain governed
+by their respective licenses.
