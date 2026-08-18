@@ -8,13 +8,14 @@ from unittest.mock import patch
 from scripts.extractors.staticmesh_pipeline import (
     mesh_manifest_entries_from_object_artifact,
     process_package,
+    resolve_section_shader_refs,
     write_failure_report,
     write_mesh_manifest,
 )
 
 
 class StaticMeshPipelinePublicationTests(unittest.TestCase):
-    def test_duplicate_flat_names_select_historical_last_export_explicitly(self) -> None:
+    def test_duplicate_flat_names_publish_qualified_exports_and_compatibility_alias(self) -> None:
         first = SimpleNamespace(
             name="Duplicate",
             export_index=3,
@@ -50,10 +51,40 @@ class StaticMeshPipelinePublicationTests(unittest.TestCase):
                     "/source/Example.usx", None, 0, output_dir=str(output)
                 )
 
-        self.assertEqual(exporter.call_args.args[0].export_index, 9)
-        self.assertEqual(stats["exported"], 1)
-        self.assertEqual(stats["skipped"], 1)
+        self.assertEqual(exporter.call_count, 3)
+        self.assertEqual(stats["exported"], 3)
+        self.assertEqual(stats["skipped"], 0)
         self.assertEqual(stats["name_collisions"][0]["selected_export_index"], 9)
+        self.assertEqual(
+            {entry["outer"] for entry in stats["name_collisions"][0]["qualified_exports"]},
+            {"Interiors", "Exteriors"},
+        )
+        self.assertTrue(
+            any("/__outer__/Interiors/" in path for path in stats["outputs"])
+        )
+
+    def test_sparse_single_section_uses_only_surviving_material(self) -> None:
+        sections = [
+            {"num_primitives": 0},
+            {"num_primitives": 0},
+            {"num_primitives": 4},
+            {"num_primitives": 0},
+        ]
+        self.assertEqual(
+            resolve_section_shader_refs(sections, ["Stone", None]),
+            [None, None, "Stone", None],
+        )
+
+    def test_full_sized_explicit_null_material_is_not_reassigned(self) -> None:
+        sections = [
+            {"num_primitives": 0},
+            {"num_primitives": 3},
+            {"num_primitives": 0},
+        ]
+        self.assertEqual(
+            resolve_section_shader_refs(sections, ["Roof", None, "Wood"]),
+            ["Roof", None, "Wood"],
+        )
 
     def test_manifest_contains_only_outputs_from_the_successful_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

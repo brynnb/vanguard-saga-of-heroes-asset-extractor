@@ -43,9 +43,13 @@ The original Vanguard client data is spread across UE2 package files, Vanguard-s
   so a runtime adapter can reproduce them without flattening layered materials.
   Each glTF also carries its package/outer/export identity, decoded per-section
   `Collision.Enable Collision` policy, and authored simple-collision flags in
-  `asset.extras.vg_collision`. Downstream collision compilers should consume
-  this embedded contract instead of joining against a separately generated,
-  flat mesh-name table. Unknown serialized Collision-array variants are marked
+  `asset.extras.vg_collision`. The effective simple policy applies the original
+  UE2.5 class defaults when a package omits a tagged override. A StaticMesh's
+  referenced `UModel` BSP collision is decoded into binary-backed accessors in
+  the same metadata contract; it deliberately remains outside the glTF render
+  scene. Downstream collision compilers should consume this embedded contract
+  instead of joining against a separately generated, flat mesh-name table.
+  Unknown serialized Collision-array variants are marked
   `unsupported_payload` rather than guessed or allowed to fail mesh extraction.
   Object-scoped runs also retain same-package terminal `_collision` / `_coll`
   helper meshes and publish bounds-validated links in
@@ -121,15 +125,17 @@ flattened together:
 
 - Trunks, branches, and fixed fronds remain ordinary authored StaticMesh
   geometry. Masked fronds are tagged `vg_speedtree_foliage_kind: frond` and
-  are not camera-facing leaf cards.
+  are not camera-facing leaf cards. Every surface recovered from an embedded
+  SpeedTree payload is explicitly double-sided; the generated trunk/branch
+  shells and thin foliage cannot safely inherit ordinary StaticMesh culling.
 - Runtime leaves replace the collapsed SpeedTree leaf section. Their repeated
   `POSITION` is the card center, `TEXCOORD_1` is the scaled corner offset,
   `TEXCOORD_0` selects the authored atlas region, and `COLOR_0` carries the
   SpeedTree runtime's card dimming. The JSON sidecar also retains the recovered
   `PivotXY` values even though the current portable glTF contract does not need
   a separate pivot attribute. Authored vertex colors on surviving static
-  geometry remain available for tree shadow/AO tint. Leaf and frond materials
-  are double-sided; bark remains normally one-sided.
+  geometry remain available for tree shadow/AO tint. Leaf, frond, branch, and
+  bark materials are double-sided, matching the specialized SpeedTree runtime.
 - World placement comes from the native 22-byte `DecoInstance` records in each
   terrain chunk, not from the mesh or Spt2Fbx. The native mesh lookup chooses
   the tree type, position and uniform scale are authored per instance, and the
@@ -166,10 +172,24 @@ of older on-disk glTFs that are explicitly unclaimed by the run. Obsolete heuris
 been removed; `staticmesh_pipeline.py` is the only supported static-mesh
 decoder and exporter.
 When a legacy package contains different exports with the same leaf name under
-different UE2 outers, the manifest records that ambiguity and the explicitly
-selected export index. The flat compatibility path deliberately retains the
-old exporter's last-export behavior until placement identities are fully
-outer-qualified; it is no longer an order-dependent silent overwrite.
+different UE2 outers, the manifest records that ambiguity, retains the old
+last-export winner at the flat compatibility path, and also publishes every
+export below an `__outer__/` identity path. SGO placement records preserve the
+full imported object identity and select the matching outer-qualified asset;
+content no longer has to guess between same-named meshes.
+
+Generated LODs sometimes retain a sparse original section number while
+compacting their one surviving material. The exporter recognizes only
+unambiguous compact layouts and maps that material back to the active section;
+an explicitly null full-sized slot remains the authored UE2 default material.
+Every glTF carries `asset.extras.vg_surface_classification`. Water sections are
+identified from recovered `WaterShaderMaterial` data—not filenames—and are
+also listed in the StaticMesh manifest, so downstream water systems can select
+them without heuristics. The label means authored water surface, not
+necessarily global ocean; local pools, fountains, and rivers retain the same
+source classification. Effectively invisible helper components or static
+meshes with an authored `CullDistance` of one source unit are retained in
+source data but suppressed from rendered placement indexes.
 
 ## Setup
 

@@ -98,6 +98,8 @@ def _project_shader_map_from_manifest(manifest):
             item["alpha"] = "mask"
         if entry.get("two_sided"):
             item["two_sided"] = True
+        if entry.get("is_water"):
+            item["is_water"] = True
         shader_map[source_key] = item
         shader_map.setdefault(bare_key, item)
     return shader_map

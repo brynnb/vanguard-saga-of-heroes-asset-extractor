@@ -47,6 +47,7 @@ sys.path.insert(0, PROJECT_ROOT)
 from ue2 import UE2Package
 from material_memory import MaterialMemoryResolver
 from vanguard_staticmesh import parse_vanguard_staticmesh
+from vanguard_bsp import BspParseError, model_collision_triangles, parse_model_export
 from staticmesh_topology import section_triangle_indices
 from speedtree_staticmesh import (
     collapsed_leaf_section,
@@ -337,6 +338,12 @@ class ParsedMesh:
     collision_slots: Optional[List[bool]] = None
     simple_collision_flags: Optional[Dict[str, bool]] = None
     collision_metadata_status: str = "absent"
+    effective_simple_collision_flags: Optional[Dict[str, bool]] = None
+    collision_model_ref: int = 0
+    collision_model_name: Optional[str] = None
+    collision_model_status: str = "absent"
+    collision_model_positions: Optional[List[Tuple[float, float, float]]] = None
+    collision_model_indices: Optional[List[int]] = None
 
 
 # =============================================================================
@@ -396,6 +403,33 @@ def parse_staticmesh_file(pkg_path: str) -> List[ParsedMesh]:
             mesh_data = parse_vanguard_staticmesh(
                 data, pkg.names, serial_offset, imports=pkg.imports
             )
+
+            collision_model_positions = []
+            collision_model_indices = []
+            if mesh_data.collision_model_ref:
+                reference = mesh_data.collision_model_ref
+                if 1 <= reference <= len(pkg.exports):
+                    model_export = pkg.exports[reference - 1]
+                    mesh_data.collision_model_name = model_export.get("object_name")
+                    if model_export.get("class_name") != "Model":
+                        mesh_data.collision_model_status = "wrong_export_class"
+                    else:
+                        try:
+                            collision_model = parse_model_export(pkg, model_export)
+                            (
+                                collision_model_positions,
+                                collision_model_indices,
+                            ) = model_collision_triangles(collision_model)
+                            mesh_data.collision_model_status = "decoded"
+                        except BspParseError as error:
+                            mesh_data.collision_model_status = (
+                                f"decode_failed:{type(error).__name__}"
+                            )
+                elif reference < 0:
+                    mesh_data.collision_model_name = pkg.get_object_name(reference)
+                    mesh_data.collision_model_status = "external_reference"
+                else:
+                    mesh_data.collision_model_status = "invalid_reference"
 
             if mesh_data is None:
                 meshes.append(
@@ -487,6 +521,14 @@ def parse_staticmesh_file(pkg_path: str) -> List[ParsedMesh]:
                     collision_slots=list(mesh_data.collision_slots),
                     simple_collision_flags=dict(mesh_data.simple_collision_flags),
                     collision_metadata_status=mesh_data.collision_metadata_status,
+                    effective_simple_collision_flags=dict(
+                        mesh_data.effective_simple_collision_flags
+                    ),
+                    collision_model_ref=mesh_data.collision_model_ref,
+                    collision_model_name=mesh_data.collision_model_name,
+                    collision_model_status=mesh_data.collision_model_status,
+                    collision_model_positions=collision_model_positions,
+                    collision_model_indices=collision_model_indices,
                 )
             )
 
@@ -794,6 +836,73 @@ def _tangent_handedness(
     return -1.0 if sum(a * b for a, b in zip(cross_nt, bitangent)) < 0.0 else 1.0
 
 
+def _effective_surface_two_sided(is_speedtree: bool, authored: bool) -> bool:
+    """Apply specialized SpeedTree culling without affecting static meshes."""
+    return bool(is_speedtree or authored)
+
+
+def resolve_section_shader_refs(
+    sections: List[Dict[str, Any]], skin: List[Optional[str]]
+) -> List[Optional[str]]:
+    """Map unambiguous compact Vanguard skin arrays back to section slots.
+
+    Some generated LODs retain the original sparse section numbers while
+    compacting the surviving material entries. Prefer exact full-size slot
+    mapping, then recognize only compact layouts that cannot be ambiguous.
+    """
+    result: List[Optional[str]] = [None] * len(sections)
+    if not sections or not skin:
+        return result
+    active = [
+        index
+        for index, section in enumerate(sections)
+        if int(section.get("num_primitives", section.get("num_faces", 0)) or 0) > 0
+    ]
+    if len(skin) >= len(sections):
+        return [skin[index] or None for index in range(len(sections))]
+    if len(skin) == len(active):
+        for section_index, shader_ref in zip(active, skin):
+            result[section_index] = shader_ref or None
+        return result
+    non_null = [shader_ref for shader_ref in skin if shader_ref]
+    if len(active) == 1 and len(non_null) == 1:
+        result[active[0]] = non_null[0]
+    return result
+
+
+def classify_mesh_surfaces(mesh: ParsedMesh) -> Dict[str, Any]:
+    """Return source-driven surface labels without filename heuristics."""
+    sections = list(getattr(mesh, "sections", None) or [])
+    skins = list(getattr(mesh, "skins", None) or [])
+    skin = list(skins[0]) if skins else []
+    shader_refs = resolve_section_shader_refs(sections, skin)
+    shader_map = _load_shader_texture_map()
+    material_resolver = _load_material_memory_resolver()
+    water_sections: List[int] = []
+    for index, shader_ref in enumerate(shader_refs):
+        entry = _shader_map_entry(shader_map, shader_ref)
+        is_water = isinstance(entry, dict) and bool(entry.get("is_water", False))
+        if material_resolver is not None and shader_ref:
+            is_water = is_water or material_resolver.is_water_shader(shader_ref)
+        if is_water:
+            water_sections.append(index)
+    source_default_sections = [
+        index
+        for index, section in enumerate(sections)
+        if int(section.get("num_primitives", section.get("num_faces", 0)) or 0) > 0
+        and shader_refs[index] is None
+    ]
+    return {
+        "version": 1,
+        "contains_water": bool(water_sections),
+        "water_section_indices": water_sections,
+        "water_shader_refs": sorted(
+            {str(shader_refs[index]) for index in water_sections if shader_refs[index]}
+        ),
+        "source_default_section_indices": source_default_sections,
+    }
+
+
 def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
     """
     Export ParsedMesh to glTF format with positions, normals, UVs, and textures.
@@ -841,8 +950,10 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
     # ) per section
     has_any_texture = False
 
+    section_shader_refs: List[Optional[str]] = [None] * len(mesh.sections or [])
     if mesh.sections and mesh.skins and len(mesh.skins) > 0:
         skin0 = mesh.skins[0]  # Use first skin set
+        section_shader_refs = resolve_section_shader_refs(mesh.sections, skin0)
         for si, sec in enumerate(mesh.sections):
             if sec.get("num_primitives", 0) == 0:
                 section_materials.append(
@@ -864,7 +975,7 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
                     )
                 )
                 continue
-            shader_ref = skin0[si] if si < len(skin0) and skin0[si] else None
+            shader_ref = section_shader_refs[si]
             map_entry = _shader_map_entry(shader_map, shader_ref)
             # Handle both string and dict entries in shader map
             if isinstance(map_entry, dict):
@@ -903,6 +1014,7 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
                         alpha_mode = shader_info.alpha_mode
                     two_sided = two_sided or shader_info.two_sided
                     material_extras = material_resolver.shader_extras(shader_ref)
+                    is_water = is_water or bool(material_extras.get("vg_is_water", False))
                     runtime_graph = material_resolver.build_runtime_material_graph(
                         shader_ref, OUTPUT_TEXTURES_DIR
                     )
@@ -940,16 +1052,33 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
                         detail_texture_name = None
                         detail_scale = None
 
+            if is_speedtree:
+                # SpeedTree is rendered by a specialized runtime rather than
+                # the ordinary UE2 StaticMesh material path. Its generated
+                # trunks, branches, fronds, and cards contain view-dependent
+                # thin/open surfaces, while the duplicated Shader.TwoSided
+                # property is not reliable for those generated sections.
+                # Preserve the runtime behavior explicitly for every surface.
+                two_sided = _effective_surface_two_sided(is_speedtree, two_sided)
+                material_extras["vg_speedtree_surface"] = True
+
             if is_speedtree and alpha_mode == "mask":
                 # The SpeedTree runtime renders leaf/frond cards from either
                 # side. Generic UE2 Shader.TwoSided metadata is not reliable
                 # for these specialized runtime sections.
-                two_sided = True
                 material_extras["vg_speedtree_foliage"] = True
                 # Ordinary masked SpeedTree geometry is fixed frond geometry.
                 # Collapsed leaf sections are replaced later with a cloned
                 # leaf_card material by the runtime-card hybrid step.
                 material_extras["vg_speedtree_foliage_kind"] = "frond"
+
+            # Vanguard replaces the stock glTF material with this graph at
+            # runtime. Keep its duplicated culling field exactly aligned with
+            # glTF's authoritative doubleSided value so the replacement cannot
+            # silently re-enable face culling.
+            runtime_graph = material_extras.get("vg_runtime_material_graph")
+            if isinstance(runtime_graph, dict):
+                runtime_graph["two_sided"] = bool(two_sided)
 
             section_materials.append(
                 (
@@ -1641,8 +1770,13 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
                 "material": mat_idx,
                 "mode": 4,
             }
+            if is_water:
+                prim["extras"] = {
+                    "vg_surface_class": "water",
+                    "vg_water_shader": shader_name,
+                }
             if is_collapsed_leaf:
-                prim["extras"] = {"vg_speedtree_collapsed_leaves": True}
+                prim.setdefault("extras", {})["vg_speedtree_collapsed_leaves"] = True
             primitives.append(prim)
 
     if not primitives:
@@ -1688,22 +1822,131 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
             }
         )
 
+        source_default_sections = [
+            index
+            for index, section in enumerate(mesh.sections or [])
+            if int(section.get("num_primitives", section.get("num_faces", 0)) or 0) > 0
+            and (
+                index >= len(section_shader_refs)
+                or section_shader_refs[index] is None
+            )
+        ]
+        default_material = get_or_create_material(
+            None,
+            "Engine.DefaultTexture",
+            base_color_factor=[0.7, 0.7, 0.7, 1.0],
+            material_extras={
+                "vg_source_default_material": True,
+                "vg_source_default_material_name": "Engine.DefaultTexture",
+            },
+        )
         prim_attributes = dict(attributes)
-        prim = {"attributes": prim_attributes, "indices": idx_accessor, "mode": 4}
-        # Add default material if we have any materials
-        if gltf_materials:
-            prim["material"] = 0
+        prim = {
+            "attributes": prim_attributes,
+            "indices": idx_accessor,
+            "material": default_material,
+            "mode": 4,
+            "extras": {
+                "vg_source_default_material": True,
+                "vg_source_section_indices": source_default_sections,
+            },
+        }
         primitives.append(prim)
+
+    # Persist authored UE2 UModel collision as unused binary-backed accessors.
+    # Keeping this geometry outside the render scene means Cesium never draws
+    # it, while downstream collision compilers can consume the exact same
+    # immutable GLB without a filename-coupled sidecar.
+    collision_model_contract = {
+        "status": mesh.collision_model_status,
+        "reference": int(mesh.collision_model_ref or 0),
+        "name": mesh.collision_model_name,
+    }
+    collision_positions = list(mesh.collision_model_positions or [])
+    collision_indices = list(mesh.collision_model_indices or [])
+    if mesh.collision_model_status == "decoded":
+        if not collision_positions or not collision_indices:
+            raise ValueError(f"{mesh.name}: decoded collision Model has no geometry")
+        while len(buffer_data) % 4 != 0:
+            buffer_data.append(0)
+        collision_position_start = len(buffer_data)
+        collision_min = [math.inf, math.inf, math.inf]
+        collision_max = [-math.inf, -math.inf, -math.inf]
+        for source_x, source_y, source_z in collision_positions:
+            point = (-source_y, source_z, source_x)
+            if not all(math.isfinite(value) for value in point):
+                raise ValueError(f"{mesh.name}: non-finite collision Model point")
+            buffer_data.extend(struct.pack("<fff", *point))
+            for axis in range(3):
+                collision_min[axis] = min(collision_min[axis], point[axis])
+                collision_max[axis] = max(collision_max[axis], point[axis])
+        collision_position_view = len(buffer_views)
+        buffer_views.append(
+            {
+                "buffer": 0,
+                "byteOffset": collision_position_start,
+                "byteLength": len(collision_positions) * 12,
+            }
+        )
+        collision_position_accessor = len(accessors)
+        accessors.append(
+            {
+                "bufferView": collision_position_view,
+                "componentType": 5126,
+                "count": len(collision_positions),
+                "type": "VEC3",
+                "min": collision_min,
+                "max": collision_max,
+            }
+        )
+        while len(buffer_data) % 4 != 0:
+            buffer_data.append(0)
+        collision_index_start = len(buffer_data)
+        for index in collision_indices:
+            if index < 0 or index >= len(collision_positions):
+                raise ValueError(f"{mesh.name}: collision Model index out of range")
+            buffer_data.extend(struct.pack("<I", index))
+        collision_index_view = len(buffer_views)
+        buffer_views.append(
+            {
+                "buffer": 0,
+                "byteOffset": collision_index_start,
+                "byteLength": len(collision_indices) * 4,
+            }
+        )
+        collision_index_accessor = len(accessors)
+        accessors.append(
+            {
+                "bufferView": collision_index_view,
+                "componentType": 5125,
+                "count": len(collision_indices),
+                "type": "SCALAR",
+            }
+        )
+        collision_model_contract.update(
+            {
+                "position_accessor": collision_position_accessor,
+                "indices_accessor": collision_index_accessor,
+                "triangle_count": len(collision_indices) // 3,
+                "bounds_min": collision_min,
+                "bounds_max": collision_max,
+            }
+        )
 
     # --- Assemble glTF ---
     collision_slots = list(mesh.collision_slots or [])
     simple_collision_flags = dict(mesh.simple_collision_flags or {})
+    effective_simple_collision_flags = dict(
+        mesh.effective_simple_collision_flags or {}
+    )
     collision_metadata = {
-        "version": 1,
+        "version": 2,
         "source": "ue2_staticmesh_properties",
         "status": mesh.collision_metadata_status,
         "section_slots": collision_slots,
         "simple_flags": simple_collision_flags,
+        "effective_simple_flags": effective_simple_collision_flags,
+        "collision_model": collision_model_contract,
         "matches_section_count": bool(
             collision_slots and len(collision_slots) == len(mesh.sections or [])
         ),
@@ -1715,11 +1958,15 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
             "mesh": mesh.name,
         },
     }
+    surface_classification = classify_mesh_surfaces(mesh)
     gltf = {
         "asset": {
             "version": "2.0",
             "generator": "Vanguard StaticMesh Pipeline v2",
-            "extras": {"vg_collision": collision_metadata},
+            "extras": {
+                "vg_collision": collision_metadata,
+                "vg_surface_classification": surface_classification,
+            },
         },
         "scene": 0,
         "scenes": [{"nodes": [0]}],
@@ -1769,6 +2016,22 @@ def mesh_to_gltf(mesh: ParsedMesh, output_path: str) -> bool:
 # =============================================================================
 
 
+def _safe_identity_component(value: Optional[str], fallback: str) -> str:
+    result = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value or "").strip()).strip("._")
+    return result or fallback
+
+
+def outer_qualified_mesh_path(package_name: str, mesh: ParsedMesh) -> str:
+    """Return a stable compatibility-independent path for one UE2 export."""
+    outer = _safe_identity_component(mesh.outer_name, "__root__")
+    return Path(
+        package_name,
+        "__outer__",
+        outer,
+        f"{mesh.name}.gltf",
+    ).as_posix()
+
+
 def process_package(
     pkg_path: str,
     conn: Optional[sqlite3.Connection],
@@ -1799,7 +2062,7 @@ def process_package(
             if collision_helper_base(mesh.name) in requested_families
         )
 
-    eligible_meshes = []
+    eligible_outputs: list[tuple[ParsedMesh, str]] = []
     by_output_name: dict[str, list[ParsedMesh]] = {}
     for mesh in meshes:
         if (
@@ -1813,46 +2076,62 @@ def process_package(
             continue
         by_output_name.setdefault(mesh.name.casefold(), []).append(mesh)
     for candidates in by_output_name.values():
-        # Preserve the historical flat-name behavior deliberately: the old
-        # exporter traversed exports in index order and the final export won.
-        # Record every ambiguity instead of allowing incidental overwrite order.
+        package_name = Path(pkg_path).stem
+        # Keep the historical flat compatibility path, but also publish every
+        # distinct outer-qualified export so placements never have to guess.
         selected = max(candidates, key=lambda item: item.export_index)
-        eligible_meshes.append(selected)
+        flat_path = Path(package_name, f"{selected.name}.gltf").as_posix()
+        eligible_outputs.append((selected, flat_path))
         if len(candidates) > 1:
-            discarded = sorted(
-                (candidate for candidate in candidates if candidate is not selected),
-                key=lambda item: item.export_index,
-            )
-            stats["skipped"] += len(discarded)
+            by_outer: dict[str, list[ParsedMesh]] = {}
+            for candidate in candidates:
+                by_outer.setdefault(str(candidate.outer_name or "").casefold(), []).append(
+                    candidate
+                )
+            qualified = []
+            for candidate in sorted(candidates, key=lambda item: item.export_index):
+                path = outer_qualified_mesh_path(package_name, candidate)
+                same_outer = by_outer[str(candidate.outer_name or "").casefold()]
+                if len(same_outer) > 1:
+                    base = Path(path)
+                    path = base.with_name(
+                        f"{base.stem}__export_{candidate.export_index:06d}{base.suffix}"
+                    ).as_posix()
+                eligible_outputs.append((candidate, path))
+                qualified.append(
+                    {
+                        "export_index": candidate.export_index,
+                        "outer": candidate.outer_name,
+                        "path": path,
+                    }
+                )
             stats["name_collisions"].append(
                 {
                     "package": os.path.basename(pkg_path),
                     "mesh": selected.name,
                     "selected_export_index": selected.export_index,
                     "selected_outer": selected.outer_name,
-                    "discarded": [
-                        {
-                            "export_index": candidate.export_index,
-                            "outer": candidate.outer_name,
-                        }
-                        for candidate in discarded
-                    ],
+                    "flat_compatibility_path": flat_path,
+                    "qualified_exports": qualified,
                 }
             )
 
-    for mesh in sorted(eligible_meshes, key=lambda item: item.export_index):
+    stored_export_indices: set[int] = set()
+    for mesh, relative_output_path in sorted(
+        eligible_outputs, key=lambda item: (item[0].export_index, item[1])
+    ):
 
         # Store in database
-        if conn:
+        if conn and mesh.export_index not in stored_export_indices:
             store_parsed_mesh(conn, mesh, file_id, session_id)
+            stored_export_indices.add(mesh.export_index)
 
         if mesh.parse_status == "complete":
             stats["success"] += 1
 
             # Export glTF if requested
             if export_gltf and output_dir:
-                pkg_name = os.path.splitext(os.path.basename(pkg_path))[0]
-                gltf_path = os.path.join(output_dir, pkg_name, f"{mesh.name}.gltf")
+                gltf_path = os.path.join(output_dir, relative_output_path)
                 if not mesh.vertices or not mesh.indices:
                     stats["error"] += 1
                     stats["failures"].append(
@@ -1901,9 +2180,10 @@ def process_package(
                     continue
                 if exported:
                     stats["exported"] += 1
-                    stats["outputs"].append(
-                        Path(gltf_path).relative_to(output_dir).as_posix()
-                    )
+                    relative_gltf = Path(gltf_path).relative_to(output_dir).as_posix()
+                    stats["outputs"].append(relative_gltf)
+                    if classify_mesh_surfaces(mesh)["contains_water"]:
+                        stats["water_outputs"].append(relative_gltf)
                     if requires_runtime_leaves:
                         stats["hybrid_exported"] += 1
                     # Mark as exported in database
@@ -1951,6 +2231,7 @@ def empty_stats() -> Dict[str, Any]:
         "exported": 0,
         "hybrid_exported": 0,
         "outputs": [],
+        "water_outputs": [],
         "failures": [],
         "name_collisions": [],
     }
@@ -1960,6 +2241,7 @@ def merge_stats(total: Dict[str, Any], stats: Dict[str, Any]) -> None:
     for key in ("success", "error", "skipped", "exported", "hybrid_exported"):
         total[key] += stats.get(key, 0)
     total["outputs"].extend(stats.get("outputs", []))
+    total["water_outputs"].extend(stats.get("water_outputs", []))
     total["failures"].extend(stats.get("failures", []))
     total["name_collisions"].extend(stats.get("name_collisions", []))
 
@@ -2238,6 +2520,7 @@ def write_mesh_manifest(
     *,
     object_artifact: str | None = None,
     name_collisions: List[Dict[str, Any]] | None = None,
+    water_meshes: List[str] | None = None,
 ) -> int:
     """Publish only outputs produced by one fully successful extraction run."""
     output_path = Path(output_dir)
@@ -2269,7 +2552,7 @@ def write_mesh_manifest(
         manifest_path,
         {
             "schema": "vanguard_staticmesh_manifest",
-            "version": 2,
+            "version": 3,
             "status": "complete",
             "scope": "object_artifact" if object_artifact else "selected_packages",
             "object_artifact": str(Path(object_artifact).resolve()) if object_artifact else None,
@@ -2279,6 +2562,8 @@ def write_mesh_manifest(
             "unclaimed_gltf_examples": unclaimed_outputs[:100],
             "flat_name_collision_count": len(name_collisions or []),
             "flat_name_collisions": name_collisions or [],
+            "water_mesh_count": len(set(water_meshes or [])),
+            "water_meshes": sorted(set(water_meshes or [])),
             "collision_helper_catalog": "collision_helpers.json",
             "collision_helper_links": int(helper_catalog["link_count"]),
         },
@@ -2510,6 +2795,7 @@ def main():
         stats["files"],
         object_artifact=args.object_artifact,
         name_collisions=stats["name_collisions"],
+        water_meshes=stats["water_outputs"],
     )
     failure_report = Path(OUTPUT_DIR) / "staticmesh-last-failure.json"
     if failure_report.exists():

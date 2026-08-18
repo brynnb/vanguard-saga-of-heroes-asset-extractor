@@ -154,6 +154,41 @@ def _store_prop(props, name, value):
     props.setdefault(f"{name}__extra", []).append(value)
 
 
+def _resolve_import_ref(ref, imports):
+    """Preserve the UE2 package/outer identity of an imported object."""
+    if ref >= 0:
+        return None
+    index = -ref - 1
+    if not 0 <= index < len(imports):
+        return {"kind": "unresolved", "ci": ref}
+    imp = imports[index]
+    chain = []
+    seen = set()
+    outer = int(imp.get("package", 0) or 0)
+    while outer < 0 and outer not in seen:
+        seen.add(outer)
+        outer_index = -outer - 1
+        if not 0 <= outer_index < len(imports):
+            break
+        outer_import = imports[outer_index]
+        if outer_import.get("name"):
+            chain.append(outer_import["name"])
+        outer = int(outer_import.get("package", 0) or 0)
+    chain.reverse()
+    parts = [*chain, imp.get("name", "")]
+    return {
+        "kind": "import",
+        "ci": ref,
+        "import_index": index,
+        "class_name": imp.get("class", ""),
+        "name": imp.get("name", ""),
+        "package_chain": chain,
+        "source_package": chain[0] if chain else "",
+        "outer": chain[-1] if len(chain) > 1 else "",
+        "object_path": ".".join(part for part in parts if part),
+    }
+
+
 def _actor_hidden(props):
     return bool(props.get("bHidden")) or bool(props.get("bHiddenEd"))
 
@@ -252,6 +287,7 @@ def parse_all_props(buf, offset, size, names, imports):
         if pos + psz > end:
             break
         pdata = buf[pos : pos + psz]
+        object_ref = None
 
         if pt == 10 and sn == "Vector" and psz >= 12:
             x, y, z = struct.unpack("<fff", pdata[:12])
@@ -272,10 +308,18 @@ def parse_all_props(buf, offset, size, names, imports):
             if ref < 0:
                 ii = -ref - 1
                 value = imports[ii]["name"] if ii < len(imports) else None
+                object_ref = _resolve_import_ref(ref, imports)
             elif ref > 0:
                 value = f"export_{ref}"
+                object_ref = {
+                    "kind": "export",
+                    "ci": ref,
+                    "name": value,
+                    "object_path": value,
+                }
             else:
                 value = None
+                object_ref = None
         elif pt == 4 and psz >= 4:
             value = struct.unpack("<f", pdata[:4])[0]
         elif pt == 2 and psz >= 4:
@@ -295,6 +339,8 @@ def parse_all_props(buf, offset, size, names, imports):
         if array_index is not None:
             value = {"array_index": array_index, "value": value}
         _store_prop(props, pn, value)
+        if pt == 5 and pn == "StaticMesh" and object_ref is not None:
+            _store_prop(props, f"{pn}__object_ref", object_ref)
 
         pos += psz
 
@@ -357,11 +403,19 @@ for i in range(len(boundaries)):
         for _ in range(ic):
             cp, p = read_ci(buf, p)
             cn, p = read_ci(buf, p)
+            package_index = struct.unpack_from("<i", buf, p)[0]
             p += 4
             on, p = read_ci(buf, p)
             cname = names[cn] if 0 <= cn < len(names) else "???"
             oname = names[on] if 0 <= on < len(names) else "???"
-            imports.append({"class": cname, "name": oname})
+            imports.append(
+                {
+                    "class_package": names[cp] if 0 <= cp < len(names) else "???",
+                    "class": cname,
+                    "package": package_index,
+                    "name": oname,
+                }
+            )
 
         export_info = []
         p = eo
@@ -398,8 +452,22 @@ for i in range(len(boundaries)):
                 sm = props.get("StaticMesh")
                 if sm:
                     total_sma_with_mesh += 1
+                    mesh_ref = props.pop("StaticMesh__object_ref", None)
+                    mesh_identity = None
+                    if isinstance(mesh_ref, dict):
+                        mesh_identity = [
+                            str(mesh_ref.get("source_package", "")),
+                            str(mesh_ref.get("outer", "")),
+                        ]
                     comp = _copy_actor_identity(
-                        {"mesh": sm}, cls, export_name, props, prefab_name
+                        {
+                            "mesh": sm,
+                            "mesh_identity": mesh_identity,
+                        },
+                        cls,
+                        export_name,
+                        props,
+                        prefab_name,
                     )
                     if props.get("Location"):
                         comp["location"] = props["Location"]

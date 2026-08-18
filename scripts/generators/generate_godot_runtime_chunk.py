@@ -110,7 +110,7 @@ class StaticMeshMetadata:
 
     def lookup(self, mesh_path: str, mesh_name: str = "") -> dict[str, Any]:
         path = Path(mesh_path)
-        package_name = path.parent.name
+        package_name = path.parts[0] if len(path.parts) >= 2 else path.parent.name
         path_name = path.stem
         if package_name and path_name:
             entry = self.by_package_name.get(self._package_name_key(package_name, path_name))
@@ -1376,7 +1376,11 @@ def normalize_chunk_name(value: str) -> str:
 
 
 def is_hidden_sgo_component(component: dict[str, Any]) -> bool:
-    if truthy(component.get("hidden", False)) or truthy(component.get("hidden_editor", False)):
+    if (
+        truthy(component.get("hidden", False))
+        or truthy(component.get("hidden_editor", False))
+        or truthy(component.get("render_suppressed", False))
+    ):
         return True
     props = component.get("props", {})
     if isinstance(props, dict):

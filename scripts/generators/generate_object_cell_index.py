@@ -1239,6 +1239,10 @@ def placement_records_for_node(
             if not mesh_path:
                 skipped += 1
                 continue
+            mesh_name = str(component.get("mesh_name", "")).strip()
+            if is_authored_hidden_mesh(mesh_path, mesh_name, metadata):
+                skipped += 1
+                continue
             records.append(
                 placement_record(
                     node_index=node_index,
@@ -1247,7 +1251,7 @@ def placement_records_for_node(
                     object_name=object_name,
                     prefab_name=prefab_name,
                     mesh_path=mesh_path,
-                    mesh_name=str(component.get("mesh_name", "")).strip(),
+                    mesh_name=mesh_name,
                     visual_tier=str(component.get("visual_tier", "")).strip()
                     or visual_tier_for_mesh(
                         mesh_path,
@@ -1270,6 +1274,8 @@ def placement_records_for_node(
     if not mesh_path:
         return {"records": [], "skipped": 1}
     mesh_name = str(extras.get("mesh_ref", "")).strip()
+    if is_authored_hidden_mesh(mesh_path, mesh_name, metadata):
+        return {"records": [], "skipped": 1}
     records.append(
         placement_record(
             node_index=node_index,
@@ -1289,6 +1295,17 @@ def placement_records_for_node(
         )
     )
     return {"records": records, "skipped": skipped}
+
+
+def is_authored_hidden_mesh(
+    mesh_path: str, mesh_name: str, metadata: StaticMeshMetadata
+) -> bool:
+    """Honor Vanguard's explicit near-zero static-mesh visibility contract."""
+    if metadata is None:
+        return False
+    entry = metadata.lookup(mesh_path, mesh_name)
+    cull_distance = float(entry.get("cull_distance", 0.0)) if entry else 0.0
+    return 0.0 < cull_distance <= 1.0
 
 
 def placement_record(

@@ -345,12 +345,21 @@ def build_mesh_lookups(mesh_manifest):
     """Build fast lookup dicts from the mesh manifest."""
     by_name = {}  # exact lowercase name → path
     by_base = {}  # name with LOD suffix stripped → [paths]
+    by_qualified = {}  # (package, outer, mesh) → path
     by_tail = (
         {}
     )  # last component (e.g. "bench001") → [paths] for cross-package matching
 
     for mp in mesh_manifest:
+        path_parts = Path(mp).parts
         fname = os.path.basename(mp).replace(".gltf", "").lower()
+        if "__outer__" in path_parts:
+            marker = path_parts.index("__outer__")
+            if marker >= 1 and marker + 2 < len(path_parts):
+                package = path_parts[marker - 1].casefold()
+                outer = path_parts[marker + 1].casefold()
+                by_qualified[(package, outer, fname)] = mp
+            continue
         by_name[fname] = mp
         # Strip LOD suffix (_L0, _L1, etc.)
         base = re.sub(r"_l\d+$", "", fname)
@@ -360,7 +369,7 @@ def build_mesh_lookups(mesh_manifest):
         if tail_match:
             by_tail.setdefault(tail_match.group(1), []).append(mp)
 
-    return by_name, by_base, by_tail
+    return by_name, by_base, by_tail, by_qualified
 
 
 def resolve_mesh_ref(prefab_name, by_name, by_base, by_tail):
@@ -631,7 +640,7 @@ def resolve_sgo_spatial_extras(prefab_name):
     return resolved
 
 
-def resolve_sgo_components(prefab_name, by_name, by_base):
+def resolve_sgo_components(prefab_name, by_name, by_base, by_qualified=None):
     """Look up a prefab in sgo_prefabs.json and resolve component meshes.
 
     Returns list of dicts: [{mesh_path, location, rotation}, ...]
@@ -652,11 +661,17 @@ def resolve_sgo_components(prefab_name, by_name, by_base):
             continue
         mesh_lower = mesh_name.lower()
 
-        # Find mesh file
+        # Prefer the exact UE2 package/outer identity. Flat-name fallback is
+        # retained for old generated prefab data and genuinely unique exports.
         mesh_path = None
-        if mesh_lower in by_name:
+        mesh_identity = comp.get("mesh_identity")
+        if isinstance(mesh_identity, list) and len(mesh_identity) >= 2 and by_qualified:
+            package = str(mesh_identity[0]).casefold()
+            outer = str(mesh_identity[1] or "__root__").casefold()
+            mesh_path = by_qualified.get((package, outer, mesh_lower))
+        if mesh_path is None and mesh_lower in by_name:
             mesh_path = by_name[mesh_lower]
-        else:
+        elif mesh_path is None:
             for lod in ["_l0", "_l1", "_l2"]:
                 if mesh_lower + lod in by_name:
                     mesh_path = by_name[mesh_lower + lod]
@@ -678,6 +693,15 @@ def resolve_sgo_components(prefab_name, by_name, by_base):
                 entry["hidden"] = props["bHidden"]
             if "bHiddenEd" in props and "hidden_editor" not in entry:
                 entry["hidden_editor"] = props["bHiddenEd"]
+            authored_cull_distance = _safe_float(props.get("CullDistance", 0.0), 0.0)
+            if 0.0 < authored_cull_distance <= 1.0:
+                # UE2 tested this distance against the camera every frame. At
+                # one source unit these flat helper meshes were effectively
+                # non-visual; retaining them forever in Cesium turns them into
+                # conspicuous default-material planes.
+                entry["render_suppressed"] = True
+                entry["render_suppression_reason"] = "authored_near_zero_cull_distance"
+                entry["authored_cull_distance"] = authored_cull_distance
         entry.setdefault("visual_tier", classify_sgo_component_visual_tier(entry))
         resolved.append(entry)
 
@@ -893,7 +917,7 @@ def generate_objects_gltf(objects, output_path, chunk_name):
 
     # Load mesh manifest for resolving prefab→mesh
     mesh_manifest = load_mesh_manifest()
-    by_name, by_base, by_tail = build_mesh_lookups(mesh_manifest)
+    by_name, by_base, by_tail, by_qualified = build_mesh_lookups(mesh_manifest)
 
     # Marker cube geometry (small green cube for unresolved objects)
     s = 100.0
@@ -1055,7 +1079,9 @@ def generate_objects_gltf(objects, output_path, chunk_name):
         mesh_path = None
         all_paths = []
         if prefab_name:
-            sgo_components = resolve_sgo_components(prefab_name, by_name, by_base)
+            sgo_components = resolve_sgo_components(
+                prefab_name, by_name, by_base, by_qualified
+            )
             if sgo_components:
                 # Use first resolved mesh as the primary
                 for sc in sgo_components:
@@ -1346,7 +1372,7 @@ def main():
 
     # Pre-load mesh manifest for DecoInstance resolution
     mesh_manifest = load_mesh_manifest()
-    by_name, by_base, _by_tail = build_mesh_lookups(mesh_manifest)
+    by_name, by_base, _by_tail, _by_qualified = build_mesh_lookups(mesh_manifest)
     workers = min(_resolve_workers(args.workers), len(chunks)) if chunks else 1
 
     total_objects = 0

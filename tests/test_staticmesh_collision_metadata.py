@@ -111,6 +111,20 @@ class StaticMeshCollisionMetadataTests(unittest.TestCase):
             collision_slots=[True],
             simple_collision_flags={"UseSimpleBoxCollision": False},
             collision_metadata_status="decoded",
+            effective_simple_collision_flags={
+                "UseSimpleLineCollision": False,
+                "UseSimpleBoxCollision": True,
+                "UseSimpleKarmaCollision": True,
+            },
+            collision_model_ref=4,
+            collision_model_name="Model4",
+            collision_model_status="decoded",
+            collision_model_positions=[
+                (0.0, 0.0, 0.0),
+                (1.0, 0.0, 0.0),
+                (0.0, 1.0, 0.0),
+            ],
+            collision_model_indices=[0, 1, 2],
         )
         with tempfile.TemporaryDirectory() as temp_dir:
             output = Path(temp_dir) / "wall.gltf"
@@ -154,6 +168,10 @@ class StaticMeshCollisionMetadataTests(unittest.TestCase):
                 face_normal[axis] * normal[axis] for axis in range(3)
             )
         self.assertEqual(collision["section_slots"], [True])
+        self.assertEqual(collision["version"], 2)
+        self.assertTrue(collision["effective_simple_flags"]["UseSimpleBoxCollision"])
+        self.assertEqual(collision["collision_model"]["name"], "Model4")
+        self.assertEqual(collision["collision_model"]["triangle_count"], 1)
         self.assertEqual(indices, (0, 2, 1))
         self.assertGreater(face_normal_dot, 0.0)
         self.assertIs(collision["matches_section_count"], True)

@@ -54,6 +54,10 @@ class VanguardMeshData:
         "collision_slots",
         "simple_collision_flags",
         "collision_metadata_status",
+        "collision_model_ref",
+        "collision_model_name",
+        "collision_model_status",
+        "effective_simple_collision_flags",
     )
 
     def __init__(self):
@@ -79,6 +83,10 @@ class VanguardMeshData:
         self.collision_slots = []
         self.simple_collision_flags = {}
         self.collision_metadata_status = "absent"
+        self.collision_model_ref = 0
+        self.collision_model_name = None
+        self.collision_model_status = "absent"
+        self.effective_simple_collision_flags = {}
 
 
 SIMPLE_COLLISION_PROPERTY_NAMES = (
@@ -86,6 +94,15 @@ SIMPLE_COLLISION_PROPERTY_NAMES = (
     "UseSimpleBoxCollision",
     "UseSimpleKarmaCollision",
 )
+
+# UStaticMesh::StaticConstructor defaults in the UE2.5 Warfare source. Tagged
+# properties serialize deviations from these class defaults, not a complete
+# boolean record, so treating an omitted property as false loses collision.
+SIMPLE_COLLISION_DEFAULTS = {
+    "UseSimpleLineCollision": False,
+    "UseSimpleBoxCollision": True,
+    "UseSimpleKarmaCollision": True,
+}
 
 
 def read_staticmesh_collision_metadata(data, names):
@@ -314,6 +331,8 @@ def parse_vanguard_staticmesh(data, names, serial_offset=0, imports=None):
     collision = read_staticmesh_collision_metadata(data, names)
     mesh.collision_slots = collision["slots"]
     mesh.simple_collision_flags = collision["simple_flags"]
+    mesh.effective_simple_collision_flags = dict(SIMPLE_COLLISION_DEFAULTS)
+    mesh.effective_simple_collision_flags.update(mesh.simple_collision_flags)
     mesh.collision_metadata_status = collision["status"]
     r = BinaryReader(data)
 
@@ -351,7 +370,9 @@ def parse_vanguard_staticmesh(data, names, serial_offset=0, imports=None):
     # int32, int32, CompactIndex(UObject*), CompactIndex(UObject*), float, float
     r.read_int32()  # unk1CC
     r.read_int32()  # unk134
-    r.read_compact_index()  # f108 (UObject*)
+    mesh.collision_model_ref = r.read_compact_index()  # f108 (UModel*)
+    if mesh.collision_model_ref:
+        mesh.collision_model_status = "referenced"
     r.read_compact_index()  # unk198 (UObject*)
     r.read_float()  # unk194
     r.read_float()  # unk19C

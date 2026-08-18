@@ -1,6 +1,6 @@
 """Strict Vanguard UE2 BSP/model authority decoding.
 
-Vanguard's version-128 map packages serialize ``UModel`` trans-arrays with
+Vanguard's version-128/129 packages serialize ``UModel`` trans-arrays with
 32-bit counts while the records inside those arrays continue to use Unreal's
 compact object/index encoding.  Older extractor code treated the counts and
 records as one encoding and consequently lost alignment before the zone and
@@ -25,8 +25,9 @@ from typing import Any, Iterable
 from ue2.types import Plane, Vector
 
 
-VANGUARD_ARCHIVE_VERSION = 128
-VANGUARD_LICENSEE_VERSION = 34
+SUPPORTED_VANGUARD_PACKAGE_REVISIONS = frozenset(
+    ((128, 34), (129, 34), (129, 35))
+)
 MAX_ZONES = 64
 
 
@@ -289,15 +290,12 @@ def parse_model_data(
 ) -> UModel:
     """Decode one serialized Vanguard ``UModel`` export."""
 
-    if archive_version != VANGUARD_ARCHIVE_VERSION:
+    package_revision = (archive_version, licensee_version)
+    if package_revision not in SUPPORTED_VANGUARD_PACKAGE_REVISIONS:
         raise BspParseError(
-            f"unsupported archive version {archive_version}; "
-            f"expected {VANGUARD_ARCHIVE_VERSION}"
-        )
-    if licensee_version != VANGUARD_LICENSEE_VERSION:
-        raise BspParseError(
-            f"unsupported licensee version {licensee_version}; "
-            f"expected {VANGUARD_LICENSEE_VERSION}"
+            "unsupported Vanguard package revision "
+            f"{archive_version}/{licensee_version}; expected one of "
+            f"{sorted(SUPPORTED_VANGUARD_PACKAGE_REVISIONS)}"
         )
     if not data:
         raise BspParseError("empty Model export")
@@ -457,6 +455,47 @@ def parse_model_data(
         import_count=import_count,
     )
     return model
+
+
+def model_collision_triangles(
+    model: UModel,
+) -> tuple[list[tuple[float, float, float]], list[int]]:
+    """Materialize the polygon faces used by a UE2 ``UModel`` collision hull.
+
+    Each BSP node owns a contiguous polygon in the model vertex pool.  The
+    original collision traversal uses the BSP directly; a Godot concave shape
+    needs the equivalent polygon soup, so triangulate each node as a fan while
+    retaining the serialized vertex order.  The consumer enables two-sided
+    collision, matching UE2's swept-box behavior.
+    """
+
+    positions: list[tuple[float, float, float]] = []
+    indices: list[int] = []
+    for node_index, node in enumerate(model.nodes):
+        if node.num_vertices < 3:
+            continue
+        first = node.i_vert_pool
+        end = first + node.num_vertices
+        if first < 0 or end > len(model.vertices):
+            raise BspParseError(
+                f"collision node {node_index} vertex range {first}:{end} is invalid"
+            )
+        polygon: list[tuple[float, float, float]] = []
+        for pool_index in range(first, end):
+            point_index = model.vertices[pool_index].vertex
+            if point_index < 0 or point_index >= len(model.points):
+                raise BspParseError(
+                    f"collision node {node_index} references invalid point {point_index}"
+                )
+            point = model.points[point_index]
+            polygon.append((float(point.x), float(point.y), float(point.z)))
+        base = len(positions)
+        positions.extend(polygon)
+        for offset in range(1, len(polygon) - 1):
+            indices.extend((base, base + offset, base + offset + 1))
+    if not positions or not indices:
+        raise BspParseError("collision Model contains no materializable polygons")
+    return positions, indices
 
 
 def parse_model_export(package: Any, export: dict[str, Any]) -> UModel:

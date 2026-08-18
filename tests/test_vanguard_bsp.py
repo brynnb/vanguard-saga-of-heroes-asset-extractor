@@ -4,6 +4,7 @@ import unittest
 from scripts.lib.vanguard_bsp import (
     BspParseError,
     find_level_model_reference,
+    model_collision_triangles,
     parse_model_data,
 )
 
@@ -157,12 +158,38 @@ class VanguardBspTest(unittest.TestCase):
         self.assertEqual(model.leaves[0].i_zone, 1)
         self.assertEqual(model.leaves[0].visible_zones, 3)
 
+        positions, indices = model_collision_triangles(model)
+        self.assertEqual(positions, [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)])
+        self.assertEqual(indices, [0, 1, 2])
+
+    def test_revision_129_35_uses_the_verified_model_layout(self) -> None:
+        model = parse_model_data(
+            zoned_model(),
+            ["None"],
+            archive_version=129,
+            licensee_version=35,
+            export_count=4,
+            import_count=2,
+        )
+        self.assertEqual(len(model.nodes), 1)
+
+    def test_revision_129_34_uses_the_verified_model_layout(self) -> None:
+        model = parse_model_data(
+            zoned_model(),
+            ["None"],
+            archive_version=129,
+            licensee_version=34,
+            export_count=4,
+            import_count=2,
+        )
+        self.assertEqual(len(model.nodes), 1)
+
     def test_truncated_model_fails_closed(self) -> None:
         with self.assertRaisesRegex(BspParseError, "truncated|cannot fit|missing"):
             self.parse(zoned_model()[:-7])
 
     def test_unsupported_package_revision_fails_closed(self) -> None:
-        with self.assertRaisesRegex(BspParseError, "unsupported archive version"):
+        with self.assertRaisesRegex(BspParseError, "unsupported Vanguard package revision"):
             parse_model_data(
                 empty_model(),
                 ["None"],

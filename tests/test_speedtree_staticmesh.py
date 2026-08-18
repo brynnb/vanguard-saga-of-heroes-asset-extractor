@@ -18,7 +18,10 @@ from scripts.speedtree.build_spt2fbx_leaf_hybrid_gltf import (
     load_gltf,
     read_accessor,
 )
-from scripts.extractors.staticmesh_pipeline import _remove_speedtree_shadow_detail
+from scripts.extractors.staticmesh_pipeline import (
+    _effective_surface_two_sided,
+    _remove_speedtree_shadow_detail,
+)
 
 
 def vertex(x, y, z):
@@ -26,6 +29,12 @@ def vertex(x, y, z):
 
 
 class SpeedTreeStaticMeshTests(unittest.TestCase):
+    def test_all_speedtree_surfaces_are_two_sided(self) -> None:
+        self.assertTrue(_effective_surface_two_sided(True, False))
+        self.assertTrue(_effective_surface_two_sided(True, True))
+        self.assertTrue(_effective_surface_two_sided(False, True))
+        self.assertFalse(_effective_surface_two_sided(False, False))
+
     def test_detects_payload_by_format_markers_not_filename(self) -> None:
         self.assertTrue(
             has_embedded_speedtree_payload(b"prefix__IdvSpt_02_suffixSpeedTree")

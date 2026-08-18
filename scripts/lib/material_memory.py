@@ -974,7 +974,20 @@ class MaterialMemoryResolver:
             extras["vg_detail_scale"] = shader_info.detail_scale
         if shader_info.output_blending is not None:
             extras["vg_output_blending"] = shader_info.output_blending
+        if self.is_water_shader(shader_ref):
+            extras["vg_is_water"] = True
         return extras
+
+    def is_water_shader(self, shader_ref: str | None) -> bool:
+        """Identify water from the recovered material graph, never its name."""
+        shader_info = self.resolve_shader(shader_ref)
+        if shader_info is None:
+            return False
+        resolved = self._resolve_texture_target(shader_info.diffuse)
+        return any(
+            str(node.get("class", "")).casefold() == "watershadermaterial"
+            for node in self._endpoint_chain(shader_info.diffuse, resolved)
+        )
 
     def build_runtime_material_graph(
         self,
@@ -1267,6 +1280,7 @@ class MaterialMemoryResolver:
             detail["scale"] = shader_info.detail_scale
 
         alpha_mode = "MASK" if shader_info.alpha_mode == "mask" else "OPAQUE"
+        is_water = self.is_water_shader(shader_info.full_path)
         return {
             "source_package": shader_info.package_name,
             "source_ref": shader_info.full_path,
@@ -1287,6 +1301,7 @@ class MaterialMemoryResolver:
             "two_sided": bool(shader_info.two_sided),
             "surface_type": shader_info.surface_type,
             "output_blending": shader_info.output_blending,
+            "is_water": is_water,
             "graph": {
                 "diffuse_chain": self._endpoint_chain(shader_info.diffuse, diffuse_target),
                 "normal_chain": self._endpoint_chain(shader_info.normal, normal_target),
