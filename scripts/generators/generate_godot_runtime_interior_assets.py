@@ -46,7 +46,7 @@ from scripts.generators.generate_godot_runtime_chunk import (  # noqa: E402
 
 
 SOURCE_SCHEMA = "vanguard_world_interior_source_publication"
-SOURCE_VERSION = 1
+SOURCE_VERSION = 2
 SELECTION_SCHEMA = "vanguard_godot_runtime_interior_asset_selection"
 SELECTION_VERSION = 1
 GENERATOR_POLICY = "authoritative_sgo_movers_and_hidden_collision_helpers_v1"

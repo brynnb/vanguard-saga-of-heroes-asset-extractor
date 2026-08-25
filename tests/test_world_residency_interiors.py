@@ -1,7 +1,13 @@
-import unittest
+import json
 from pathlib import Path
+import tempfile
+import unittest
 
-from scripts.generators.generate_world_residency_interiors import reject_volatile_output
+from scripts.generators.generate_world_residency_interiors import (
+    instance_runtime_eligibility,
+    load_source_terrain_inventory,
+    reject_volatile_output,
+)
 from scripts.lib.world_residency_interiors import (
     AffineTransform,
     assemble_portal_graph,
@@ -159,6 +165,57 @@ class WorldResidencyInteriorsTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "volatile location"):
                 reject_volatile_output(path)
         reject_volatile_output(Path("/home/brynn/Code/artifacts/phase8/output.json"))
+
+    def test_complete_source_inventory_can_drive_publication_without_pack(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "source_terrain_inventory.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema": "vanguard_source_terrain_inventory",
+                        "version": 1,
+                        "inventory_id": "fixture",
+                        "generated_inputs_complete": True,
+                        "chunk_count": 2,
+                        "chunks": [
+                            {"chunk": "chunk_2_1"},
+                            {"chunk": "chunk_1_1"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            inventory, digest, chunks = load_source_terrain_inventory(path)
+
+            self.assertEqual(inventory["inventory_id"], "fixture")
+            self.assertEqual(len(digest), 64)
+            self.assertEqual(chunks, ["chunk_1_1", "chunk_2_1"])
+
+    def test_instance_runtime_eligibility_fails_closed_on_missing_visuals(self):
+        template = {"runtime_eligibility": {"eligible": True}}
+        self.assertEqual(
+            instance_runtime_eligibility(template, []),
+            {
+                "eligible": True,
+                "missing_visual_component_paths": [],
+                "reason": "eligible",
+            },
+        )
+        self.assertEqual(
+            instance_runtime_eligibility(template, ["Room/Mesh1", "Room/Mesh1"]),
+            {
+                "eligible": False,
+                "missing_visual_component_paths": ["Room/Mesh1"],
+                "reason": "unavailable_room_visual_binding",
+            },
+        )
+        self.assertEqual(
+            instance_runtime_eligibility(
+                {"runtime_eligibility": {"eligible": False}}, []
+            )["reason"],
+            "template_ineligible",
+        )
 
 
 if __name__ == "__main__":

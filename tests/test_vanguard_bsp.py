@@ -153,6 +153,9 @@ class VanguardBspTest(unittest.TestCase):
 
         self.assertEqual(len(model.nodes), 1)
         self.assertEqual(model.nodes[0].i_zone, [0, 1])
+        self.assertEqual(model.nodes[0].i_collision_bound, -1)
+        self.assertEqual(model.nodes[0].i_render_bound, -1)
+        self.assertEqual(model.bounds, [])
         self.assertEqual([zone.connectivity for zone in model.zones], [1, 2])
         self.assertEqual([zone.visibility for zone in model.zones], [3, 2])
         self.assertEqual(model.leaves[0].i_zone, 1)

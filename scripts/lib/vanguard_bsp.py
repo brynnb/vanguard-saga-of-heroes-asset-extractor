@@ -573,6 +573,8 @@ def _validate_model(
     vertex_count = len(model.vertices)
     leaf_count = len(model.leaves)
     zone_count = len(model.zones)
+    bound_count = len(model.bounds)
+    leaf_hull_count = len(model.leaf_hulls)
 
     for i, node in enumerate(model.nodes):
         for label, value in (
@@ -605,6 +607,16 @@ def _validate_model(
                 raise BspParseError(
                     f"nodes[{i}].i_zone[{side}]={value} exceeds {zone_count} zones"
                 )
+        if node.i_collision_bound != -1 and not 0 <= node.i_collision_bound < leaf_hull_count:
+            raise BspParseError(
+                f"nodes[{i}].i_collision_bound={node.i_collision_bound} is outside "
+                f"the {leaf_hull_count}-entry leaf-hull stream"
+            )
+        if node.i_render_bound != -1 and not 0 <= node.i_render_bound < bound_count:
+            raise BspParseError(
+                f"nodes[{i}].i_render_bound={node.i_render_bound} is outside "
+                f"the {bound_count}-entry bounds array"
+            )
 
     for i, surface in enumerate(model.surfaces):
         for label, value, size in (

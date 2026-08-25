@@ -255,9 +255,12 @@ def compact_compound_refs(record: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def prefab_closure(
-    roots: Iterable[str], prefabs: dict[str, dict[str, Any]]
+    roots: Iterable[str],
+    prefabs: dict[str, dict[str, Any]],
+    *,
+    by_fold: dict[str, str] | None = None,
 ) -> set[str]:
-    by_fold = {name.casefold(): name for name in prefabs}
+    by_fold = by_fold or {name.casefold(): name for name in prefabs}
     closure: set[str] = set()
     pending = sorted(set(str(root) for root in roots), reverse=True)
     while pending:
@@ -278,8 +281,15 @@ def prefab_closure(
     return closure
 
 
-def root_has_room(root: str, prefabs: dict[str, dict[str, Any]]) -> bool:
-    by_fold = {name.casefold(): name for name in prefabs}
+def root_has_room(
+    root: str,
+    prefabs: dict[str, dict[str, Any]],
+    *,
+    by_fold: dict[str, str] | None = None,
+    result_cache: dict[str, bool] | None = None,
+) -> bool:
+    by_fold = by_fold or {name.casefold(): name for name in prefabs}
+    result_cache = result_cache if result_cache is not None else {}
 
     def visit(name: str, ancestors: frozenset[str], depth: int) -> bool:
         if depth > MAX_PREFAB_DEPTH:
@@ -288,23 +298,33 @@ def root_has_room(root: str, prefabs: dict[str, dict[str, Any]]) -> bool:
         if resolved is None:
             raise ValueError(f"referenced SGO prefab is missing: {name}")
         folded = resolved.casefold()
+        if folded in result_cache:
+            return result_cache[folded]
         if folded in ancestors:
             raise ValueError(f"cycle in SGO prefab graph at {resolved}")
         next_ancestors = ancestors | {folded}
         for ref in prefabs[resolved].get("compound_refs", []):
             if int(ref.get("compound_type", 0)) == ROOM_COMPOUND_TYPE:
+                result_cache[folded] = True
                 return True
             if visit(str(ref["sub_prefab"]), next_ancestors, depth + 1):
+                result_cache[folded] = True
                 return True
+        result_cache[folded] = False
         return False
 
     return visit(root, frozenset(), 0)
 
 
-def discover_rooms(root: str, prefabs: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def discover_rooms(
+    root: str,
+    prefabs: dict[str, dict[str, Any]],
+    *,
+    by_fold: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
     """Return each authored room reference instantiated below ``root``."""
 
-    by_fold = {name.casefold(): name for name in prefabs}
+    by_fold = by_fold or {name.casefold(): name for name in prefabs}
     rooms: list[dict[str, Any]] = []
 
     def visit(
@@ -366,11 +386,14 @@ def discover_rooms(root: str, prefabs: dict[str, dict[str, Any]]) -> list[dict[s
 
 
 def walk_room_actors(
-    room: dict[str, Any], prefabs: dict[str, dict[str, Any]]
+    room: dict[str, Any],
+    prefabs: dict[str, dict[str, Any]],
+    *,
+    by_fold: dict[str, str] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Yield resolved actors owned by one room, stopping at nested room refs."""
 
-    by_fold = {name.casefold(): name for name in prefabs}
+    by_fold = by_fold or {name.casefold(): name for name in prefabs}
     room_transform = room.get("_transform")
     if not isinstance(room_transform, AffineTransform):
         raise ValueError(f"room {room.get('room_id', '?')} lacks an affine transform")
@@ -429,7 +452,10 @@ def walk_room_actors(
 
 
 def walk_nonroom_actors(
-    root: str, prefabs: dict[str, dict[str, Any]]
+    root: str,
+    prefabs: dict[str, dict[str, Any]],
+    *,
+    by_fold: dict[str, str] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Yield actors below a placed root while excluding every room subtree.
 
@@ -438,7 +464,7 @@ def walk_nonroom_actors(
     authority and must not be silently assigned to an arbitrary room.
     """
 
-    by_fold = {name.casefold(): name for name in prefabs}
+    by_fold = by_fold or {name.casefold(): name for name in prefabs}
 
     def visit(
         requested: str,

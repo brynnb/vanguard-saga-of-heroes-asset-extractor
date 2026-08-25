@@ -55,11 +55,12 @@ from scripts.lib.world_residency_interiors import (  # noqa: E402
     walk_nonroom_actors,
     walk_room_actors,
 )
+from scripts.lib.world_residency_portals import PortalApertureLibrary  # noqa: E402
 
 
 SCHEMA = "vanguard_world_interior_source_publication"
-VERSION = 1
-SOURCE_ASSEMBLY_POLICY = "vanguard_bsp_plus_sgo_compound_type3_rooms_v1"
+VERSION = 2
+SOURCE_ASSEMBLY_POLICY = "vanguard_bsp_plus_sgo_compound_type3_rooms_and_apertures_v2"
 EXPECTED_RECORD_FORMAT = [
     "asset",
     "node_index",
@@ -141,7 +142,15 @@ def main() -> int:
             sgo_raw=args.sgo_raw.resolve(),
             terrain_grid_root=args.terrain_grid_root.resolve(),
             object_index_root=args.object_index_root.resolve(),
-            source_pack_manifest=args.source_pack_manifest.resolve(),
+            mesh_root=args.mesh_root.resolve(),
+            source_pack_manifest=(
+                args.source_pack_manifest.resolve() if args.source_pack_manifest else None
+            ),
+            source_terrain_inventory=(
+                args.source_terrain_inventory.resolve()
+                if args.source_terrain_inventory
+                else None
+            ),
             progress_every=max(0, args.progress_every),
         )
         write_json_atomic(output, publication)
@@ -178,7 +187,21 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path(config.OUTPUT_DIR) / "godot_runtime" / "chunks",
     )
-    parser.add_argument("--source-pack-manifest", type=Path, required=True)
+    parser.add_argument(
+        "--mesh-root",
+        type=Path,
+        default=Path(config.OUTPUT_DIR) / "meshes" / "buildings",
+    )
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--source-pack-manifest", type=Path)
+    source.add_argument(
+        "--source-terrain-inventory",
+        type=Path,
+        help=(
+            "Authoritative extractor inventory used when a downstream immutable "
+            "production pack has not yet been assembled"
+        ),
+    )
     parser.add_argument(
         "--output",
         type=Path,
@@ -227,6 +250,31 @@ def load_source_pack(path: Path) -> tuple[dict[str, Any], str, list[str]]:
     if len(normalized) != len(chunks) or any(not value for value in normalized):
         raise ValueError("source pack chunk list is empty or contains duplicates")
     return manifest, hashlib.sha256(raw).hexdigest(), normalized
+
+
+def load_source_terrain_inventory(
+    path: Path,
+) -> tuple[dict[str, Any], str, list[str]]:
+    if not path.is_file():
+        raise ValueError(f"source terrain inventory does not exist: {path}")
+    raw = path.read_bytes()
+    inventory = json.loads(raw)
+    if inventory.get("schema") != "vanguard_source_terrain_inventory":
+        raise ValueError(
+            f"unsupported source terrain inventory schema: {inventory.get('schema')!r}"
+        )
+    if inventory.get("generated_inputs_complete") is not True:
+        raise ValueError("interior publication requires a complete source terrain inventory")
+    records = inventory.get("chunks")
+    if not isinstance(records, list) or not records:
+        raise ValueError("source terrain inventory has no chunks")
+    chunks = [str(record.get("chunk", "")).strip() for record in records if isinstance(record, dict)]
+    normalized = sorted(set(chunks))
+    if len(chunks) != len(records) or len(normalized) != len(chunks) or any(not value for value in chunks):
+        raise ValueError("source terrain inventory chunk list is invalid or duplicated")
+    if int(inventory.get("chunk_count", -1)) != len(normalized):
+        raise ValueError("source terrain inventory chunk_count does not match its records")
+    return inventory, hashlib.sha256(raw).hexdigest(), normalized
 
 
 def load_placed_prefab_names(
@@ -424,24 +472,43 @@ def stream_needed_actors(
     return dict(sorted(class_counts.items()))
 
 
-def _resolved_prefab_name(requested: str, prefabs: dict[str, dict[str, Any]]) -> str:
-    by_fold = {name.casefold(): name for name in prefabs}
+def _resolved_prefab_name(
+    requested: str,
+    prefabs: dict[str, dict[str, Any]],
+    by_fold: dict[str, str] | None = None,
+) -> str:
+    by_fold = by_fold or {name.casefold(): name for name in prefabs}
     result = by_fold.get(requested.casefold())
     if result is None:
         raise ValueError(f"referenced SGO prefab is missing: {requested}")
     return result
 
 
-def assemble_template(root: str, prefabs: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    root = _resolved_prefab_name(root, prefabs)
-    rooms = discover_rooms(root, prefabs)
+def assemble_template(
+    root: str,
+    prefabs: dict[str, dict[str, Any]],
+    aperture_library: PortalApertureLibrary,
+    by_fold: dict[str, str],
+) -> dict[str, Any]:
+    root = _resolved_prefab_name(root, prefabs, by_fold)
+    rooms = discover_rooms(root, prefabs, by_fold=by_fold)
     if not rooms:
         raise ValueError(f"interior root unexpectedly has no rooms: {root}")
     all_visual_paths: set[str] = set()
     for room in rooms:
         categorized: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        for actor in walk_room_actors(room, prefabs):
+        for actor in walk_room_actors(room, prefabs, by_fold=by_fold):
             category = actor_category(actor["class"])
+            if category == "portals":
+                try:
+                    mesh, aperture = aperture_library.transformed(actor)
+                except (OSError, ValueError, json.JSONDecodeError) as error:
+                    actor["aperture_status"] = "unavailable"
+                    actor["aperture_unavailable_reason"] = str(error)
+                else:
+                    actor["aperture_mesh_id"] = mesh["aperture_mesh_id"]
+                    actor["aperture_geometry"] = aperture
+                    actor["aperture_status"] = "exact"
             properties = actor.get("properties", {})
             if category == "visual_components" and (
                 properties.get("bHidden") is True
@@ -504,7 +571,7 @@ def assemble_template(root: str, prefabs: dict[str, dict[str, Any]]) -> dict[str
 
     portal_graph = assemble_portal_graph(rooms)
     transition_actors: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for actor in walk_nonroom_actors(root, prefabs):
+    for actor in walk_nonroom_actors(root, prefabs, by_fold=by_fold):
         category = actor_category(actor["class"])
         if category not in {"movers", "triggers", "audio", "portals"}:
             continue
@@ -554,6 +621,11 @@ def assemble_template(root: str, prefabs: dict[str, dict[str, Any]]) -> dict[str
             )
     mover_bindings.sort(key=lambda value: value["mover_id"])
     boundary_room_ids = sorted({str(value["room_id"]) for value in portal_graph["boundaries"]})
+    unavailable_aperture_endpoint_ids = sorted(
+        str(value["endpoint_id"])
+        for value in portal_graph["endpoints"]
+        if value.get("aperture_status") != "exact"
+    )
     unresolved_room_ids = sorted(
         {
             str(room_id)
@@ -580,14 +652,25 @@ def assemble_template(root: str, prefabs: dict[str, dict[str, Any]]) -> dict[str
         "room_count": len(rooms),
         "rooms": rooms,
         "runtime_eligibility": {
-            "eligible": bool(boundary_room_ids) and not portal_graph["unresolved"],
+            "eligible": (
+                bool(boundary_room_ids)
+                and not portal_graph["unresolved"]
+                and not unavailable_aperture_endpoint_ids
+            ),
             "reason": (
                 "eligible"
-                if boundary_room_ids and not portal_graph["unresolved"]
+                if (
+                    boundary_room_ids
+                    and not portal_graph["unresolved"]
+                    and not unavailable_aperture_endpoint_ids
+                )
                 else "no_authored_boundary_endpoint"
                 if not boundary_room_ids
+                else "unavailable_portal_aperture"
+                if unavailable_aperture_endpoint_ids
                 else "unresolved_portal_cluster"
             ),
+            "unavailable_aperture_endpoint_ids": unavailable_aperture_endpoint_ids,
             "unresolved_room_ids": unresolved_room_ids,
         },
         "source_assembly_policy": SOURCE_ASSEMBLY_POLICY,
@@ -734,7 +817,15 @@ def load_interior_instances(
                         "room_id": room_id,
                     }
                 )
+        missing_visual_component_paths = sorted(
+            str(path)
+            for binding in room_bindings
+            for path in binding["missing_visual_component_paths"]
+        )
         instance["room_visual_bindings"] = room_bindings
+        instance["runtime_eligibility"] = instance_runtime_eligibility(
+            template_by_fold[template_key], missing_visual_component_paths
+        )
         instance["source_component_record_count"] = len(available)
         ordered.append(instance)
 
@@ -755,6 +846,25 @@ def load_interior_instances(
         "room_visual_matching_placement_record_count": matching_record_count,
     }
     return ordered, sources, audit
+
+
+def instance_runtime_eligibility(
+    template: dict[str, Any], missing_visual_component_paths: list[str]
+) -> dict[str, Any]:
+    template_eligible = template.get("runtime_eligibility", {}).get("eligible") is True
+    missing = sorted(set(missing_visual_component_paths))
+    eligible = template_eligible and not missing
+    return {
+        "eligible": eligible,
+        "missing_visual_component_paths": missing,
+        "reason": (
+            "eligible"
+            if eligible
+            else "template_ineligible"
+            if not template_eligible
+            else "unavailable_room_visual_binding"
+        ),
+    }
 
 
 def _xyz(value: Any) -> list[float]:
@@ -812,12 +922,16 @@ def extract_bsp_authority(chunks: Iterable[str], maps_root: Path) -> list[dict[s
             nodes.append(
                 {
                     "back_node_index": node.i_back,
+                    "collision_leaf_hull_offset": node.i_collision_bound,
+                    "exclusive_sphere_bound": _plane(node.exclusive_sphere_bound),
                     "front_node_index": node.i_front,
+                    "inclusive_sphere_bound": _plane(node.inclusive_sphere_bound),
                     "leaf_indices": node.i_leaf,
                     "node_flags": node.node_flags,
                     "node_index": index,
                     "plane": _plane(node.plane),
                     "plane_node_index": node.i_plane,
+                    "render_bound_index": node.i_render_bound,
                     "surface_index": node.i_surf,
                     "zone_indices": node.i_zone,
                     "zone_mask": _mask(node.zone_mask),
@@ -844,6 +958,15 @@ def extract_bsp_authority(chunks: Iterable[str], maps_root: Path) -> list[dict[s
                     "zone_index": leaf.i_zone,
                 }
             )
+        bounds = [
+            {
+                "bound_index": index,
+                "maximum": _xyz(bound.maximum),
+                "minimum": _xyz(bound.minimum),
+                "valid": bound.valid,
+            }
+            for index, bound in enumerate(model.bounds)
+        ]
         results.append(
             {
                 "archive_version": int(package.version),
@@ -852,10 +975,14 @@ def extract_bsp_authority(chunks: Iterable[str], maps_root: Path) -> list[dict[s
                     "minimum": _xyz(model.bounding_box.minimum),
                     "valid": model.bounding_box.valid,
                 },
+                "bound_count": len(bounds),
+                "bounds": bounds,
                 "chunk": chunk,
                 "extension_tail_bytes": model.extension_tail_bytes,
                 "extension_tail_sha256": model.extension_tail_sha256,
                 "leaf_count": len(leaves),
+                "leaf_hull_count": len(model.leaf_hulls),
+                "leaf_hulls": model.leaf_hulls,
                 "leaves": leaves,
                 "licensee_version": int(package.licensee),
                 "linked": model.linked,
@@ -885,10 +1012,23 @@ def build_publication(
     sgo_raw: Path,
     terrain_grid_root: Path,
     object_index_root: Path,
-    source_pack_manifest: Path,
+    mesh_root: Path,
+    source_pack_manifest: Path | None,
+    source_terrain_inventory: Path | None,
     progress_every: int,
 ) -> dict[str, Any]:
-    manifest, manifest_sha256, chunks = load_source_pack(source_pack_manifest)
+    if (source_pack_manifest is None) == (source_terrain_inventory is None):
+        raise ValueError("exactly one source pack or source terrain inventory is required")
+    source_pack: dict[str, Any] | None = None
+    source_inventory: dict[str, Any] | None = None
+    source_manifest_sha256 = ""
+    if source_pack_manifest is not None:
+        source_pack, source_manifest_sha256, chunks = load_source_pack(source_pack_manifest)
+    else:
+        assert source_terrain_inventory is not None
+        source_inventory, source_manifest_sha256, chunks = load_source_terrain_inventory(
+            source_terrain_inventory
+        )
     placed_prefabs, sidecar_sources = load_placed_prefab_names(chunks, terrain_grid_root)
     print(
         f"Streaming compact SGO graph for {len(placed_prefabs):,} placed prefab names...",
@@ -902,14 +1042,20 @@ def build_publication(
             f"{len(absent_placed)} placed prefab templates are missing from raw SGO: "
             f"{absent_placed[:8]}"
         )
+    room_presence: dict[str, bool] = {}
     interior_roots = sorted(
         by_fold[name.casefold()]
         for name in placed_prefabs
-        if root_has_room(by_fold[name.casefold()], prefabs)
+        if root_has_room(
+            by_fold[name.casefold()],
+            prefabs,
+            by_fold=by_fold,
+            result_cache=room_presence,
+        )
     )
     if not interior_roots:
         raise ValueError("no placed prefab roots contain authored rooms")
-    closure = prefab_closure(interior_roots, prefabs)
+    closure = prefab_closure(interior_roots, prefabs, by_fold=by_fold)
     print(
         f"Streaming actors for {len(closure):,} prefabs in {len(interior_roots):,} interior roots...",
         file=sys.stderr,
@@ -920,7 +1066,11 @@ def build_publication(
         closure,
         progress_every=progress_every,
     )
-    templates = [assemble_template(root, prefabs) for root in interior_roots]
+    aperture_library = PortalApertureLibrary(mesh_root)
+    templates = [
+        assemble_template(root, prefabs, aperture_library, by_fold)
+        for root in interior_roots
+    ]
     templates.sort(key=lambda value: value["interior_space_asset_id"])
     instances, object_sources, binding_audit = load_interior_instances(
         chunks, object_index_root, templates
@@ -930,7 +1080,9 @@ def build_publication(
     bsp = extract_bsp_authority(chunks, maps_root)
 
     counts = {
+        "bsp_bound_count": sum(value["bound_count"] for value in bsp),
         "bsp_leaf_count": sum(value["leaf_count"] for value in bsp),
+        "bsp_leaf_hull_count": sum(value["leaf_hull_count"] for value in bsp),
         "bsp_node_count": sum(value["node_count"] for value in bsp),
         "bsp_zone_count": sum(value["zone_count"] for value in bsp),
         "interior_instance_count": len(instances),
@@ -939,27 +1091,50 @@ def build_publication(
         "portal_boundary_count": sum(len(value["portal_graph"]["boundaries"]) for value in templates),
         "portal_connection_count": sum(len(value["portal_graph"]["connections"]) for value in templates),
         "portal_endpoint_count": sum(len(value["portal_graph"]["endpoints"]) for value in templates),
+        "portal_aperture_mesh_count": len(aperture_library.catalog()),
+        "portal_aperture_unavailable_endpoint_count": sum(
+            1
+            for template in templates
+            for endpoint in template["portal_graph"]["endpoints"]
+            if endpoint.get("aperture_status") != "exact"
+        ),
         "room_count": sum(value["room_count"] for value in templates),
         "runtime_eligible_template_count": sum(
             1 for value in templates if value["runtime_eligibility"]["eligible"]
+        ),
+        "runtime_eligible_instance_count": sum(
+            1 for value in instances if value["runtime_eligibility"]["eligible"]
+        ),
+        "unavailable_room_visual_binding_count": sum(
+            len(value["runtime_eligibility"]["missing_visual_component_paths"])
+            for value in instances
         ),
         "unresolved_portal_cluster_count": sum(
             len(value["portal_graph"]["unresolved"]) for value in templates
         ),
     }
-    source_contract = {
+    source_contract: dict[str, Any] = {
         "chunk_count": len(chunks),
         "chunks": chunks,
         "object_indices": object_sources,
         "sgo_chunk_sidecars": sidecar_sources,
         "sgo_raw": sgo_source,
-        "source_pack": {
-            "manifest_relative_path": "pack_manifest.json",
-            "manifest_sha256": manifest_sha256,
-            "pack_id": manifest["pack_id"],
-            "publication_class": manifest["publication_class"],
-        },
     }
+    if source_pack is not None:
+        source_contract["source_pack"] = {
+            "manifest_relative_path": "pack_manifest.json",
+            "manifest_sha256": source_manifest_sha256,
+            "pack_id": source_pack["pack_id"],
+            "publication_class": source_pack["publication_class"],
+        }
+    else:
+        assert source_inventory is not None
+        source_contract["source_terrain_inventory"] = {
+            "chunk_count": len(chunks),
+            "inventory_id": source_inventory.get("inventory_id"),
+            "relative_path": "world_residency/source_terrain_inventory.json",
+            "sha256": source_manifest_sha256,
+        }
     audit = {
         "binding": binding_audit,
         "native_bsp_chunk_count": len(bsp),
@@ -980,6 +1155,7 @@ def build_publication(
         "counts": counts,
         "instances": instances,
         "interior_templates": templates,
+        "portal_aperture_meshes": aperture_library.catalog(),
         "schema": SCHEMA,
         "source_assembly_policy": SOURCE_ASSEMBLY_POLICY,
         "source_contract": source_contract,

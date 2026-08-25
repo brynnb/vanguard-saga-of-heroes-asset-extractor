@@ -468,6 +468,31 @@ as vertex color or a terrain paint weight. `tile_map.json` records the shadow
 file, dimensions, source export, package association, and semantic meaning so a
 future renderer can stream it without repeating the reverse engineering.
 
+### Interior room and portal authority
+
+The world-residency interior publication combines two exact source systems:
+native map `UModel` BSP zones/leaves/PVS masks and SGO compound-type-3 rooms
+with authored `Portal` actors. It retains room-owned components, exact placed
+instances, portal adjacency, transformed portal aperture triangles, and every
+BSP bound plus the collision/render-bound references from BSP nodes.
+
+Generate the publication from the extractor-owned complete terrain inventory
+without first constructing a downstream immutable world pack:
+
+```bash
+python3 scripts/generators/generate_world_residency_interiors.py \
+  --source-terrain-inventory output/world_residency/source_terrain_inventory.json \
+  --output output/world_residency/interior_source_publication.v2.json
+python3 scripts/auditors/audit_world_residency_interiors.py \
+  --publication output/world_residency/interior_source_publication.v2.json \
+  --source-terrain-inventory output/world_residency/source_terrain_inventory.json
+```
+
+Both commands stream/hash large source files and require disk-backed outputs;
+the generator rejects `/tmp`, `/dev/shm`, and `/run`. A production world pack
+manifest remains supported as an alternative input through
+`--source-pack-manifest`.
+
 ## Areas Remaining
 
 - Exact original SpeedTree branch-wind simulation and whole-tree far impostors.
