@@ -486,12 +486,26 @@ python3 scripts/generators/generate_world_residency_interiors.py \
 python3 scripts/auditors/audit_world_residency_interiors.py \
   --publication output/world_residency/interior_source_publication.v2.json \
   --source-terrain-inventory output/world_residency/source_terrain_inventory.json
+python3 scripts/generators/generate_staticmesh_source_index.py
+python3 scripts/generators/generate_godot_runtime_interior_assets.py \
+  --source-authority output/world_residency/interior_source_publication.v2.json \
+  --output-root output \
+  --runtime-root output/godot_runtime \
+  --boundary-output output/world_residency/interior_cesium_boundary.v1.json \
+  --free-space-reserve-gb 5
 ```
 
-Both commands stream/hash large source files and require disk-backed outputs;
+These commands stream/hash large source files and require disk-backed outputs;
 the generator rejects `/tmp`, `/dev/shm`, and `/run`. A production world pack
 manifest remains supported as an alternative input through
 `--source-pack-manifest`.
+
+The runtime publication produces reusable, content-addressed room packs and a
+compact Cesium boundary. Only exact room-owned placement keys with complete,
+ready, one-to-one room-pack replacements are eligible for exclusion. Every
+incomplete or ambiguous instance remains an explicit Cesium fallback. The
+boundary records both categories so downstream builders can fail closed and
+publish deterministic retained/excluded/fallback counts.
 
 ## Areas Remaining
 

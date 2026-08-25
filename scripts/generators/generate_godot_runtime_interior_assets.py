@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Generate shared runtime GLBs for authoritative interior-only mesh actors.
+"""Publish exact room packs and shared runtime GLBs for authored interiors.
 
-Ordinary chunk runtime generation sees placed StaticMeshActors.  Authored SGO
-Movers and hidden collision helpers intentionally do not appear in that input,
-so this narrow generator materializes their exact source glTFs into the same
-content-addressed shared library.  It writes a dedicated selection manifest for
-the existing Godot native-scene converter and merges only those selected assets
-into the global shared manifest.
+The publication includes room visuals that will move out of Cesium plus authored
+SGO movers and hidden collision helpers that ordinary chunk generation does not
+see. This generator resolves all of them into the same content-addressed shared
+library, emits reusable room presentation packs, and publishes the compact,
+fail-closed boundary that permits exact room-owned placements to leave Cesium.
 """
 
 from __future__ import annotations
@@ -49,7 +48,11 @@ SOURCE_SCHEMA = "vanguard_world_interior_source_publication"
 SOURCE_VERSION = 2
 SELECTION_SCHEMA = "vanguard_godot_runtime_interior_asset_selection"
 SELECTION_VERSION = 1
-GENERATOR_POLICY = "authoritative_sgo_movers_and_hidden_collision_helpers_v1"
+BOUNDARY_SCHEMA = "vanguard_interior_cesium_boundary"
+BOUNDARY_VERSION = 1
+ROOM_PACK_SCHEMA = "vanguard_interior_room_presentation_pack"
+ROOM_PACK_VERSION = 1
+GENERATOR_POLICY = "authoritative_sgo_room_visuals_movers_and_hidden_collision_helpers_v2"
 
 
 @dataclass(frozen=True)
@@ -65,6 +68,14 @@ def main() -> int:
     parser.add_argument("--source-authority", required=True, type=Path)
     parser.add_argument("--output-root", required=True, type=Path)
     parser.add_argument("--runtime-root", required=True, type=Path)
+    parser.add_argument(
+        "--boundary-output",
+        type=Path,
+        help=(
+            "Compact exact Cesium exclusion/replacement manifest. Defaults beside "
+            "the source interior publication."
+        ),
+    )
     parser.add_argument(
         "--static-mesh-source-index",
         type=Path,
@@ -92,6 +103,7 @@ def main() -> int:
             source_authority_path=args.source_authority,
             output_root=args.output_root,
             runtime_root=args.runtime_root,
+            boundary_output_path=args.boundary_output,
             static_mesh_source_index_path=args.static_mesh_source_index,
             force=args.force,
             dry_run=args.dry_run,
@@ -104,7 +116,7 @@ def main() -> int:
     label = "Interior runtime asset dry run" if args.dry_run else "Interior runtime assets"
     print(
         "%s: selection=%s meshes=%d written=%d existing=%d source_bytes=%d "
-        "runtime_bytes=%d manifest=%s"
+        "runtime_bytes=%d manifest=%s boundary=%s"
         % (
             label,
             result["selection_id"],
@@ -114,6 +126,7 @@ def main() -> int:
             result["source_bytes"],
             result["runtime_bytes"],
             result["manifest_path"],
+            result["boundary_path"],
         )
     )
     return 0
@@ -124,6 +137,7 @@ def generate_runtime_assets(
     source_authority_path: Path,
     output_root: Path,
     runtime_root: Path,
+    boundary_output_path: Path | None = None,
     static_mesh_source_index_path: Path,
     force: bool,
     dry_run: bool,
@@ -133,6 +147,11 @@ def generate_runtime_assets(
     source_authority_path = source_authority_path.expanduser().resolve()
     output_root = output_root.expanduser().resolve()
     runtime_root = runtime_root.expanduser().resolve()
+    boundary_output_path = (
+        boundary_output_path.expanduser().resolve()
+        if boundary_output_path is not None
+        else source_authority_path.with_name("interior_cesium_boundary.v1.json")
+    )
     static_mesh_source_index_path = static_mesh_source_index_path.expanduser().resolve()
     source_bytes = source_authority_path.read_bytes()
     source = json.loads(source_bytes)
@@ -157,9 +176,11 @@ def generate_runtime_assets(
         raise ValueError(
             f"interior source publication identity is not canonical: {source_authority_path}"
         )
-    selections = collect_mesh_selections(source)
+    selections = collect_mesh_selections(
+        source, canonical_mesh_paths(output_root / "meshes/buildings/manifest.json")
+    )
     if not selections:
-        raise ValueError("interior source publication has no mover/collision-only meshes")
+        raise ValueError("interior source publication has no runtime presentation meshes")
     identity = {
         "policy": GENERATOR_POLICY,
         "source_publication_id": str(source.get("publication_id", "")),
@@ -311,8 +332,17 @@ def generate_runtime_assets(
         "runtime_bytes": sum(int(value.get("runtime_bytes", 0)) for value in entries.values()),
         "meshes": {key: entries[key] for key in sorted(entries)},
     }
+    boundary, room_packs = build_interior_cesium_boundary(
+        source,
+        entries,
+        selection_id,
+        source_publication_sha256=hashlib.sha256(source_bytes).hexdigest(),
+        require_ready=not dry_run,
+    )
     if not dry_run:
         _write_json_atomic(manifest_path, manifest)
+        _write_room_packs(boundary_output_path, room_packs)
+        _write_json_atomic(boundary_output_path, boundary)
         if not selection_only:
             _merge_shared_manifest(runtime_root, entries, manifest_path)
     return {
@@ -324,36 +354,73 @@ def generate_runtime_assets(
         "runtime_bytes": manifest["runtime_bytes"],
         "estimated_write_bytes": estimated_write_bytes,
         "manifest_path": str(manifest_path),
+        "boundary_path": str(boundary_output_path),
     }
 
 
-def collect_mesh_selections(source: dict[str, Any]) -> list[MeshSelection]:
+def canonical_mesh_paths(manifest_path: Path) -> dict[str, str]:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    meshes = manifest.get("meshes")
+    if (
+        manifest.get("status") != "complete"
+        or manifest.get("scope") != "object_artifact"
+        or not isinstance(meshes, list)
+    ):
+        raise ValueError(f"canonical building mesh manifest is incomplete: {manifest_path}")
+    result: dict[str, str] = {}
+    for value in meshes:
+        path = str(value).replace("\\", "/")
+        folded = path.casefold()
+        previous = result.get(folded)
+        if not path or (previous is not None and previous != path):
+            raise ValueError(f"canonical building mesh paths collide by case: {path}")
+        result[folded] = path
+    return result
+
+
+def collect_mesh_selections(
+    source: dict[str, Any], canonical_paths: dict[str, str]
+) -> list[MeshSelection]:
     by_path: dict[str, dict[str, Any]] = {}
+
+    def add_path(raw_path: str, role: str) -> None:
+        path = canonical_paths.get(raw_path.casefold(), raw_path)
+        value = by_path.setdefault(
+            path.casefold(),
+            {
+                "mesh_path": path,
+                "mesh_name": Path(path).stem,
+                "roles": set(),
+                "count": 0,
+            },
+        )
+        if value["mesh_path"] != path:
+            raise ValueError(f"case-colliding interior mesh identities: {path}")
+        value["roles"].add(role)
+        value["count"] += 1
 
     def add(actor: object, role: str) -> None:
         if not isinstance(actor, dict):
             return
         static_source = actor.get("static_mesh_source")
         if not isinstance(static_source, dict):
-            raise ValueError(f"interior {role} actor lacks static_mesh_source")
+            raise ValueError(
+                f"interior {role} actor lacks static_mesh_source: "
+                f"class={actor.get('class')} name={actor.get('name')} "
+                f"path={actor.get('source_component_path')}"
+            )
         package = str(static_source.get("source_package", "")).strip()
         name = str(static_source.get("name", actor.get("static_mesh", ""))).strip()
         if not package or not name:
             raise ValueError(f"interior {role} actor has an empty mesh identity")
-        path = f"{package}/{name}.gltf"
-        value = by_path.setdefault(
-            path.casefold(),
-            {"mesh_path": path, "mesh_name": name, "roles": set(), "count": 0},
-        )
-        if value["mesh_path"] != path or value["mesh_name"] != name:
-            raise ValueError(f"case-colliding interior mesh identities: {path}")
-        value["roles"].add(role)
-        value["count"] += 1
+        add_path(f"{package}/{name}.gltf", role)
 
     for template in source["interior_templates"]:
         if not isinstance(template, dict):
             raise ValueError("interior template is invalid")
         for room in template.get("rooms", []):
+            for visual in room.get("visual_components", []):
+                add(visual, "room_visual")
             for mover in room.get("movers", []):
                 add(mover, "room_mover")
             for collision in room.get("collision_only_components", []):
@@ -362,6 +429,12 @@ def collect_mesh_selections(source: dict[str, Any]) -> list[MeshSelection]:
         if isinstance(transition, dict):
             for mover in transition.get("movers", []):
                 add(mover, "transition_mover")
+    for instance in source.get("instances", []):
+        for binding in instance.get("room_visual_bindings", []):
+            for component in binding.get("available_visual_components", []):
+                if not isinstance(component, dict) or not component.get("mesh_path"):
+                    raise ValueError("interior placement binding lacks an exact mesh path")
+                add_path(str(component["mesh_path"]), "room_visual")
     return [
         MeshSelection(
             mesh_path=value["mesh_path"],
@@ -371,6 +444,378 @@ def collect_mesh_selections(source: dict[str, Any]) -> list[MeshSelection]:
         )
         for _, value in sorted(by_path.items())
     ]
+
+
+def build_interior_cesium_boundary(
+    source: dict[str, Any],
+    entries: dict[str, dict[str, Any]],
+    selection_id: str,
+    *,
+    source_publication_sha256: str,
+    require_ready: bool,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    entries_by_fold = {path.casefold(): value for path, value in entries.items()}
+    templates = source.get("interior_templates", [])
+    instances = source.get("instances", [])
+    if not isinstance(templates, list) or not isinstance(instances, list):
+        raise ValueError("interior publication lacks templates or instances")
+    template_by_id: dict[str, dict[str, Any]] = {}
+    pack_by_template: dict[str, dict[str, Any]] = {}
+    component_by_template_path: dict[str, dict[str, dict[str, Any]]] = {}
+    room_packs: list[dict[str, Any]] = []
+    placement_meshes: dict[tuple[str, str], set[str]] = {}
+    eligible_template_ids: set[str] = set()
+    for instance in instances:
+        if not isinstance(instance, dict):
+            raise ValueError("interior instance is invalid")
+        if instance.get("runtime_eligibility", {}).get("eligible") is not True:
+            continue
+        template_id = str(instance.get("interior_space_asset_id", ""))
+        eligible_template_ids.add(template_id)
+        for binding in instance.get("room_visual_bindings", []):
+            for component in binding.get("available_visual_components", []):
+                if not isinstance(component, dict):
+                    raise ValueError("interior placement binding is invalid")
+                component_path = str(component.get("source_component_path", ""))
+                mesh_path = str(component.get("mesh_path", "")).replace("\\", "/")
+                if not component_path or not mesh_path:
+                    raise ValueError("interior placement binding lacks exact identity")
+                placement_meshes.setdefault((template_id, component_path), set()).add(
+                    mesh_path
+                )
+    for template in templates:
+        if not isinstance(template, dict):
+            raise ValueError("interior template is invalid")
+        template_id = str(template.get("interior_space_asset_id", ""))
+        if not template_id or template_id in template_by_id:
+            raise ValueError("interior template ID is empty or duplicated")
+        template_by_id[template_id] = template
+        if (
+            template.get("runtime_eligibility", {}).get("eligible") is not True
+            or template_id not in eligible_template_ids
+        ):
+            continue
+        room_records: list[dict[str, Any]] = []
+        component_by_path: dict[str, dict[str, Any]] = {}
+        room_ids: set[str] = set()
+        for room in template.get("rooms", []):
+            room_id = str(room.get("room_id", ""))
+            if not room_id or room_id in room_ids:
+                raise ValueError(f"{template_id}: room has no unique stable ID")
+            room_ids.add(room_id)
+            components: list[dict[str, Any]] = []
+            for actor in room.get("visual_components", []):
+                component_path = str(actor.get("source_component_path", ""))
+                static_source = actor.get("static_mesh_source")
+                if not component_path or not isinstance(static_source, dict):
+                    raise ValueError(f"{template_id}/{room_id}: visual lacks exact identity")
+                package = str(static_source.get("source_package", "")).strip()
+                name = str(static_source.get("name", actor.get("static_mesh", ""))).strip()
+                if not package or not name:
+                    raise ValueError(f"{template_id}/{room_id}: visual mesh identity is empty")
+                source_mesh_path = f"{package}/{name}.gltf"
+                resolved_meshes = placement_meshes.get((template_id, component_path), set())
+                if len(resolved_meshes) != 1:
+                    raise ValueError(
+                        f"{template_id}/{room_id}: placement mesh identity is not unique: "
+                        f"{sorted(resolved_meshes)[:4]}"
+                    )
+                mesh_path = next(iter(resolved_meshes))
+                entry = entries_by_fold.get(mesh_path.casefold())
+                if entry is None:
+                    raise ValueError(f"{template_id}/{room_id}: replacement asset is absent")
+                if require_ready and entry.get("status") not in {"existing", "written"}:
+                    raise ValueError(f"{template_id}/{room_id}: replacement asset is not ready")
+                component = {
+                    "asset_id": str(entry.get("asset_id", "")),
+                    "mesh_name": name,
+                    "mesh_path": mesh_path,
+                    "pack_component_index": len(component_by_path),
+                    "source_class": str(actor.get("class", "")),
+                    "source_component_path": component_path,
+                    "source_name": str(actor.get("name", "")),
+                    "source_static_mesh_path": source_mesh_path,
+                    "transform": actor.get("transform"),
+                    "runtime_relative_path": str(entry.get("runtime_relative_path", "")),
+                }
+                if (
+                    not component["asset_id"]
+                    or not component["runtime_relative_path"]
+                    or component_path in component_by_path
+                ):
+                    raise ValueError(
+                        f"{template_id}: visual component path is empty or duplicated: "
+                        f"{component_path}"
+                    )
+                component_by_path[component_path] = {**component, "room_id": room_id}
+                components.append(component)
+            room_records.append(
+                {
+                    "room_id": room_id,
+                    "source_component_path": str(room.get("source_component_path", "")),
+                    "transform": room.get("transform"),
+                    "visual_components": components,
+                }
+            )
+        if not component_by_path:
+            raise ValueError(f"{template_id}: eligible room pack has no visual components")
+        pack_identity = {
+            "interior_space_asset_id": template_id,
+            "rooms": room_records,
+            "root_prefab": str(template.get("root_prefab", "")),
+            "schema": ROOM_PACK_SCHEMA,
+            "source_publication_id": source.get("publication_id"),
+            "version": ROOM_PACK_VERSION,
+        }
+        pack_revision = _canonical_sha256(pack_identity)
+        pack = {
+            **pack_identity,
+            "content_revision": f"sha256:{pack_revision}",
+            "room_pack_id": f"interior_room_pack_{pack_revision[:32]}",
+        }
+        pack_by_template[template_id] = pack
+        component_by_template_path[template_id] = component_by_path
+        room_packs.append(pack)
+
+    exclusions: list[dict[str, Any]] = []
+    eligible_instances: list[dict[str, Any]] = []
+    fallback_instances: list[dict[str, Any]] = []
+    fallback_placements: list[dict[str, Any]] = []
+    exclusion_keys: set[tuple[Any, ...]] = set()
+    fallback_keys: set[tuple[Any, ...]] = set()
+    for instance in instances:
+        if not isinstance(instance, dict):
+            raise ValueError("interior instance is invalid")
+        instance_id = str(instance.get("interior_instance_id", ""))
+        template_id = str(instance.get("interior_space_asset_id", ""))
+        template = template_by_id.get(template_id)
+        if not instance_id or template is None:
+            raise ValueError("interior instance has an invalid identity")
+        eligibility = instance.get("runtime_eligibility", {})
+        if eligibility.get("eligible") is not True:
+            reason = str(eligibility.get("reason", "unavailable"))
+            fallback_instances.append(
+                {
+                    "chunk": str(instance.get("chunk", "")),
+                    "interior_instance_id": instance_id,
+                    "interior_space_asset_id": template_id,
+                    "reason": reason,
+                }
+            )
+            for binding in instance.get("room_visual_bindings", []):
+                room_id = str(binding.get("room_id", ""))
+                for component_path_value in binding.get(
+                    "available_visual_component_paths", []
+                ):
+                    component_path = str(component_path_value)
+                    key = (
+                        str(instance.get("chunk", "")),
+                        int(instance.get("node_index", -1)),
+                        str(instance.get("authoritative_source_object_id", "")),
+                        str(instance.get("authoritative_source_node_id", "")),
+                        component_path,
+                    )
+                    _validate_placement_key(instance_id, key)
+                    if key in fallback_keys:
+                        raise ValueError(f"duplicate Cesium fallback key: {key}")
+                    fallback_keys.add(key)
+                    fallback_placements.append(
+                        {
+                            "chunk": key[0],
+                            "interior_instance_id": instance_id,
+                            "interior_space_asset_id": template_id,
+                            "node_index": key[1],
+                            "reason": reason,
+                            "room_id": room_id,
+                            "source_component_path": component_path,
+                            "source_node_id": key[3],
+                            "source_object_id": key[2],
+                        }
+                    )
+            continue
+        pack = pack_by_template.get(template_id)
+        component_by_path = component_by_template_path.get(template_id)
+        if pack is None or component_by_path is None:
+            raise ValueError(f"{instance_id}: eligible instance has no replacement pack")
+        bound_paths: set[str] = set()
+        for binding in instance.get("room_visual_bindings", []):
+            missing = binding.get("missing_visual_component_paths", [])
+            if missing:
+                raise ValueError(f"{instance_id}: eligible instance has missing visuals")
+            room_id = str(binding.get("room_id", ""))
+            for component_path_value in binding.get("available_visual_component_paths", []):
+                component_path = str(component_path_value)
+                component = component_by_path.get(component_path)
+                if component is None or component["room_id"] != room_id:
+                    raise ValueError(f"{instance_id}: visual binding has no exact replacement")
+                key = (
+                    str(instance.get("chunk", "")),
+                    int(instance.get("node_index", -1)),
+                    str(instance.get("authoritative_source_object_id", "")),
+                    str(instance.get("authoritative_source_node_id", "")),
+                    component_path,
+                )
+                _validate_placement_key(instance_id, key)
+                if key in exclusion_keys:
+                    raise ValueError(f"duplicate Cesium exclusion key: {key}")
+                exclusion_keys.add(key)
+                bound_paths.add(component_path)
+                exclusions.append(
+                    {
+                        "asset_id": component["asset_id"],
+                        "chunk": key[0],
+                        "interior_instance_id": instance_id,
+                        "interior_space_asset_id": template_id,
+                        "mesh_path": component["mesh_path"],
+                        "node_index": key[1],
+                        "pack_component_index": component["pack_component_index"],
+                        "room_id": room_id,
+                        "room_pack_id": pack["room_pack_id"],
+                        "source_component_path": component_path,
+                        "source_node_id": key[3],
+                        "source_object_id": key[2],
+                    }
+                )
+        if bound_paths != set(component_by_path):
+            raise ValueError(f"{instance_id}: replacement coverage is not one-to-one")
+        eligible_instances.append(
+            {
+                "chunk": str(instance.get("chunk", "")),
+                "interior_instance_id": instance_id,
+                "interior_space_asset_id": template_id,
+                "node_index": int(instance.get("node_index", -1)),
+                "room_pack_id": pack["room_pack_id"],
+                "root_transform": instance.get("root_transform"),
+                "source_node_id": str(instance.get("authoritative_source_node_id", "")),
+                "source_object_id": str(instance.get("authoritative_source_object_id", "")),
+            }
+        )
+    room_packs.sort(key=lambda value: value["room_pack_id"])
+    exclusions.sort(
+        key=lambda value: (
+            value["chunk"],
+            value["node_index"],
+            value["source_component_path"],
+        )
+    )
+    eligible_instances.sort(key=lambda value: value["interior_instance_id"])
+    fallback_instances.sort(key=lambda value: value["interior_instance_id"])
+    fallback_placements.sort(
+        key=lambda value: (
+            value["chunk"],
+            value["node_index"],
+            value["source_component_path"],
+        )
+    )
+    pack_refs = [
+        {
+            "content_revision": pack["content_revision"],
+            "interior_space_asset_id": pack["interior_space_asset_id"],
+            "relative_path": f"interior_room_packs.v1/{pack['room_pack_id']}.json",
+            "room_count": len(pack["rooms"]),
+            "room_pack_id": pack["room_pack_id"],
+            "visual_component_count": sum(
+                len(room["visual_components"]) for room in pack["rooms"]
+            ),
+        }
+        for pack in room_packs
+    ]
+    eligible_index = {
+        record["interior_instance_id"]: index
+        for index, record in enumerate(eligible_instances)
+    }
+    exclusion_format = ["eligible_instance_index", "pack_component_index"]
+    fallback_format = [
+        "chunk",
+        "node_index",
+        "source_object_id",
+        "source_node_id",
+        "source_component_path",
+        "interior_instance_id",
+        "interior_space_asset_id",
+        "room_id",
+        "reason",
+    ]
+    strings = sorted(
+        {
+            str(record[field])
+            for records, fields in ((fallback_placements, fallback_format),)
+            for record in records
+            for field in fields
+            if field != "node_index"
+        }
+    )
+    string_indices = {value: index for index, value in enumerate(strings)}
+
+    def compact_record(record: dict[str, Any], fields: list[str]) -> list[int]:
+        return [
+            int(record[field])
+            if field == "node_index"
+            else string_indices[str(record[field])]
+            for field in fields
+        ]
+
+    identity = {
+        "counts": {
+            "eligible_instance_count": len(eligible_instances),
+            "excluded_placement_count": len(exclusions),
+            "fallback_instance_count": len(fallback_instances),
+            "fallback_placement_count": len(fallback_placements),
+            "room_pack_count": len(room_packs),
+        },
+        "eligible_instances": eligible_instances,
+        "exclusion_record_format": exclusion_format,
+        "exclusion_records": [
+            [
+                eligible_index[record["interior_instance_id"]],
+                int(record["pack_component_index"]),
+            ]
+            for record in exclusions
+        ],
+        "fallback_instances": fallback_instances,
+        "fallback_placement_record_format": fallback_format,
+        "fallback_placement_records": [
+            compact_record(record, fallback_format) for record in fallback_placements
+        ],
+        "room_packs": pack_refs,
+        "runtime_selection_id": selection_id,
+        "source_publication_id": source.get("publication_id"),
+        "source_publication_sha256": f"sha256:{source_publication_sha256}",
+        "string_table": strings,
+    }
+    boundary_identity = {
+        **identity,
+        "schema": BOUNDARY_SCHEMA,
+        "version": BOUNDARY_VERSION,
+    }
+    revision = _canonical_sha256(boundary_identity)
+    boundary = {
+        **boundary_identity,
+        "boundary_id": f"interior_cesium_boundary_{revision[:32]}",
+        "content_revision": f"sha256:{revision}",
+    }
+    return boundary, room_packs
+
+
+def _validate_placement_key(instance_id: str, key: tuple[Any, ...]) -> None:
+    if (
+        not str(key[0])
+        or int(key[1]) < 0
+        or not str(key[2])
+        or not str(key[3])
+        or not str(key[4])
+    ):
+        raise ValueError(f"{instance_id}: interior placement identity is incomplete")
+
+
+def _write_room_packs(boundary_path: Path, room_packs: list[dict[str, Any]]) -> None:
+    root = boundary_path.parent / "interior_room_packs.v1"
+    root.mkdir(parents=True, exist_ok=True)
+    # Packs are immutable and content-addressed. Keep earlier generations so a
+    # currently published object artifact can continue to resolve its exact
+    # pack set while a new boundary is being built.
+    for pack in room_packs:
+        _write_json_atomic(root / f"{pack['room_pack_id']}.json", pack)
 
 
 def _merge_shared_manifest(

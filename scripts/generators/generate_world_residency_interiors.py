@@ -510,6 +510,12 @@ def assemble_template(
                     actor["aperture_geometry"] = aperture
                     actor["aperture_status"] = "exact"
             properties = actor.get("properties", {})
+            if category == "visual_components" and not isinstance(
+                actor.get("static_mesh_source"), dict
+            ):
+                # A StaticMeshActor export without a resolved StaticMesh is not
+                # a renderable placement and cannot be replaced by a room pack.
+                category = "deferred_components"
             if category == "visual_components" and (
                 properties.get("bHidden") is True
                 or properties.get("bHiddenEd") is True
@@ -708,6 +714,9 @@ def load_interior_instances(
     }
     instances: dict[tuple[Any, ...], dict[str, Any]] = {}
     bound_paths_by_instance: dict[tuple[Any, ...], set[str]] = defaultdict(set)
+    bound_records_by_instance: dict[
+        tuple[Any, ...], dict[str, dict[str, str]]
+    ] = defaultdict(dict)
     sources: list[dict[str, Any]] = []
     record_count = 0
     matching_record_count = 0
@@ -722,8 +731,13 @@ def load_interior_instances(
         if str(payload.get("chunk", "")) != chunk:
             raise ValueError(f"object index chunk mismatch in {path}")
         strings = payload.get("strings")
+        assets = payload.get("assets")
         cells = payload.get("cells")
-        if not isinstance(strings, list) or not isinstance(cells, dict):
+        if (
+            not isinstance(strings, list)
+            or not isinstance(assets, list)
+            or not isinstance(cells, dict)
+        ):
             raise ValueError(f"object index lacks strings/cells: {path}")
         chunk_origin = payload.get("chunk_global_origin")
         if not isinstance(chunk_origin, list) or len(chunk_origin) != 3:
@@ -750,6 +764,17 @@ def load_interior_instances(
                 object_id = _string_at(strings, record[9], "source object")
                 node_id = _string_at(strings, record[10], "source node")
                 component_path = _string_at(strings, record[11], "component path")
+                asset_index = int(record[0])
+                if not 0 <= asset_index < len(assets) or not isinstance(
+                    assets[asset_index], dict
+                ):
+                    raise ValueError(f"invalid placement asset index in {path}")
+                mesh_path = str(assets[asset_index].get("mesh_path", "")).replace(
+                    "\\", "/"
+                )
+                asset_id = str(assets[asset_index].get("asset_id", ""))
+                if not mesh_path:
+                    raise ValueError(f"placement asset lacks exact identity in {path}")
                 node_index = record[1]
                 key = (chunk, node_index, object_id, node_id, prefab.casefold())
                 transform = {
@@ -779,6 +804,14 @@ def load_interior_instances(
                 elif prior["root_transform"] != transform:
                     raise ValueError(f"inconsistent root transform for {key}")
                 bound_paths_by_instance[key].add(component_path)
+                binding = {"asset_id": asset_id, "mesh_path": mesh_path}
+                previous_binding = bound_records_by_instance[key].get(component_path)
+                if previous_binding is not None and previous_binding != binding:
+                    raise ValueError(
+                        f"component path resolves to multiple placement assets: {key} "
+                        f"{component_path}"
+                    )
+                bound_records_by_instance[key][component_path] = binding
         sources.append(
             {
                 "bytes": len(raw),
@@ -804,6 +837,13 @@ def load_interior_instances(
             resolved_instance_counts[template_key] += len(present)
             room_bindings.append(
                 {
+                    "available_visual_components": [
+                        {
+                            **bound_records_by_instance[key][path],
+                            "source_component_path": path,
+                        }
+                        for path in present
+                    ],
                     "available_visual_component_paths": present,
                     "missing_visual_component_paths": missing,
                     "room_id": room_id,
