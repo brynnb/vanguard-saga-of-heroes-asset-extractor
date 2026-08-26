@@ -480,6 +480,8 @@ def _optimized_style_index_for_entry(entry: dict[str, Any]) -> int:
 def _modular_package_name_for_entry(entry: dict[str, Any]) -> str | None:
     if not bool(entry.get("visual_supported", False)):
         return None
+    if entry.get("modular_package"):
+        return str(entry["modular_package"])
     optimized_package = str(entry.get("optimized_package", ""))
     marker = "UEM_optimized"
     if not optimized_package.startswith(marker):

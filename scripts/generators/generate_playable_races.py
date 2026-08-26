@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Generate source-proven playable character identities.
 
-This generator does not assemble modular ``npcHuman`` bodies, guess texture
-substitutions, or preserve values from an earlier generated file. Each
-supported entry identifies one optimized Vanguard visual package and style.
-The facial-control exporter expands that identity into a visible mesh, master
-skeleton, sockets, and authored AnimSet chain.
+Playable identities select the modular UEM master and its authored UseMesh
+assembly. Optimized package fields are supplemental identities for explicitly
+optimized NPCs and forensic comparisons, not player defaults. The facial-control
+exporter resolves the master, components, sockets and authored AnimSet chain.
 
 ``generate_customization_data.py`` subsequently adds deterministic slider
 defaults from the original client tables.
@@ -54,8 +53,8 @@ PLAYER_RACES = list(RACE_SCALES)
 
 # Original-client race initialization strings and actual ALL_<style> exports
 # corroborate this ordering. KojanBarbarian is deliberately absent: client
-# strings name a dedicated optimized visual, but that package is not present
-# in the recovered asset set. Showing the Kojani-human style was a guess.
+# evidence does not establish a supported playable modular assembly for it.
+# Showing the Kojani-human style was a guess.
 PLAYABLE_VISUAL_SOURCE: dict[str, tuple[str, int]] = {
     "Dwarf": ("Dwarf", 0),
     "DarkElf": ("Elf", 1),
@@ -131,7 +130,7 @@ def _entry(
     material_manifest = material_manifest or {}
     source = PLAYABLE_VISUAL_SOURCE.get(race)
     entry: dict[str, Any] = {
-        "schema": 2,
+        "schema": 3,
         "race": race,
         "gender": gender,
         "display": f"{race} {gender}",
@@ -141,24 +140,27 @@ def _entry(
     }
     if source is None:
         entry["unsupported_reason"] = (
-            "Recovered assets do not contain the dedicated optimized "
-            "Kojan-barbarian visual named by the original client."
+            "No reviewed playable modular assembly for KojanBarbarian; "
+            "do not substitute the unrelated Kojani human model."
         )
         return entry
 
     prefix, style_index = source
+    modular_prefix = prefix[:1].lower() + prefix[1:]
+    modular_package = f"UEM_{modular_prefix}_{gender}_char"
+    modular_stem = modular_package.removeprefix("UEM_")
+    head_path = CHARACTERS / modular_package / f"{modular_stem}_head_{style_index}_C_0.gltf"
+    if not head_path.is_file():
+        raise RuntimeError(f"Missing playable modular head: {head_path}")
     package = f"UEM_optimized{prefix}_{gender}_char"
     stem = package.removeprefix("UEM_")
-    package_path = CHARACTERS / package
     master_export = f"{stem}_ALL_{style_index}_SKELETON"
-    visible_pattern = f"{stem}_ALL_{style_index}_C_*.gltf"
-    visible_paths = sorted(package_path.glob(visible_pattern))
-    if not package_path.is_dir() or not visible_paths:
-        raise RuntimeError(
-            f"Missing authoritative playable visual {package}/{visible_pattern}"
-        )
     entry.update(
         {
+            "visual_kind": "modular_player",
+            "modular_package": modular_package,
+            "modular_style_index": style_index,
+            "modular_master_export": f"{modular_stem}_ALL_{style_index}_SKELETON",
             "optimized_package": package,
             "optimized_style_index": style_index,
             "optimized_master_export": master_export,

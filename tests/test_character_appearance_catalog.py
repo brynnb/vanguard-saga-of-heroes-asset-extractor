@@ -2,7 +2,13 @@ import json
 import struct
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
+
+from scripts.generators import generate_playable_races
+from scripts.exporters import build_race_prefix_map
 
 from scripts.extractors.decode_attachment_groups import CATEGORY_ORDER
 from scripts.extractors.decode_items import RUNTIME_PACKAGE_INDEX_TO_SOURCE, write_catalog
@@ -63,6 +69,52 @@ class TaggedPropertyReaderTest(unittest.TestCase):
 
 
 class AppearanceCatalogContractTest(unittest.TestCase):
+    def test_player_identity_uses_modular_without_requiring_optimized_meshes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_directory:
+            characters = Path(temp_directory)
+            head = characters / "UEM_elf_M_char" / "elf_M_char_head_0_C_0.gltf"
+            head.parent.mkdir()
+            head.write_text("{}")
+            with patch.object(generate_playable_races, "CHARACTERS", characters):
+                entry = _entry("HighElf", "M")
+                self.assertEqual(entry["visual_kind"], "modular_player")
+                self.assertEqual(entry["modular_package"], "UEM_elf_M_char")
+                self.assertEqual(entry["modular_master_export"], "elf_M_char_ALL_0_SKELETON")
+                self.assertEqual(_modular_package_name_for_entry(entry), "UEM_elf_M_char")
+                with self.assertRaisesRegex(RuntimeError, "Missing playable modular head"):
+                    _entry("HighElf", "F")
+
+    def test_npc_and_optimized_identities_are_not_collapsed(self) -> None:
+        races = [
+            {"id": 188, "name": "NPCHighElf", "category": "NPC"},
+            {"id": 350, "name": "OPTHighElf", "category": "NPC"},
+            {"id": 999, "name": "OPTUnknown", "category": "NPC"},
+        ]
+        recovered = {
+            "NPCHighElf": {"visual_prefix": "npcElf", "normalized_prefix": "npcelf"},
+            "OPTHighElf": {"visual_prefix": "optimizedElf", "normalized_prefix": "optimizedelf"},
+        }
+        with tempfile.TemporaryDirectory() as temp_directory:
+            output = Path(temp_directory) / "race_to_mesh_prefix.json"
+            with (
+                patch.object(build_race_prefix_map, "configure_paths"),
+                patch.object(build_race_prefix_map, "OUTPUT_PATH", str(output)),
+                patch.object(build_race_prefix_map, "_load_exported_prefixes", return_value={"highelf", "npchuman", "optimizedelf", "unknown"}),
+                patch.object(build_race_prefix_map, "_load_actor_race_visual_map", return_value=recovered),
+                patch.object(build_race_prefix_map, "load_race_source", return_value=(races, {})),
+                patch.object(build_race_prefix_map.glob, "glob", return_value=[]),
+                redirect_stdout(StringIO()),
+            ):
+                build_race_prefix_map.main([])
+            result = json.loads(output.read_text())
+            self.assertEqual(result["188"]["visual_kind"], "modular_npc")
+            self.assertEqual(result["188"]["client_visual_prefix"], "npcElf")
+            self.assertEqual(result["350"]["visual_kind"], "optimized_npc")
+            self.assertEqual(result["350"]["prefix"], "optimizedelf")
+            self.assertNotIn("body_prefix", result["350"])
+            self.assertIsNone(result["999"]["prefix"])
+            self.assertEqual(result["999"]["source"], "unresolved_optimized_identity")
+
     def test_missing_hair_item_templates_have_an_exact_recovery_set(self) -> None:
         self.assertEqual(len(RECOVERED_HAIR_TOP_EXPORTS), 26)
         self.assertIn(

@@ -129,17 +129,6 @@ NPC_HUMANOID_CLOTHING = {
     'NPCVaranthari': 'varanthari',
     'NPCKurashasa': 'kura',
     'NPCLesserGiant': 'halfgiant',
-    'OPTThestran': 'thestran',
-    'OPTKojanHuman': 'kojan',
-    'OPTMordebi': 'mordebi',
-    'OPTQaliathari': 'qalian',
-    'OPTHighElf': 'highelf',
-    'OPTDarkElf': 'darkelf',
-    'OPTWoodElf': 'woodelf',
-    'OPTVaranjar': 'varanjar',
-    'OPTVaranthari': 'varanthari',
-    'OPTKurashasa': 'kura',
-    'OPTLesserGiant': 'halfgiant',
 }
 NPC_HUMANOID_BODY = 'npchuman'
 
@@ -306,6 +295,19 @@ def main(argv=None):
         rname = race['name']
         cat = race['category']
         entry = {'race_id': rid, 'race_name': rname, 'category': cat}
+        actor_visual = actor_visual_map.get(rname, {})
+        # Preserve the retail body family separately from clothing aliases.
+        # In particular OPT races must never take the modular NPC shortcut.
+        client_visual_prefix = str(actor_visual.get("visual_prefix", ""))
+        if client_visual_prefix:
+            entry['client_visual_prefix'] = client_visual_prefix
+            entry['visual_kind'] = (
+                'optimized_npc' if client_visual_prefix.lower().startswith('optimized')
+                else 'modular_npc' if rname.startswith('NPC')
+                else 'actor'
+            )
+        elif cat == 'PLAYER':
+            entry['visual_kind'] = 'modular_player'
 
         if rname in NO_MESH_RACES:
             entry['prefix'] = None
@@ -325,9 +327,8 @@ def main(argv=None):
         # Prefer this over local name heuristics when the referenced prefix has
         # exported glTF data. If the client references a prefix we do not have a
         # renderable mesh for, keep that evidence in the map and do not guess a
-        # different body. NPC humanoids above are intentionally handled first:
-        # the client table gives their base actor body, while the viewer needs
-        # the race-specific clothing/head prefix plus npcHuman body fallback.
+        # different body. Modular NPC humanoids above retain a clothing alias
+        # while preserving client_visual_prefix as the actual retail identity.
         actor_visual = actor_visual_map.get(rname)
         if actor_visual:
             client_prefix = _normalise_prefix(actor_visual.get("normalized_prefix", ""))
@@ -389,6 +390,11 @@ def main(argv=None):
             continue
 
         # Strip NPC/OPT prefix
+        if rname.startswith('OPT'):
+            entry['prefix'] = None
+            entry['source'] = 'unresolved_optimized_identity'
+            mapping[rid] = entry
+            continue
         stripped = rname
         for pfx_str in ['NPC', 'OPT', 'Player']:
             if rname.startswith(pfx_str) and len(rname) > len(pfx_str):
