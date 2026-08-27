@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from scripts.extractors.staticmesh_pipeline import (
     mesh_manifest_entries_from_object_artifact,
+    object_artifact_mesh_requirements,
     process_package,
     resolve_section_shader_refs,
     write_failure_report,
@@ -126,6 +127,24 @@ class StaticMeshPipelinePublicationTests(unittest.TestCase):
             )
 
             self.assertEqual(entries, ["Package/Tree.gltf"])
+
+    def test_object_artifact_scope_uses_package_before_outer_qualification(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "output"
+            objects = root / "artifact" / "objects"
+            package = root / "Meshes" / "Example.usx"
+            package.parent.mkdir(parents=True)
+            package.write_bytes(b"source package")
+            qualified = Path("Example/__outer__/Room/Tree")
+            (output / qualified.parent).mkdir(parents=True)
+            (objects / qualified.parent).mkdir(parents=True)
+            (output / qualified.with_suffix(".gltf")).write_text("{}")
+            (objects / qualified.with_suffix(".glb")).write_bytes(b"compact")
+
+            requirements = object_artifact_mesh_requirements(str(root / "artifact"))
+
+            self.assertEqual(requirements, {"example": {"tree"}})
 
     def test_failure_report_does_not_replace_complete_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

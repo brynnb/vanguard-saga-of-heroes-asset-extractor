@@ -2305,16 +2305,9 @@ def run_pipeline(
     # Find files to process
     required_mesh_names_by_package: dict[str, set[str]] = {}
     if object_artifact:
-        object_root = Path(object_artifact) / "objects"
-        if not object_root.is_dir():
-            raise FileNotFoundError(
-                f"object artifact has no shared object store: {object_root}"
-            )
-        for path in object_root.rglob("*.glb"):
-            package_name = path.parent.name.casefold()
-            required_mesh_names_by_package.setdefault(package_name, set()).add(
-                path.stem.casefold()
-            )
+        required_mesh_names_by_package = object_artifact_mesh_requirements(
+            object_artifact
+        )
         required_packages = set(required_mesh_names_by_package)
         available_packages = {
             Path(path).stem.casefold(): path
@@ -2481,6 +2474,28 @@ def run_pipeline(
 
     total_stats["files"] = [str(Path(path).resolve()) for path in files]
     return total_stats
+
+
+def object_artifact_mesh_requirements(
+    object_artifact: str,
+) -> dict[str, set[str]]:
+    """Return package-owned mesh stems from a compact object artifact."""
+    object_root = Path(object_artifact) / "objects"
+    if not object_root.is_dir():
+        raise FileNotFoundError(
+            f"object artifact has no shared object store: {object_root}"
+        )
+    requirements: dict[str, set[str]] = {}
+    for path in object_root.rglob("*.glb"):
+        relative = path.relative_to(object_root)
+        if len(relative.parts) < 2:
+            raise ValueError(
+                f"object artifact mesh is missing its package directory: {path}"
+            )
+        requirements.setdefault(relative.parts[0].casefold(), set()).add(
+            path.stem.casefold()
+        )
+    return requirements
 
 
 def _sha256_file(path: str | os.PathLike[str]) -> str:
