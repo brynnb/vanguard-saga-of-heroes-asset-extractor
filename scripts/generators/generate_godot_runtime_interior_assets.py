@@ -22,8 +22,6 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.generators.generate_godot_runtime_chunk import (  # noqa: E402
     NATIVE_SCENE_PACK_VERSION,
@@ -42,6 +40,7 @@ from scripts.generators.generate_godot_runtime_chunk import (  # noqa: E402
     shared_asset_manifest_entries,
     shared_asset_manifest_entry,
 )
+from scripts.lib.interior_portal_runtime import build_portal_runtime_catalog  # noqa: E402
 
 
 SOURCE_SCHEMA = "vanguard_world_interior_source_publication"
@@ -77,6 +76,14 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--portal-runtime-output",
+        type=Path,
+        help=(
+            "Compact room bounds, portal graph, aperture geometry, and instance "
+            "mapping catalog. Defaults beside the Cesium boundary."
+        ),
+    )
+    parser.add_argument(
         "--static-mesh-source-index",
         type=Path,
         default=REPO_ROOT / "output/data/staticmesh_source_index.tsv",
@@ -104,6 +111,7 @@ def main() -> int:
             output_root=args.output_root,
             runtime_root=args.runtime_root,
             boundary_output_path=args.boundary_output,
+            portal_runtime_output_path=args.portal_runtime_output,
             static_mesh_source_index_path=args.static_mesh_source_index,
             force=args.force,
             dry_run=args.dry_run,
@@ -116,7 +124,7 @@ def main() -> int:
     label = "Interior runtime asset dry run" if args.dry_run else "Interior runtime assets"
     print(
         "%s: selection=%s meshes=%d written=%d existing=%d source_bytes=%d "
-        "runtime_bytes=%d manifest=%s boundary=%s"
+        "runtime_bytes=%d manifest=%s boundary=%s portal_runtime=%s"
         % (
             label,
             result["selection_id"],
@@ -127,6 +135,7 @@ def main() -> int:
             result["runtime_bytes"],
             result["manifest_path"],
             result["boundary_path"],
+            result["portal_runtime_path"],
         )
     )
     return 0
@@ -138,6 +147,7 @@ def generate_runtime_assets(
     output_root: Path,
     runtime_root: Path,
     boundary_output_path: Path | None = None,
+    portal_runtime_output_path: Path | None = None,
     static_mesh_source_index_path: Path,
     force: bool,
     dry_run: bool,
@@ -151,6 +161,11 @@ def generate_runtime_assets(
         boundary_output_path.expanduser().resolve()
         if boundary_output_path is not None
         else source_authority_path.with_name("interior_cesium_boundary.v1.json")
+    )
+    portal_runtime_output_path = (
+        portal_runtime_output_path.expanduser().resolve()
+        if portal_runtime_output_path is not None
+        else boundary_output_path.with_name("interior_portal_runtime.v1.json")
     )
     static_mesh_source_index_path = static_mesh_source_index_path.expanduser().resolve()
     source_bytes = source_authority_path.read_bytes()
@@ -202,6 +217,12 @@ def generate_runtime_assets(
             "generate_godot_runtime_chunk.py": (
                 "sha256:"
                 + _file_sha256(Path(__file__).resolve().with_name("generate_godot_runtime_chunk.py"))
+            ),
+            "interior_portal_runtime.py": (
+                "sha256:"
+                + _file_sha256(
+                    Path(__file__).resolve().parents[1] / "lib/interior_portal_runtime.py"
+                )
             ),
         },
     }
@@ -339,10 +360,23 @@ def generate_runtime_assets(
         source_publication_sha256=hashlib.sha256(source_bytes).hexdigest(),
         require_ready=not dry_run,
     )
+    portal_runtime_identity = build_portal_runtime_catalog(
+        source,
+        boundary,
+        room_packs,
+        mesh_root,
+    )
+    portal_runtime_revision = _canonical_sha256(portal_runtime_identity)
+    portal_runtime = {
+        **portal_runtime_identity,
+        "catalog_id": f"interior_portal_runtime_{portal_runtime_revision[:32]}",
+        "content_revision": f"sha256:{portal_runtime_revision}",
+    }
     if not dry_run:
         _write_json_atomic(manifest_path, manifest)
         _write_room_packs(boundary_output_path, room_packs)
         _write_json_atomic(boundary_output_path, boundary)
+        _write_json_atomic(portal_runtime_output_path, portal_runtime)
         if not selection_only:
             _merge_shared_manifest(runtime_root, entries, manifest_path)
     return {
@@ -355,6 +389,7 @@ def generate_runtime_assets(
         "estimated_write_bytes": estimated_write_bytes,
         "manifest_path": str(manifest_path),
         "boundary_path": str(boundary_output_path),
+        "portal_runtime_path": str(portal_runtime_output_path),
     }
 
 

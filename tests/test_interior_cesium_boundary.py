@@ -1,8 +1,12 @@
+import json
+from pathlib import Path
+import tempfile
 import unittest
 
 from scripts.generators.generate_godot_runtime_interior_assets import (
     build_interior_cesium_boundary,
 )
+from scripts.lib.interior_portal_runtime import build_portal_runtime_catalog
 
 
 def visual(path: str, name: str) -> dict:
@@ -14,7 +18,10 @@ def visual(path: str, name: str) -> dict:
             "name": name,
             "source_package": "FixturePackage",
         },
-        "transform": {"origin": [1.0, 2.0, 3.0]},
+        "transform": {
+            "basis": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            "origin": [10.0, 20.0, 30.0],
+        },
     }
 
 
@@ -28,6 +35,39 @@ def fixture_source(*, instance_eligible: bool = True) -> dict:
                 "interior_space_asset_id": "interior_fixture",
                 "root_prefab": "Fixture",
                 "runtime_eligibility": {"eligible": True},
+                "portal_graph": {
+                    "adjacency": [
+                        {"room_id": "room_fixture", "visible_room_ids": []}
+                    ],
+                    "boundaries": [
+                        {
+                            "boundary_id": "boundary_fixture",
+                            "endpoint_id": "endpoint_fixture",
+                            "room_id": "room_fixture",
+                        }
+                    ],
+                    "connections": [],
+                    "endpoints": [
+                        {
+                            "aperture_status": "exact",
+                            "endpoint_id": "endpoint_fixture",
+                            "room_id": "room_fixture",
+                            "aperture_geometry": {
+                                "primitives": [
+                                    {
+                                        "indices": [0, 1, 2],
+                                        "positions": [
+                                            [0.0, 0.0, 0.0],
+                                            [0.0, 1.0, 0.0],
+                                            [0.0, 0.0, 1.0],
+                                        ],
+                                    }
+                                ]
+                            },
+                        }
+                    ],
+                    "unresolved": [],
+                },
                 "rooms": [
                     {
                         "room_id": "room_fixture",
@@ -43,6 +83,7 @@ def fixture_source(*, instance_eligible: bool = True) -> dict:
                 "authoritative_source_node_id": "source-node",
                 "authoritative_source_object_id": "source-object",
                 "chunk": "chunk_1_2",
+                "chunk_global_origin": [1000.0, 0.0, 2000.0],
                 "interior_instance_id": "instance_fixture",
                 "interior_space_asset_id": "interior_fixture",
                 "node_index": 12,
@@ -154,6 +195,145 @@ class InteriorCesiumBoundaryTest(unittest.TestCase):
                 source_publication_sha256="a" * 64,
                 require_ready=True,
             )
+
+    def test_portal_runtime_catalog_publishes_bounds_aperture_and_instance_mapping(self):
+        source = fixture_source()
+        boundary, packs = build_interior_cesium_boundary(
+            source,
+            fixture_entries(),
+            "selection_fixture",
+            source_publication_sha256="a" * 64,
+            require_ready=True,
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            mesh_root = Path(temporary)
+            mesh_path = mesh_root / "FixturePackage/Wall.gltf"
+            mesh_path.parent.mkdir(parents=True)
+            mesh_path.write_text(
+                json.dumps(
+                    {
+                        "accessors": [
+                            {
+                                "max": [2.0, 4.0, 6.0],
+                                "min": [0.0, 0.0, 0.0],
+                            }
+                        ],
+                        "meshes": [
+                            {"primitives": [{"attributes": {"POSITION": 0}}]}
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            catalog = build_portal_runtime_catalog(source, boundary, packs, mesh_root)
+
+        self.assertEqual(
+            catalog["counts"],
+            {
+                "template_count": 1,
+                "instance_count": 1,
+                "room_count": 1,
+                "endpoint_count": 1,
+                "connection_count": 0,
+                "exterior_boundary_count": 1,
+            },
+        )
+        room = catalog["templates"][0]["rooms"][0]
+        self.assertEqual(room[1], [-20.0, 0.0, 0.0])
+        self.assertEqual(room[2], [0.0, 34.0, 16.0])
+        endpoint = catalog["templates"][0]["endpoints"][0]
+        self.assertEqual(endpoint[5], [[-0.0, 0.0, 0.0], [-1.0, 0.0, 0.0], [-0.0, 1.0, 0.0]])
+        self.assertEqual(endpoint[6], [0, 1, 2])
+        boundary_record = catalog["templates"][0]["boundaries"][0]
+        self.assertEqual(boundary_record[1:], [0, 0])
+        self.assertEqual(catalog["string_table"][boundary_record[0]], "boundary_fixture")
+        template = catalog["templates"][0]
+        pack_path = catalog["string_table"][template["room_pack_relative_path_string"]]
+        self.assertEqual(pack_path, f"interior_room_packs.v1/{packs[0]['room_pack_id']}.json")
+        instance = catalog["instances"][0]
+        self.assertEqual(instance[5], [1000.0, 0.0, 2000.0])
+        self.assertEqual(instance[7], [1010.0, 20.0, 2030.0])
+
+    def test_portal_connection_uses_template_local_room_and_endpoint_indices(self):
+        source = fixture_source()
+        template = source["interior_templates"][0]
+        second_path = "sgo://Fixture/RoomSecond/Wall"
+        template["rooms"].append(
+            {
+                "room_id": "room_second",
+                "source_component_path": "sgo://Fixture/RoomSecond",
+                "transform": {
+                    "basis": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                    "origin": [0.0, 0.0, 0.0],
+                },
+                "visual_components": [visual(second_path, "WallSecond")],
+            }
+        )
+        graph = template["portal_graph"]
+        graph["adjacency"] = [
+            {"room_id": "room_fixture", "visible_room_ids": ["room_second"]},
+            {"room_id": "room_second", "visible_room_ids": ["room_fixture"]},
+        ]
+        graph["boundaries"] = []
+        second_endpoint = dict(graph["endpoints"][0])
+        second_endpoint["endpoint_id"] = "endpoint_second"
+        second_endpoint["room_id"] = "room_second"
+        graph["endpoints"].append(second_endpoint)
+        graph["connections"] = [
+            {
+                "connection_id": "connection_fixture",
+                "endpoint_ids": ["endpoint_fixture", "endpoint_second"],
+                "room_ids": ["room_fixture", "room_second"],
+            }
+        ]
+        source["instances"][0]["room_visual_bindings"].append(
+            {
+                "available_visual_components": [
+                    {
+                        "asset_id": "source-wall-second",
+                        "mesh_path": "FixturePackage/WallSecond.gltf",
+                        "source_component_path": second_path,
+                    }
+                ],
+                "available_visual_component_paths": [second_path],
+                "missing_visual_component_paths": [],
+                "room_id": "room_second",
+            }
+        )
+        entries = fixture_entries()
+        entries["FixturePackage/WallSecond.gltf"] = {
+            "asset_id": "shared_asset_wall_second",
+            "runtime_relative_path": "assets/WallSecond.glb",
+            "status": "existing",
+        }
+        boundary, packs = build_interior_cesium_boundary(
+            source,
+            entries,
+            "selection_fixture",
+            source_publication_sha256="a" * 64,
+            require_ready=True,
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            mesh_root = Path(temporary)
+            for name in ("Wall", "WallSecond"):
+                mesh_path = mesh_root / f"FixturePackage/{name}.gltf"
+                mesh_path.parent.mkdir(parents=True, exist_ok=True)
+                mesh_path.write_text(
+                    json.dumps(
+                        {
+                            "accessors": [{"max": [1.0, 1.0, 1.0], "min": [0.0, 0.0, 0.0]}],
+                            "meshes": [{"primitives": [{"attributes": {"POSITION": 0}}]}],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            catalog = build_portal_runtime_catalog(source, boundary, packs, mesh_root)
+
+        connection = catalog["templates"][0]["connections"][0]
+        self.assertEqual(connection[1], [0, 1])
+        self.assertEqual(connection[2], [0, 1])
+        self.assertEqual(catalog["templates"][0]["rooms"][0][4], [1])
+        self.assertEqual(catalog["templates"][0]["rooms"][1][4], [0])
 
 
 if __name__ == "__main__":
