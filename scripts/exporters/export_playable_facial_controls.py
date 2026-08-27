@@ -16,30 +16,26 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 
-REPO = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO))
-sys.path.insert(0, str(REPO / "scripts" / "lib"))
-
-import config  # noqa: E402
-from ue2.package import UE2Package  # noqa: E402
-from ue2_property_reader import (  # noqa: E402
+from vanguard_assets import config
+from ue2.package import UE2Package
+from scripts.lib.ue2_property_reader import (
     BinaryReader,
     decode_animset_names,
 )
-from vanguard_emfxanim import (  # noqa: E402
+from scripts.lib.vanguard_emfxanim import (
     get_animated_submotions,
     parse_emfxanim_export,
     submotion_rest_delta,
 )
-from vanguard_emfxmesh import parse_emfxmesh_export  # noqa: E402
+from scripts.lib.vanguard_emfxmesh import parse_emfxmesh_export
 
 
+REPO = config.PROJECT_ROOT
 SOURCE_ROOT = Path(config.ASSETS_PATH)
 SOURCE_MESH_ROOT = SOURCE_ROOT / "Characters" / "Meshes"
 SOURCE_ANIM_ROOT = SOURCE_ROOT / "Characters" / "Animations"

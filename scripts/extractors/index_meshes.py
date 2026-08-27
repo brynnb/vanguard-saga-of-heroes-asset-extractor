@@ -11,13 +11,12 @@ from pathlib import Path
 
 # Add project root to path (go up 2 levels from scripts/extractors)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, PROJECT_ROOT)
 
 # Add current directory for local imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from extract_bsp import UE2Package
+from scripts.extractors.extract_bsp import UE2Package
 
-import config
+from vanguard_assets import config
+PROJECT_ROOT = config.PROJECT_ROOT
 
 # Use canonical database
 DB_PATH = config.DB_PATH

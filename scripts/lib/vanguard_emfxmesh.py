@@ -2493,12 +2493,6 @@ def extract_skins_shaders(uem_path, exp_name, pkg=None):
     counts, names, and unrelated fields for materials.
     """
     try:
-        import sys as _sys
-        import os as _os
-        _here = _os.path.dirname(_os.path.abspath(__file__))
-        _root = _os.path.dirname(_os.path.dirname(_here))
-        if _root not in _sys.path:
-            _sys.path.insert(0, _root)
         from ue2.package import UE2Package
         from scripts.lib.material_memory import import_full_path
         from scripts.lib.ue2_property_reader import BinaryReader, read_ue2_properties

@@ -13,12 +13,9 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
-sys.path.insert(0, str(PROJECT_ROOT))
-sys.path.insert(0, str(SCRIPTS_DIR))
-sys.path.insert(0, str(SCRIPTS_DIR / "lib"))
 
-from extractors.terrain_info_reader import parse_grass_data_file
-from material_memory import MaterialMemoryResolver
+from scripts.extractors.terrain_info_reader import parse_grass_data_file
+from scripts.lib.material_memory import MaterialMemoryResolver
 
 
 DEFAULT_MAPS_ROOT = PROJECT_ROOT.parent / "vanguard-client" / "reference" / "Maps"

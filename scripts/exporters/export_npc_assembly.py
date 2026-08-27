@@ -28,22 +28,18 @@ Approach:
 import argparse
 import json
 import os
-import sys
 import re
 from pathlib import Path
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
-sys.path.insert(0, SCRIPT_DIR)
-sys.path.insert(0, ROOT_DIR)
-sys.path.insert(0, os.path.join(ROOT_DIR, "scripts", "lib"))
+from vanguard_assets import config
 
-from vgo_world_npc_snapshot import (  # noqa: E402
+from scripts.exporters.vgo_world_npc_snapshot import (
     DEFAULT_SNAPSHOT_PATH,
     group_snapshot,
     load_snapshot,
 )
 
+ROOT_DIR = str(config.PROJECT_ROOT)
 OUTPUT_DIR = os.path.join(ROOT_DIR, "output", "data")
 MANIFEST_PATH = os.path.join(
     ROOT_DIR, "output", "meshes", "characters", "manifest.json"
@@ -314,7 +310,7 @@ def load_static_mesh_manifest():
 def load_object_race_mesh_map():
     """Load or regenerate the client object-race name -> static mesh map."""
     try:
-        from export_object_race_mesh_map import write_object_race_mesh_map
+        from scripts.exporters.export_object_race_mesh_map import write_object_race_mesh_map
 
         payload = write_object_race_mesh_map()
     except Exception as exc:
@@ -879,7 +875,7 @@ def _extract_bone_transforms(body_mesh_path):
 
     try:
         from ue2.package import UE2Package
-        from vanguard_emfxmesh import parse_emfxmesh_export
+        from scripts.lib.vanguard_emfxmesh import parse_emfxmesh_export
 
         pkg = UE2Package(uem_path)
         target = None

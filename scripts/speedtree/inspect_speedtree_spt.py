@@ -15,12 +15,11 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS_DIR = os.path.dirname(SCRIPT_DIR)
 PROJECT_ROOT = os.path.dirname(SCRIPTS_DIR)
 
-sys.path.insert(0, os.path.join(SCRIPTS_DIR, "lib"))
-sys.path.insert(0, PROJECT_ROOT)
 
 from ue2 import UE2Package
 
-import config
+from vanguard_assets import config
+PROJECT_ROOT = config.PROJECT_ROOT
 
 
 PrintableSpan = Tuple[int, str]

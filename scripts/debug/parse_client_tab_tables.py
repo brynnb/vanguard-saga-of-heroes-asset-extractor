@@ -15,13 +15,12 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
 from ue2.package import UE2Package
 from ue2.reader import read_compact_index_at
 
-import config
+from vanguard_assets import config
+REPO_ROOT = config.PROJECT_ROOT
 
 
 DEFAULT_TABLE_ROOT = Path(config.VANGUARD_EMU_ROOT) / "bin"

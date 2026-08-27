@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from generate_godot_runtime_chunk import (
+from scripts.generators.generate_godot_runtime_chunk import (
     DEFAULT_OUTPUT_ROOT,
     DEFAULT_RUNTIME_ROOT,
     DEFAULT_STATIC_MESH_TAB,

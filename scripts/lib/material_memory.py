@@ -16,7 +16,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import config
+from vanguard_assets import config
+REPO_ROOT = config.PROJECT_ROOT
 from PIL import Image
 from ue2.package import UE2Package
 from ue2.properties import find_property_start, parse_properties

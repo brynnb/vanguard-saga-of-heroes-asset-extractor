@@ -18,25 +18,16 @@ import base64
 import io
 import os
 import re
-import sys
 import sqlite3
 import math
 from pathlib import Path
 
-# Add parent directory to path
-# Add project root to path (go up 2 levels from scripts/extractors or scripts/generators)
-PROJECT_ROOT = os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-)
-SCRIPTS_DIR = os.path.join(PROJECT_ROOT, "scripts")
-sys.path.insert(0, SCRIPTS_DIR)
-sys.path.insert(0, PROJECT_ROOT)
-
-import config
+from vanguard_assets import config
 from ue2 import UE2Package
-from extractors.terrain_info_reader import parse_terrain_info_file
+from scripts.extractors.terrain_info_reader import parse_terrain_info_file
 
 # Configuration
+PROJECT_ROOT = str(config.PROJECT_ROOT)
 DB_PATH = config.DB_PATH
 VANGUARD_MAPS = os.path.join(config.ASSETS_PATH, "Maps")
 OUTPUT_DIR = config.TERRAIN_GRID_DIR

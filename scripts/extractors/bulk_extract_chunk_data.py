@@ -30,9 +30,9 @@ import json
 PROJECT_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
-sys.path.insert(0, PROJECT_ROOT)
 
-import config  # noqa: E402
+from vanguard_assets import config  # noqa: E402
+PROJECT_ROOT = config.PROJECT_ROOT
 
 # Force unbuffered output
 sys.stdout.reconfigure(line_buffering=True)

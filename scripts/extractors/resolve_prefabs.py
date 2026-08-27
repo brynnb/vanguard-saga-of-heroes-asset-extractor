@@ -193,8 +193,7 @@ class PrefabResolver:
 if __name__ == "__main__":
     import sys
     # Add parent directory to path to find config
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    import config
+    from vanguard_assets import config
     
     SGO_PATH = config.SGO_PATH
     MESH_DB_PATH = os.path.join(config.DATA_DIR, "mesh_index.sqlite")

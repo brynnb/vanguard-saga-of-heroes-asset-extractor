@@ -34,10 +34,9 @@ import struct, json, time, os, sys, argparse
 PROJECT_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
-sys.path.insert(0, PROJECT_ROOT)
 
 try:
-    import config
+    from vanguard_assets import config
 
     DEFAULT_SGO = getattr(config, "SGO_PATH", None)
 except ImportError:

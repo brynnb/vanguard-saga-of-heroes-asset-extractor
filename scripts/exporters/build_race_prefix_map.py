@@ -18,22 +18,20 @@ Each entry maps a raceID to:
 
 import argparse
 import os
-import sys
 import glob
 import re
 import json
 from pathlib import Path
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
-sys.path.insert(0, SCRIPT_DIR)
+from vanguard_assets import config
 
-from vgo_world_npc_snapshot import (  # noqa: E402
+from scripts.exporters.vgo_world_npc_snapshot import (
     DEFAULT_SNAPSHOT_PATH,
     load_snapshot,
     race_spawn_counts,
 )
 
+ROOT_DIR = str(config.PROJECT_ROOT)
 OUTPUT_PATH = os.path.join(ROOT_DIR, "output", "data", "race_to_mesh_prefix.json")
 ACTOR_RACE_VISUAL_MAP_PATH = os.path.join(
     ROOT_DIR, "output", "data", "actor_race_visual_map.json"
@@ -200,7 +198,7 @@ def _load_exported_prefixes():
 
 def _load_actor_race_visual_map():
     try:
-        from export_actor_race_visual_map import write_actor_race_visual_map
+        from scripts.exporters.export_actor_race_visual_map import write_actor_race_visual_map
 
         payload = write_actor_race_visual_map()
     except Exception as exc:

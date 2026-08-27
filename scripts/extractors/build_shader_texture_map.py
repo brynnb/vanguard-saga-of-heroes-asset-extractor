@@ -34,10 +34,9 @@ import time
 PROJECT_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
-sys.path.insert(0, PROJECT_ROOT)
-sys.path.insert(0, os.path.join(PROJECT_ROOT, "scripts/lib"))
 
-import config
+from vanguard_assets import config
+PROJECT_ROOT = config.PROJECT_ROOT
 from ue2 import UE2Package
 from ue2.properties import find_property_start, parse_properties
 from ue2.texture import Texture as UE2Texture

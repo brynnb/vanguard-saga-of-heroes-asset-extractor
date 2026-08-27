@@ -15,7 +15,6 @@ Usage:
 """
 
 import os
-import sys
 import json
 import glob
 import sqlite3
@@ -35,21 +34,12 @@ from PIL import Image
 from typing import List, Optional, Dict, Any, Tuple
 
 
-# Add paths
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-SCRIPTS_DIR = os.path.dirname(SCRIPT_DIR)
-PROJECT_ROOT = os.path.dirname(SCRIPTS_DIR)
-
-sys.path.insert(0, os.path.join(SCRIPTS_DIR, "lib"))
-sys.path.insert(0, SCRIPTS_DIR)
-sys.path.insert(0, PROJECT_ROOT)
-
 from ue2 import UE2Package
-from material_memory import MaterialMemoryResolver
-from vanguard_staticmesh import parse_vanguard_staticmesh
-from vanguard_bsp import BspParseError, model_collision_triangles, parse_model_export
-from staticmesh_topology import section_triangle_indices
-from speedtree_staticmesh import (
+from scripts.lib.material_memory import MaterialMemoryResolver
+from scripts.lib.vanguard_staticmesh import parse_vanguard_staticmesh
+from scripts.lib.vanguard_bsp import BspParseError, model_collision_triangles, parse_model_export
+from scripts.lib.staticmesh_topology import section_triangle_indices
+from scripts.lib.speedtree_staticmesh import (
     collapsed_leaf_section,
     discard_degenerate_triangles,
     has_embedded_speedtree_payload,
@@ -59,8 +49,9 @@ from scripts.speedtree.build_spt2fbx_leaf_hybrid_gltf import build_hybrid as bui
 from scripts.speedtree.export_reconstructed_spt2fbx_leaf_cards_gltf import build_gltf as build_runtime_leaf_gltf
 
 # Configuration
-import config
+from vanguard_assets import config
 
+PROJECT_ROOT = str(config.PROJECT_ROOT)
 CANONICAL_DB = config.DB_PATH
 MESHES_DIR = os.path.join(config.ASSETS_PATH, "Meshes")
 OUTPUT_DIR = config.MESH_BUILDINGS_DIR  # Where glTF files go
@@ -573,7 +564,7 @@ def get_or_create_file_id(conn: sqlite3.Connection, pkg_path: str) -> int:
     # Ensure we use relative paths for the database
     rel_path = pkg_path
     if os.path.isabs(pkg_path):
-        import config
+        from vanguard_assets import config
 
         try:
             rel_path = os.path.relpath(pkg_path, config.ASSETS_PATH)

@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from generate_particle_manifest import DEFAULT_OUTPUT_ROOT
+from scripts.generators.generate_particle_manifest import DEFAULT_OUTPUT_ROOT
 
 
 DEFAULT_MANIFEST = DEFAULT_OUTPUT_ROOT / "data/particle_emitters.json"

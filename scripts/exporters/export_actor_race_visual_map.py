@@ -15,11 +15,15 @@ import argparse
 import json
 import os
 import re
+from importlib.resources import files
 from pathlib import Path
 
+from vanguard_assets import config
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-DEFAULT_CLIENT_TABLE_PATH = ROOT_DIR / "client_tables" / "actor_race_visual_table.json"
+ROOT_DIR = config.PROJECT_ROOT
+DEFAULT_CLIENT_TABLE_PATH = Path(
+    str(files("client_tables").joinpath("actor_race_visual_table.json"))
+)
 DEFAULT_CHARACTER_MANIFEST_PATH = (
     ROOT_DIR / "output" / "meshes" / "characters" / "manifest.json"
 )

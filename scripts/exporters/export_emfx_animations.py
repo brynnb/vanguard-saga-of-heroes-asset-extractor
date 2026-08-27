@@ -19,18 +19,14 @@ import glob
 import json
 import os
 import shutil
-import sys
 import traceback
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, ROOT)
-sys.path.insert(0, os.path.join(ROOT, "scripts", "lib"))
-
-import config
+from vanguard_assets import config
 from ue2.package import UE2Package
-from ue2_property_reader import BinaryReader, read_ue2_properties, decode_animset_names
-from vanguard_emfxanim import parse_emfxanim_export, export_emfxanim_gltf
+from scripts.lib.ue2_property_reader import BinaryReader, read_ue2_properties, decode_animset_names
+from scripts.lib.vanguard_emfxanim import parse_emfxanim_export, export_emfxanim_gltf
 
+ROOT = str(config.PROJECT_ROOT)
 MESH_DIR = os.path.join(config.ASSETS_PATH, "Characters", "Meshes")
 ANIM_DIR = os.path.join(config.ASSETS_PATH, "Characters", "Animations")
 OUT_DIR = os.path.join(ROOT, "output", "meshes", "emfx_animations")

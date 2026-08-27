@@ -16,9 +16,9 @@ import sys
 # Add parent directory to path to allow importing config
 # Add project root to path (go up 2 levels from scripts/extractors or scripts/generators)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, PROJECT_ROOT)
 
-import config
+from vanguard_assets import config
+PROJECT_ROOT = config.PROJECT_ROOT
 
 try:
     from PIL import Image

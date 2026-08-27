@@ -16,8 +16,6 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.debug.parse_client_tab_tables import (  # noqa: E402
     DEFAULT_TABLE_ROOT,

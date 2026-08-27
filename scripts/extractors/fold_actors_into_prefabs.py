@@ -34,8 +34,9 @@ import sys
 import time
 from collections import defaultdict
 
+from vanguard_assets import config
 
-PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PROJ = str(config.PROJECT_ROOT)
 PREFABS_DEFAULT = os.path.join(PROJ, "output/data/sgo_prefabs.json")
 PREFAB_INDEX_DEFAULT = os.path.join(PROJ, "output/data/sgo_prefab_index.json")
 BY_CLASS_DIR = os.path.join(PROJ, "output/data/sgo_by_class")

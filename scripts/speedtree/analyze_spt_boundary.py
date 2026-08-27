@@ -17,9 +17,9 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 SCRIPTS_DIR = SCRIPT_DIR.parent
 PROJECT_ROOT = SCRIPTS_DIR.parent
 
-sys.path.insert(0, str(PROJECT_ROOT))
 
-import config
+from vanguard_assets import config
+PROJECT_ROOT = config.PROJECT_ROOT
 from scripts.speedtree.inspect_speedtree_spt import build_default_dump_path, dump_spt_payload, find_export, find_spt_header
 from scripts.lib.vanguard_staticmesh import parse_vanguard_staticmesh
 from ue2 import UE2Package

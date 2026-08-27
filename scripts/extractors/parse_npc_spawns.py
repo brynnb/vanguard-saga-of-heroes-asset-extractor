@@ -22,7 +22,9 @@ import os
 import re
 import sys
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from vanguard_assets import config
+
+PROJECT_ROOT = str(config.PROJECT_ROOT)
 SQL_PATH = os.path.join(PROJECT_ROOT, "VG.sql")
 OUT_PATH = os.path.join(PROJECT_ROOT, "output", "data", "npc_spawns.json")
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,10 +7,7 @@ from pathlib import Path
 from PIL import Image
 
 
-REPOSITORY = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPOSITORY / "scripts" / "lib"))
-
-from material_memory import _is_valid_png, _publish_valid_png, _save_png_if_missing
+from scripts.lib.material_memory import _is_valid_png, _publish_valid_png, _save_png_if_missing
 
 
 class MaterialMemoryPngTests(unittest.TestCase):

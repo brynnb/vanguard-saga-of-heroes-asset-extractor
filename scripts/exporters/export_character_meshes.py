@@ -9,19 +9,13 @@ Also produces a manifest JSON at output/meshes/characters/manifest.json
 listing all exported meshes with metadata.
 """
 import os
-import sys
 import glob
 import json
 import time
 
-# Add project root to path
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, PROJECT_ROOT)
-sys.path.insert(0, os.path.join(PROJECT_ROOT, "scripts", "lib"))
-
-import config
+from vanguard_assets import config
 from ue2.package import UE2Package
-from vanguard_emfxmesh import parse_emfxmesh_export, export_gltf, extract_skins_shaders
+from scripts.lib.vanguard_emfxmesh import parse_emfxmesh_export, export_gltf, extract_skins_shaders
 from scripts.lib.ue2_tagged_properties import (
     TYPE_BOOL,
     TYPE_STRUCT,
@@ -29,6 +23,7 @@ from scripts.lib.ue2_tagged_properties import (
     read_tagged_properties,
 )
 
+PROJECT_ROOT = str(config.PROJECT_ROOT)
 ASSETS = os.environ.get(
     "VANGUARD_ASSETS",
     os.environ.get("VANGUARD_ASSETS_PATH", config.ASSETS_PATH),

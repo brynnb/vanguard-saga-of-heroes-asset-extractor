@@ -7,8 +7,6 @@ import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATORS_ROOT = REPO_ROOT / "scripts" / "generators"
-if str(GENERATORS_ROOT) not in sys.path:
-    sys.path.insert(0, str(GENERATORS_ROOT))
 
 from scripts.generators.generate_object_cell_index import placement_record
 from scripts.lib.world_residency_identity import (

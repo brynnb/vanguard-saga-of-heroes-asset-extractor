@@ -14,11 +14,15 @@ import json
 import os
 import re
 from collections import Counter
+from importlib.resources import files
 from pathlib import Path
 
+from vanguard_assets import config
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-DEFAULT_CLIENT_TABLE_PATH = ROOT_DIR / "client_tables" / "object_race_mesh_table.json"
+ROOT_DIR = config.PROJECT_ROOT
+DEFAULT_CLIENT_TABLE_PATH = Path(
+    str(files("client_tables").joinpath("object_race_mesh_table.json"))
+)
 DEFAULT_STATIC_MESH_MANIFEST_PATH = (
     ROOT_DIR / "output" / "meshes" / "buildings" / "manifest.json"
 )

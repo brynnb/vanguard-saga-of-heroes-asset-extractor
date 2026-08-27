@@ -11,13 +11,13 @@ import time
 from pathlib import Path
 from typing import Any
 
-from generate_godot_runtime_chunk import (
+from scripts.generators.generate_godot_runtime_chunk import (
     DEFAULT_OUTPUT_ROOT,
     DEFAULT_RUNTIME_ROOT,
     normalize_chunk_name,
     read_json,
 )
-from generate_neighbor_object_index import neighbor_chunk_names
+from scripts.generators.generate_neighbor_object_index import neighbor_chunk_names
 
 
 DEFAULT_TREE_IMPOSTOR_DATA = DEFAULT_OUTPUT_ROOT / "data/tree_impostors.json"

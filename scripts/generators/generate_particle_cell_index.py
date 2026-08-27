@@ -15,7 +15,6 @@ import sys
 from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(PROJECT_ROOT))
 
 from scripts.lib.world_residency_interiors import (
     AffineTransform,
@@ -27,7 +26,7 @@ from scripts.lib.world_residency_interiors import (
     source_component_path,
 )
 
-from generate_particle_manifest import (
+from scripts.generators.generate_particle_manifest import (
     DEFAULT_OUTPUT_ROOT,
     PARTICLE_DEFAULT_MAX_PARTICLES,
     build_texture_index,

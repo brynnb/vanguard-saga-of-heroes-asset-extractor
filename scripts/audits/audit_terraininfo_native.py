@@ -11,9 +11,9 @@ import sys
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(PROJECT_ROOT))
 
-import config  # noqa: E402
+from vanguard_assets import config  # noqa: E402
+PROJECT_ROOT = config.PROJECT_ROOT
 from scripts.lib.terraininfo_native import (  # noqa: E402
     find_decoinstance_array,
     find_native_body_offsets,

@@ -8,12 +8,14 @@ build_race_prefix_map.py.
 from __future__ import annotations
 
 import json
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
-DEFAULT_SNAPSHOT_PATH = ROOT_DIR / "client_tables" / "vgo_world_npc_snapshot.json"
+DEFAULT_SNAPSHOT_PATH = Path(
+    str(files("client_tables").joinpath("vgo_world_npc_snapshot.json"))
+)
 
 
 def load_snapshot(path: Path) -> dict[str, Any]:

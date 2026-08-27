@@ -17,9 +17,9 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 SCRIPTS_DIR = SCRIPT_DIR.parent
 PROJECT_ROOT = SCRIPTS_DIR.parent
 
-sys.path.insert(0, str(PROJECT_ROOT))
 
-import config
+from vanguard_assets import config
+PROJECT_ROOT = config.PROJECT_ROOT
 from scripts.speedtree.run_spttools_lite import DEFAULT_SPTTOOLS_DIR, ensure_spttools_lite_binaries, run_command
 
 

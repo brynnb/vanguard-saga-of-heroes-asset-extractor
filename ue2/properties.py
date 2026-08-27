@@ -27,12 +27,12 @@ import json
 from pathlib import Path
 from collections import defaultdict
 
-import config
+from vanguard_assets import config
 
 from .package import UE2Package
 from .reader import read_compact_index_at as read_compact_index
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output", "data", "vanguard_data.db")
+DB_PATH = config.DB_PATH
 MAPS_DIR = config.MAPS_DIR
 
 PROP_TYPES = {

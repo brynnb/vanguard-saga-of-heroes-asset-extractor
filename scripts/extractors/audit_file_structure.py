@@ -5,12 +5,10 @@ import typing
 from dataclasses import dataclass, field
 
 # Helper to import from local renderer directory
-sys.path.append(os.getcwd())
 try:
     from ue2 import UE2Package
 except ImportError:
     # If running from renderer/ subdirectory
-    sys.path.append(os.path.join(os.getcwd(), ".."))
     from ue2 import UE2Package
 
 @dataclass

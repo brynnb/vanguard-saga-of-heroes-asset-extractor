@@ -27,10 +27,9 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
-import config  # noqa: E402
+from vanguard_assets import config  # noqa: E402
+REPO_ROOT = config.PROJECT_ROOT
 
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "output"
 DEFAULT_RUNTIME_ROOT = DEFAULT_OUTPUT_ROOT / "godot_runtime"

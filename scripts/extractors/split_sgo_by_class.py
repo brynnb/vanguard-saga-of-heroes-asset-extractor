@@ -28,8 +28,9 @@ import sys
 import time
 from collections import defaultdict
 
+from vanguard_assets import config
 
-PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PROJ = str(config.PROJECT_ROOT)
 RAW_DEFAULT = os.path.join(PROJ, "output/data/sgo_raw.jsonl")
 OUT_DIR_DEFAULT = os.path.join(PROJ, "output/data/sgo_by_class")
 

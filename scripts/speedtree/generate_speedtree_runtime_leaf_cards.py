@@ -27,9 +27,9 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 SCRIPTS_DIR = SCRIPT_DIR.parent
 PROJECT_ROOT = SCRIPTS_DIR.parent
-sys.path.insert(0, str(PROJECT_ROOT))
 
-import config
+from vanguard_assets import config
+PROJECT_ROOT = config.PROJECT_ROOT
 from scripts.lib.speedtree_staticmesh import has_embedded_speedtree_payload
 from scripts.speedtree.inspect_speedtree_spt import dump_spt_payload, find_spt_header
 from scripts.speedtree.reconstruct_spt2fbx_leaf_cards import build_leaf_cards

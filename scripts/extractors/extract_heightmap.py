@@ -16,10 +16,10 @@ import base64
 # Add parent directory to path to allow importing ue2 package
 # Add project root to path (go up 2 levels from scripts/extractors or scripts/generators)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, PROJECT_ROOT)
 
 from ue2 import UE2Package
-import config
+from vanguard_assets import config
+PROJECT_ROOT = config.PROJECT_ROOT
 
 
 class HeightmapExtractor:

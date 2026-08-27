@@ -22,8 +22,7 @@ import json
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-from config import ASSETS_PATH
+from vanguard_assets.config import ASSETS_PATH
 
 UCD_PATH = os.path.join(ASSETS_PATH, "CloudMeshes", "P0001_CloudMeshes.ucd")
 OUTPUT_PATH = os.path.join(os.path.dirname(__file__), '..', '..', 'output', 'data', 'cloud_data.json')

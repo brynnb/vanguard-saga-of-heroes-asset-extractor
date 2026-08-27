@@ -12,9 +12,9 @@ import sys
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT))
 
-import config
+from vanguard_assets import config
+ROOT = config.PROJECT_ROOT
 from ue2.package import UE2Package
 from scripts.lib.ue2_tagged_properties import (
     TYPE_ARRAY,

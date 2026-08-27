@@ -720,11 +720,7 @@ def parse_staticmesh(data: bytes, names: list, serial_offset: int) -> dict:
 # =============================================================================
 
 if __name__ == "__main__":
-    import sys
-
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    sys.path.insert(0, project_root)
-    import config
+    from vanguard_assets import config
     from ue2 import UE2Package
 
     test_files = [

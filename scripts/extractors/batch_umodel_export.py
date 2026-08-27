@@ -17,9 +17,9 @@ import argparse
 PROJECT_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
-sys.path.insert(0, PROJECT_ROOT)
 
-import config  # noqa: E402
+from vanguard_assets import config  # noqa: E402
+PROJECT_ROOT = config.PROJECT_ROOT
 
 UMODEL_EXE = os.environ.get("UMODEL_EXE", "umodel.exe")
 MESH_DIR = os.path.join(config.ASSETS_PATH, "Meshes")

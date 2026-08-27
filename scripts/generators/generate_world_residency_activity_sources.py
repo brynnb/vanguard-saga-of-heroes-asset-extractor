@@ -27,10 +27,9 @@ from typing import Any, Iterable
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
-import config  # noqa: E402
+from vanguard_assets import config  # noqa: E402
+REPO_ROOT = config.PROJECT_ROOT
 from scripts.generators.generate_particle_cell_index import (  # noqa: E402
     add_vector,
     chunk_global_origin,

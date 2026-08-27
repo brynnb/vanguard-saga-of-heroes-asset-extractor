@@ -6,16 +6,13 @@ both a MeshAnimation and a SkeletalMesh with parseable RefSkeleton.
 Output goes to output/meshes/animations/<package_name>/<anim_name>.gltf
 Also generates output/meshes/animations/manifest.json mapping package → animation files.
 """
-import os, sys, json, glob, traceback
+import os, json, glob, traceback
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, ROOT)
-sys.path.insert(0, os.path.join(ROOT, "scripts", "lib"))
-
-import config
+from vanguard_assets import config
 from ue2.package import UE2Package
-from vanguard_meshanim import parse_mesh_animation, find_refskeleton, export_animation_gltf
+from scripts.lib.vanguard_meshanim import parse_mesh_animation, find_refskeleton, export_animation_gltf
 
+ROOT = str(config.PROJECT_ROOT)
 UKX_DIR = os.path.join(config.ASSETS_PATH, "SkeletalMeshes")
 OUT_DIR = os.path.join(ROOT, "output/meshes/animations")
 os.makedirs(OUT_DIR, exist_ok=True)

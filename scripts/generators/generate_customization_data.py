@@ -73,7 +73,8 @@ from typing import Any
 
 REPO = Path(__file__).resolve().parents[2]
 try:
-    import config
+    from vanguard_assets import config
+    REPO = config.PROJECT_ROOT
 
     DEFAULT_EMU = Path(
         os.environ.get("VANGUARD_EMU_PATH", str(config.VANGUARD_EMU_ROOT))

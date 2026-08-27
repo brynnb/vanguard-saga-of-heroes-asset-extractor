@@ -1,12 +1,6 @@
-import sys
 import unittest
-from pathlib import Path
 
-
-GENERATOR_ROOT = Path(__file__).resolve().parents[1] / "scripts" / "generators"
-sys.path.insert(0, str(GENERATOR_ROOT))
-
-from generate_particle_cell_index import (  # noqa: E402
+from scripts.generators.generate_particle_cell_index import (
     build_effect_placement_topology,
     manifest_emitters_by_prefab_from_templates,
     walk_prefab_emitter_instances,

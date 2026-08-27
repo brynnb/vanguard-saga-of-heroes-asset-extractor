@@ -15,10 +15,9 @@ import time
 
 # Add project root to path (go up 2 levels from scripts/extractors)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, PROJECT_ROOT)
 
 try:
-    import config
+    from vanguard_assets import config
     DB_PATH = config.DB_PATH
     MAPS_DIR = os.path.join(config.ASSETS_PATH, "Maps")
 except ImportError:

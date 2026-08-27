@@ -14,28 +14,15 @@ import math
 import struct
 from pathlib import Path
 
-# Add parent directory to path to allow importing config
-# Add project root to path (go up 2 levels from scripts/extractors or scripts/generators)
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, PROJECT_ROOT)
+from vanguard_assets import config
 
-# Add extractors directory for imports
-sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "extractors"))
+PROJECT_ROOT = str(config.PROJECT_ROOT)
+DB_PATH = config.DB_PATH
+MESH_DIR = config.MESH_BUILDINGS_DIR
+OUTPUT_DIR = config.TERRAIN_GRID_DIR
+MESH_INDEX_PATH = str(Path(config.DATA_DIR) / "mesh_index.sqlite")
 
-try:
-    import config
-    DB_PATH = config.DB_PATH
-    MESH_DIR = config.MESH_BUILDINGS_DIR
-    OUTPUT_DIR = config.TERRAIN_GRID_DIR
-except ImportError:
-    # Fallback
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    DB_PATH = os.path.join(base_dir, "output/data/vanguard_data.db")
-    MESH_DIR = os.path.join(base_dir, "output/meshes/buildings")
-    OUTPUT_DIR = os.path.join(base_dir, "output/terrain/terrain_grid")
-    MESH_INDEX_PATH = os.path.join(base_dir, "output/data/mesh_index.sqlite")
-
-from extractors.resolve_prefabs import PrefabResolver
+from scripts.extractors.resolve_prefabs import PrefabResolver
 
 import re
 
@@ -111,7 +98,7 @@ def get_chunk_objects(conn, chunk_id):
     # Try to load the package for raw position parsing
     if chunk_file and os.path.exists(chunk_file):
         try:
-            from extract_bsp import UE2Package
+            from scripts.extractors.extract_bsp import UE2Package
             pkg = UE2Package(chunk_file)
         except Exception as e:
             print(f"  Warning: Could not load chunk file for raw parsing: {e}")
@@ -321,10 +308,6 @@ def generate_scene_gltf(objects, output_path, chunk_name):
     except:
         resolver = None
         print("Warning: Could not initialize SGO resolver.")
-
-    if not "MESH_INDEX_PATH" in globals():
-         # Fallback path if config failed
-         MESH_INDEX_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output/data/mesh_index.sqlite")
 
     # Process all objects - positions are now correctly set in get_chunk_objects
     for i, obj in enumerate(objects):

@@ -26,50 +26,36 @@ from pathlib import Path
 import argparse
 from datetime import datetime
 
-# Add project root to path
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
-SCRIPTS_DIR = os.path.join(PROJECT_ROOT, "scripts")
-sys.path.insert(0, PROJECT_ROOT)
+from vanguard_assets import config as runtime_config
+
+
+PROJECT_ROOT = str(runtime_config.PROJECT_ROOT)
 
 # =============================================================================
 # CONFIGURATION VALIDATION
 # =============================================================================
 
 def validate_config():
-    """Validate that config.py exists and has required paths."""
+    """Validate the packaged runtime configuration and required paths."""
     print("\n" + "=" * 60)
     print("STAGE 1: Validating Configuration")
     print("=" * 60)
     
-    config_path = os.path.join(PROJECT_ROOT, "config.py")
-    example_path = os.path.join(PROJECT_ROOT, "config.example.py")
-    
-    if not os.path.exists(config_path):
-        print(f"\n❌ ERROR: config.py not found!")
-        print(f"   Please copy config.example.py to config.py and update paths:")
-        print(f"   $ cp {example_path} {config_path}")
-        sys.exit(1)
-    
-    try:
-        import config
-    except ImportError as e:
-        print(f"\n❌ ERROR: Failed to import config.py: {e}")
-        sys.exit(1)
+    config = runtime_config
     
     # Validate ASSETS_PATH
     if not hasattr(config, 'ASSETS_PATH'):
-        print("\n❌ ERROR: config.py missing ASSETS_PATH variable")
+        print("\n❌ ERROR: packaged configuration is missing ASSETS_PATH")
         sys.exit(1)
     
     if not os.path.exists(config.ASSETS_PATH):
         print(f"\n❌ ERROR: ASSETS_PATH does not exist: {config.ASSETS_PATH}")
-        print("   Please update config.py with the correct path to your Vanguard Assets folder.")
+        print("   Set VANGUARD_ASSETS_PATH to the Vanguard Assets folder.")
         sys.exit(1)
     
     # Validate DB_PATH directory
     if not hasattr(config, 'DB_PATH'):
-        print("\n❌ ERROR: config.py missing DB_PATH variable")
+        print("\n❌ ERROR: packaged configuration is missing DB_PATH")
         sys.exit(1)
     
     db_dir = os.path.dirname(config.DB_PATH)
@@ -77,7 +63,7 @@ def validate_config():
         os.makedirs(db_dir, exist_ok=True)
         print(f"   Created directory: {db_dir}")
     
-    print(f"   ✓ config.py found")
+    print("   ✓ packaged configuration loaded")
     print(f"   ✓ ASSETS_PATH: {config.ASSETS_PATH}")
     print(f"   ✓ DB_PATH: {config.DB_PATH}")
     
@@ -609,24 +595,22 @@ def export_chunk_data(config, required=False):
 # =============================================================================
 
 def run_project_script(name, relative_path, silent=False, args=None):
-    """Run a project script and report status."""
+    """Run a packaged project stage and report status."""
+    import importlib.util
     import subprocess
 
-    script_path = os.path.join(PROJECT_ROOT, relative_path)
-    
-    if not os.path.exists(script_path):
-        if not silent: print(f"   ⚠ Script not found: {script_path}")
+    module_name = relative_path.removesuffix(".py").replace(os.sep, ".").replace("/", ".")
+    if importlib.util.find_spec(module_name) is None:
+        if not silent:
+            print(f"   ⚠ Module not found: {module_name}")
         return False
-    
-    cmd = [sys.executable, script_path]
+
+    cmd = [sys.executable, "-m", module_name]
     if args:
         cmd.extend(args)
 
     env = os.environ.copy()
-    pythonpath_parts = [PROJECT_ROOT, SCRIPTS_DIR]
-    if env.get("PYTHONPATH"):
-        pythonpath_parts.append(env["PYTHONPATH"])
-    env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+    env["VANGUARD_WORKSPACE_ROOT"] = PROJECT_ROOT
     
     try:
         sys.stdout.flush()

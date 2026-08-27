@@ -21,10 +21,9 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
 
-import config  # noqa: E402
+from vanguard_assets import config  # noqa: E402
+REPO_ROOT = config.PROJECT_ROOT
 from ue2 import UE2Package  # noqa: E402
 from scripts.lib.world_residency_identity import (  # noqa: E402
     authoritative_source_terrain_id,

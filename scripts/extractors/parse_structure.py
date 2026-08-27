@@ -11,7 +11,6 @@ import struct
 from typing import List, Dict, Any, Optional
 
 # Add parent to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     from ue2 import UE2Package
@@ -670,8 +669,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         path = sys.argv[1]
     else:
-        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-        import config
+        from vanguard_assets import config
 
         path = os.path.join(config.ASSETS_PATH, "Meshes", "P0001_Sun_Meshes.usx")
     

@@ -1609,12 +1609,9 @@ def resolve_external_references(path: Path, paired_isb: str | None, summary: dic
         return
 
     try:
-        from extract_isb import parse_isb_file
+        from scripts.extractors.extract_isb import parse_isb_file
     except ImportError:
-        try:
-            from scripts.extractors.extract_isb import parse_isb_file
-        except ImportError:
-            return
+        return
 
     try:
         samples = parse_isb_file(Path(paired_isb))

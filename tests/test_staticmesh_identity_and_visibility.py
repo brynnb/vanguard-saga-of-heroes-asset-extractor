@@ -3,7 +3,6 @@ import sys
 import unittest
 from types import SimpleNamespace
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/generators"))
 
 from scripts.extractors import staticmesh_pipeline
 from scripts.extractors.build_shader_texture_map import _project_shader_map_from_manifest

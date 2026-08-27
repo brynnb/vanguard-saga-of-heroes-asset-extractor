@@ -12,7 +12,6 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 SCRIPTS_DIR = SCRIPT_DIR.parent
 PROJECT_ROOT = SCRIPTS_DIR.parent
 
-sys.path.insert(0, str(PROJECT_ROOT))
 
 from scripts.speedtree import extract_spt2fbx_fbx_layers as fbx_layers
 

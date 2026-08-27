@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "vanguard-saga-of-heroes-asset-extractor"
 version = "0.1.0"
 description = "Command-line asset extraction tools for Vanguard: Saga of Heroes client data."
-license = { text = "PolyForm-Noncommercial-1.0.0" }
+license = "MIT"
 requires-python = ">=3.10"
 dependencies = [
   "construct>=2.10",
@@ -14,8 +14,22 @@ dependencies = [
   "Pillow>=10.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+  "build>=1.2",
+]
+
 [project.scripts]
-vanguard-assets = "vanguard:main"
+vanguard-assets = "vanguard_assets.cli:main"
 
 [tool.setuptools]
+include-package-data = true
 py-modules = ["config", "extract_all_assets", "vanguard"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["vanguard_assets*", "scripts*", "ue2*", "client_tables*"]
+exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+client_tables = ["*.json"]

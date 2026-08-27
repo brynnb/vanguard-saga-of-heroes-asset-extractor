@@ -16,7 +16,6 @@ Design principles:
   (Vector, Rotator, Color, Plane, Quat, Range, RangeVector, Scale,
   PointRegion), wide-string.
 
-See ``docs/file_analysis/sgo.md`` for file-level format notes.
 """
 from __future__ import annotations
 

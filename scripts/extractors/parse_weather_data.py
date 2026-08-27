@@ -6,8 +6,7 @@ import re
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-from config import ASSETS_PATH
+from vanguard_assets.config import ASSETS_PATH
 
 def parse_weather_defs(filepath):
     """Parse VSOHWeatherDefs.ini into a dict of zone_name -> weather data."""

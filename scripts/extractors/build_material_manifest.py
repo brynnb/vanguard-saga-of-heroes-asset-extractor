@@ -12,22 +12,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 from pathlib import Path
 from typing import Any
 
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-SCRIPTS_DIR = SCRIPT_DIR.parent
-PROJECT_ROOT = SCRIPTS_DIR.parent
-
-sys.path.insert(0, str(PROJECT_ROOT))
-sys.path.insert(0, str(SCRIPTS_DIR / "lib"))
-
-import config  # noqa: E402
-from material_memory import MaterialMemoryResolver  # noqa: E402
+from vanguard_assets import config
+from scripts.lib.material_memory import MaterialMemoryResolver
 
 
+PROJECT_ROOT = config.PROJECT_ROOT
 DEFAULT_OUTPUT = Path(config.DATA_DIR) / "material_manifest.json"
 DEFAULT_TEXTURES_DIR = PROJECT_ROOT / "output" / "textures"
 DEFAULT_VALIDATION_OUTPUT = Path(config.DATA_DIR) / "material_manifest_validation.json"

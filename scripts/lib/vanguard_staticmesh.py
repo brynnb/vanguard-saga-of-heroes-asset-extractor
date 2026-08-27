@@ -14,16 +14,12 @@ Source: UEViewer/Unreal/UnrealMesh/UnMesh2.cpp SerializeVanguardMesh
 
 import struct
 import math
-try:
-    from .ue2_property_reader import (
-        BinaryReader,
-        read_ue2_properties,
-        skip_ue2_properties,
-    )
-    from .staticmesh_topology import section_triangle_indices
-except ImportError:  # Direct script imports used by the extraction CLI.
-    from ue2_property_reader import BinaryReader, read_ue2_properties, skip_ue2_properties
-    from staticmesh_topology import section_triangle_indices
+from .ue2_property_reader import (
+    BinaryReader,
+    read_ue2_properties,
+    skip_ue2_properties,
+)
+from .staticmesh_topology import section_triangle_indices
 
 
 class StaticMeshParseError(ValueError):

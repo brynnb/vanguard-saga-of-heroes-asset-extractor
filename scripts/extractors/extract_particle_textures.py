@@ -17,9 +17,9 @@ from typing import Any
 from PIL import Image
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(PROJECT_ROOT))
 
-import config  # noqa: E402
+from vanguard_assets import config  # noqa: E402
+PROJECT_ROOT = config.PROJECT_ROOT
 from ue2 import UE2Package  # noqa: E402
 from ue2.texture import Texture as UE2Texture  # noqa: E402
 

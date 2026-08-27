@@ -24,9 +24,9 @@ from dataclasses import dataclass, field
 # Add parent directory to path to allow importing ue2 package
 # Add project root to path (go up 2 levels from scripts/extractors or scripts/generators)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, PROJECT_ROOT)
 
-import config
+from vanguard_assets import config
+PROJECT_ROOT = config.PROJECT_ROOT
 from ue2 import Vector, Plane, UE2Package
 from ue2.reader import BinaryReader, read_compact_index_at as read_compact_index
 from scripts.lib.vanguard_bsp import (

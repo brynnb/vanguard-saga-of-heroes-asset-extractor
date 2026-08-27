@@ -16,13 +16,11 @@ import argparse
 import json
 import os
 import struct
-import sys
 import time
 
-PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, PROJ)
+from vanguard_assets import config
 
-from scripts.lib.sgo_parser import (  # noqa: E402
+from scripts.lib.sgo_parser import (
     SGO_MAGIC,
     SGO_VERSION,
     find_mini_package_boundaries,
@@ -30,16 +28,10 @@ from scripts.lib.sgo_parser import (  # noqa: E402
     parse_trailer,
 )
 
+PROJ = str(config.PROJECT_ROOT)
 
 def _default_sgo() -> str:
-    try:
-        import config
-        p = getattr(config, "SGO_PATH", None)
-        if p:
-            return p
-    except ImportError:
-        pass
-    return os.path.join(PROJ, "Vanguard EMU", "Assets", "Archives", "binaryprefabs.sgo")
+    return config.SGO_PATH
 
 
 def main() -> int:
