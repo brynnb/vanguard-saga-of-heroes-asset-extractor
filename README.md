@@ -563,7 +563,7 @@ Full methodology and evidence are maintained in the sibling
 
 ## License
 
-Original project code is licensed under the PolyForm Noncommercial License 1.0.0; see `LICENSE` and `NOTICE`. This is a source-available non-commercial software license.
+Original project code is licensed under the MIT License; see `LICENSE` and `NOTICE`.
 
 Some UE2 package/property/static mesh parsing code is adapted from or informed by UE Viewer, which is MIT licensed. Those portions retain their original MIT permissions and notices. See `THIRD_PARTY_NOTICES.md`.
 
