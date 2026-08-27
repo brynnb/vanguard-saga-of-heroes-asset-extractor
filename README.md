@@ -492,6 +492,7 @@ python3 scripts/generators/generate_godot_runtime_interior_assets.py \
   --output-root output \
   --runtime-root output/godot_runtime \
   --boundary-output output/world_residency/interior_cesium_boundary.v1.json \
+  --portal-runtime-output output/world_residency/interior_portal_runtime.v1.json \
   --free-space-reserve-gb 5
 ```
 
@@ -507,14 +508,49 @@ incomplete or ambiguous instance remains an explicit Cesium fallback. The
 boundary records both categories so downstream builders can fail closed and
 publish deterministic retained/excluded/fallback counts.
 
+The portal runtime catalog stores reusable template-local room bounds, exact
+portal aperture triangles and planes, room adjacency/connections, exterior
+portal boundaries, and every eligible instance's room-pack/chunk/root mapping.
+Geometry is stored once per room pack rather than duplicated for each placed
+building. Room bounds are conservative AABBs derived from exact room-owned
+visual mesh bounds plus portal apertures; they are broad-phase runtime bounds,
+not an unsupported claim that SGO rooms map one-to-one to native map BSP bounds.
+
+### Playable skeleton fidelity boundary
+
+Live sunset-client capture confirms that male High Elf character creation uses
+the 184-node `UEM_elf_M_char:elf_M_char_ALL_0_SKELETON` modular master. Its
+45-node head and 82-node hand components are subsets and do not contribute the
+missing detailed facial or middle/pinky bones. Complete raw-package audits also
+found no skipped second hierarchy in the modular FXA data. Exporters must retain
+that recovered limitation rather than silently augmenting the playable master
+from optimized or creature rigs.
+
+The separately captured 234-node detailed hierarchy is
+`mouseman_M_char_body_0_C_0`, loaded by an incorrect emulator character preview.
+It shares all 202 visible optimized High Elf skeleton bone names and parent
+relationships, but it does not provide authored weights for the modular High
+Elf head. The optimized mesh already has its own detailed weights; transferring
+them to modular geometry would be an explicitly reconstructed approximation.
+Full methodology and evidence are maintained in the sibling
+`vanguard-research` repository's
+`docs/playable_facial_skeletons_and_animation.md`.
+
 ## Areas Remaining
 
+- Classify every room-owned `StaticMeshActor` that lacks a resolved mesh as
+  `no_static_mesh_property`, `unresolved_static_mesh_reference`, or
+  `resolved_reference_missing_asset`. The latter two are extraction gaps to
+  investigate; do not assume unresolved actors are empty placeholders or use
+  them for Cesium exclusion until an exact renderable mesh is recovered.
 - Exact original SpeedTree branch-wind simulation and whole-tree far impostors.
   Leaf-card size, pivot, placement, UVs, dimming, camera-facing metadata, fixed
   fronds, and the height range needed for runtime wind are now recovered; the
   actual animation is intentionally a renderer responsibility.
 - Playable race assembly details around mixing heads with bodies, body sizing/proportions, and body texture selection.
-- Skeleton customization logic for playable races, especially how character creation sliders drive the extra facial/body deformer bones.
+- Audit remaining playable races against live sunset actor counts and record
+  slider availability/no-op behavior per recovered master; do not assume the
+  male High Elf result applies universally.
 - Animation usage around specific hand poses, weapon/attachment sockets, and left-hand/right-hand action variants is still being mapped for runtime use.
 - Foot placement, foot locking, and ground-contact handling. The current extractor parses EMotion FX motion parts and root-motion tracks, but I have not confirmed Vanguard's final foot placement logic.
 - Cloud rendering and global lighting effects are not fully accurate.
