@@ -13,6 +13,10 @@ and binaries from interpretation. Generated manifests describe the current
 data; this document explains what that data means, what has been proved at
 runtime, and what remains unknown.
 
+Environmental sound uses the same ISACT container family but has a different
+world-volume and runtime model. It is documented separately in
+[`ambience.md`](ambience.md).
+
 The short version is:
 
 - Vanguard did not store most world music as one finished song per region.
@@ -352,7 +356,7 @@ ISACT filenames instead of using that Ogg field to assemble adaptive sessions.
 It should be preserved as authored metadata, not mistaken for the source of the
 layered world-music performance.
 
-## The generated music and ambience model
+## The generated music model
 
 [`scripts/extractors/export_music_ambience_manifest.py`](../scripts/extractors/export_music_ambience_manifest.py)
 turns the parsed cue catalog into an engine-oriented manifest. The current
@@ -368,9 +372,8 @@ snapshot contains:
 
 For each music bundle it retains the paired bank, entry objects, transition
 objects, known runtime state titles, SDRI metadata, weighted variants, and
-resolved sample references. For ambience it organizes day/night ambience,
-one-shot, special, storm, cricket, rear-ambience, and silence lanes where they
-are present.
+resolved sample references. The ambience half of this manifest and its
+consumer contract are described in [`ambience.md`](ambience.md).
 
 Generated files under `output/` are deliberately ignored by Git. They are
 snapshots, not substitutes for this document or the parser source.

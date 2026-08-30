@@ -40,6 +40,7 @@ SEA_REGION_OVERRIDES = [
 ]
 
 RUNTIME_AMBIENCE_SELECTORS = ["TimeOfDay", "OneShots", "SpecialAmbience", "Storms"]
+AMBIENCE_RUNTIME_SCHEMA = "vanguard-isact-ambience-v1"
 
 CHUNK_LINE_RE = re.compile(r"^\s*(\d+)\s+(\S+)\s{2,}(.+?)\s{2,}(-?\d+)\s+(-?\d+)\s*$")
 GENERIC_CHUNK_ONLY_TOKENS = {"of", "the", "village", "ruins", "ruin", "ancient"}
@@ -65,8 +66,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--chunk-reference",
         type=Path,
-        default=REPO_ROOT / "docs/external/vgo-server-emulator-wiki/Reference/Chunks.md",
-        help="Chunk reference document used for location hints",
+        default=None,
+        help="Optional Chunks.md reference used for music location hints",
     )
     parser.add_argument(
         "--isb-inspect",
@@ -706,6 +707,116 @@ def simplify_record_block(block: dict[str, object]) -> dict[str, object]:
     }
 
 
+def sound_event_selection_mode(info: object) -> str:
+    """Name the recovered Sound Event route mode without discarding raw info."""
+    if not isinstance(info, list) or not info:
+        return "unknown"
+    if info[0] == 0:
+        return "ordered"
+    if info[0] == 1:
+        return "weighted-random"
+    return "unknown"
+
+
+def simplify_sound_route(record: dict[str, object]) -> dict[str, object]:
+    """Preserve one executable sndt route in a consumer-oriented shape."""
+    route = {
+        "record_index": record.get("record_index"),
+        "order": record.get("order"),
+        "weight_percent": record.get("chance"),
+        "path_index": record.get("path_index"),
+        "target": {
+            "title": record.get("target_title"),
+            "sample_index": record.get("target_sample_index"),
+            "bank": record.get("target_bank"),
+            "ref_mode": record.get("target_ref_mode"),
+        },
+        "decoded_as": record.get("decoded_as") or "sample-route",
+        "control_window": {
+            "role": record.get("control_window_role"),
+            "kind": record.get("control_window_kind"),
+            "layout": record.get("control_window_layout"),
+            "profile_kind": record.get("control_window_profile_kind"),
+            "selector": record.get("control_window_selector"),
+            "slot": record.get("control_window_slot"),
+            "gain": record.get("control_window_gain"),
+        },
+    }
+    return {
+        key: value
+        for key, value in route.items()
+        if value is not None
+        and value != {}
+        and not (
+            key in {"target", "control_window"}
+            and isinstance(value, dict)
+            and all(nested is None for nested in value.values())
+        )
+    }
+
+
+def simplify_silence_route(silt: object) -> dict[str, object] | None:
+    """Decode the five-field authored Sound Event silence record.
+
+    Canyon runtime tracing verifies that fields 2 and 3 are the inclusive
+    random quiet-duration bounds in milliseconds. The order and percentage
+    fields share the Sound Event's route table with sndt records. The final
+    field is retained as an unknown flag until its exact public name is proven.
+    """
+    if not isinstance(silt, list) or len(silt) != 5:
+        return None
+    return {
+        "order": silt[0],
+        "weight_percent": silt[1],
+        "duration_min_ms": silt[2],
+        "duration_max_ms": silt[3],
+        "flags": silt[4],
+    }
+
+
+def build_ambience_selector_contract(
+    channels: dict[str, dict[str, dict[str, object]]],
+    auxiliary: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Describe only selectors for which the bundle exposes matching content."""
+    selectors: list[dict[str, object]] = []
+    phases = [phase for phase in ("day", "night") if channels.get(phase)]
+    if phases:
+        selectors.append(
+            {
+                "name": "TimeOfDay",
+                "values": [phase.title() for phase in phases],
+                "drives": "channel phase",
+            }
+        )
+
+    lane_selectors = (("one_shots", "OneShots"), ("special", "SpecialAmbience"))
+    for lane, selector_name in lane_selectors:
+        phases_with_lane = [
+            phase for phase in ("day", "night") if lane in channels.get(phase, {})
+        ]
+        if phases_with_lane:
+            selectors.append(
+                {
+                    "name": selector_name,
+                    "values": ["Off", "On"],
+                    "drives": lane,
+                    "phases": phases_with_lane,
+                }
+            )
+
+    auxiliary_titles = [str(entry.get("title") or "") for entry in auxiliary]
+    if any("storm" in title.lower() for title in auxiliary_titles):
+        selectors.append(
+            {
+                "name": "Storms",
+                "values": ["Off", "On"],
+                "drives": "storm auxiliary events",
+            }
+        )
+    return selectors
+
+
 def classify_ambience_lane(title: str) -> tuple[str | None, str | None]:
     lower = title.lower()
     time_of_day: str | None = None
@@ -732,6 +843,14 @@ def classify_ambience_lane(title: str) -> tuple[str | None, str | None]:
 def simplify_sound_entry(entry: dict[str, object]) -> dict[str, object]:
     title = str(entry.get("title") or "")
     time_of_day, lane = classify_ambience_lane(title)
+    sound_routes = [
+        simplify_sound_route(record) for record in entry.get("sndt_records", [])
+    ]
+    silence_route = simplify_silence_route(entry.get("silt"))
+    sound_weight_total = sum(
+        route.get("weight_percent") or 0 for route in sound_routes
+    )
+    silence_weight = silence_route.get("weight_percent", 0) if silence_route else 0
     return {
         "title": title,
         "signal_group": entry.get("signal_group"),
@@ -742,6 +861,21 @@ def simplify_sound_entry(entry: dict[str, object]) -> dict[str, object]:
         "loop": entry.get("loop"),
         "sync": entry.get("sync"),
         "info": entry.get("info"),
+        "selection": {
+            "mode": sound_event_selection_mode(entry.get("info")),
+            "sound_weight_total_percent": sound_weight_total,
+            "silence_weight_percent": silence_weight,
+            "authored_weight_total_percent": sound_weight_total + silence_weight,
+        },
+        "sound_routes": sound_routes,
+        "silence_route": silence_route,
+        "spatial_path_indices": sorted(
+            {
+                route["path_index"]
+                for route in sound_routes
+                if isinstance(route.get("path_index"), int)
+            }
+        ),
         "primary_target": {
             "title": entry.get("sndt_primary_target_title"),
             "sample_index": entry.get("sndt_primary_target_sample_index"),
@@ -750,7 +884,10 @@ def simplify_sound_entry(entry: dict[str, object]) -> dict[str, object]:
         },
         "sndt_record_count": entry.get("sndt_record_count"),
         "resolved_targets": unique_targets_from_sound_entry(entry),
-        "record_blocks": [simplify_record_block(block) for block in entry.get("sndt_record_blocks", [])],
+        "record_blocks": [
+            simplify_record_block(block)
+            for block in entry.get("sndt_record_blocks", [])
+        ],
     }
 
 
@@ -844,6 +981,16 @@ def build_ambience_bundle(cue: dict[str, object], audio_profile_index: dict[str,
         "cue_file": str(cue_file),
         "paired_isb_bank": paired_isb,
         "profile_names": profile_names,
+        "runtime_model": {
+            "schema": AMBIENCE_RUNTIME_SCHEMA,
+            "selectors": build_ambience_selector_contract(channels, auxiliary),
+            "channel_roles": {
+                "ambience": "persistent background bed",
+                "one_shots": "weighted Sound Event with authored quiet intervals",
+                "special": "separately controlled weighted Sound Event",
+                "auxiliary": "additional authored Sound Events and control targets",
+            },
+        },
         "channels": channels,
         "auxiliary": auxiliary,
         "audio_profile": audio_profile,
@@ -854,7 +1001,7 @@ def build_manifest(
     cues: list[dict[str, object]],
     chunks: list[dict[str, object]],
     catalog_path: Path,
-    chunk_reference_path: Path,
+    chunk_reference_path: Path | None,
     audio_profile_index: dict[str, dict] | None = None,
 ) -> dict[str, object]:
     runtime_titles = build_runtime_title_index()
@@ -864,10 +1011,21 @@ def build_manifest(
         if is_world_music_cue(cue)
     ]
     ambience_bundles = [
-        build_ambience_bundle(cue, audio_profile_index) for cue in cues if is_ambience_cue(cue)
+        build_ambience_bundle(cue, audio_profile_index)
+        for cue in cues
+        if is_ambience_cue(cue)
     ]
     music_bundles.sort(key=lambda item: item["bundle_name"].lower())
     ambience_bundles.sort(key=lambda item: item["bundle_name"].lower())
+    ambience_events = [
+        event
+        for bundle in ambience_bundles
+        for event in (
+            list(bundle["channels"]["day"].values())
+            + list(bundle["channels"]["night"].values())
+            + bundle["auxiliary"]
+        )
+    ]
 
     return {
         "summary": {
@@ -897,10 +1055,17 @@ def build_manifest(
                 bool((item.get("audio_profile") or {}).get("spatial", {}) and (item["audio_profile"]["spatial"] or {}).get("distance_attenuation"))
                 for item in ambience_bundles
             ),
+            "ambience_sound_event_count": len(ambience_events),
+            "ambience_sound_events_with_silence_routes": sum(
+                bool(item.get("silence_route")) for item in ambience_events
+            ),
+            "ambience_sound_route_count": sum(
+                len(item.get("sound_routes", [])) for item in ambience_events
+            ),
         },
         "provenance": {
             "catalog": str(catalog_path),
-            "chunk_reference": str(chunk_reference_path),
+            "chunk_reference": str(chunk_reference_path) if chunk_reference_path else None,
             "runtime_findings": "docs/audio/2026-05-04_ghidra_audio_runtime_findings.md",
         },
         "runtime": {
@@ -908,6 +1073,18 @@ def build_manifest(
             "sea_region_overrides": SEA_REGION_OVERRIDES,
             "afk_fallback": "AFK1",
             "ambience_selectors": RUNTIME_AMBIENCE_SELECTORS,
+            "ambience_model": {
+                "schema": AMBIENCE_RUNTIME_SCHEMA,
+                "runtime_evidence_scope": "CanyonAmbience from the Sunset client",
+                "verified_behavior": [
+                    "background beds can contain simultaneous spatial layers",
+                    "one-shot and special events use weighted sound routes and authored silence routes",
+                    "silence duration is selected between the serialized minimum and maximum",
+                    "day/night and optional event controls are independent",
+                    "an outgoing scheduled event can finish after replacement content starts",
+                    "an off action can select an explicit Silence Sound Event",
+                ],
+            },
         },
         "music_bundles": music_bundles,
         "ambience_bundles": ambience_bundles,
@@ -920,6 +1097,9 @@ def build_markdown(manifest: dict[str, object]) -> str:
         "",
         f"- Music bundles: {manifest['summary']['music_bundle_count']}",
         f"- Ambience bundles: {manifest['summary']['ambience_bundle_count']}",
+        f"- Ambience Sound Events: {manifest['summary']['ambience_sound_event_count']}",
+        f"- Ambience Sound Events with authored silence: {manifest['summary']['ambience_sound_events_with_silence_routes']}",
+        f"- Ambience sound routes: {manifest['summary']['ambience_sound_route_count']}",
         f"- Music bundles with chunk hints: {manifest['summary']['music_bundles_with_location_hints']}",
         f"- Music bundles with runtime title coverage: {manifest['summary']['music_bundles_with_runtime_titles']}",
         f"- Music bundles with direct chunk activation: {manifest['summary']['music_bundles_with_direct_chunk_activation']}",
@@ -977,6 +1157,8 @@ def build_markdown(manifest: dict[str, object]) -> str:
         "- Direct music activation rules are emitted only for strong chunk-name joins or explicit runtime sea-region families. Lower-confidence name overlap stays in candidate_chunks for review instead of being treated as authoritative.",
         "- Exact region or polygon triggers inside a chunk are still unresolved; city or special-region state changes such as Alley, Pub, or Regal still need a stronger region-object join.",
         "- Ambience entries already carry resolved sample targets where sndt decoding succeeded, so the manifest is directly useful for first-pass playback wiring.",
+        "- Ambience Sound Events retain each route's authored order, percentage weight, sample target, and spatial path plus any explicit silence route and its random-duration range.",
+        "- State changes must be implemented per channel. Original-runtime tracing confirms that replacement content may begin while an already scheduled outgoing event finishes; restarting the whole bundle is not equivalent.",
     ])
     return "\n".join(lines) + "\n"
 
@@ -984,12 +1166,14 @@ def build_markdown(manifest: dict[str, object]) -> str:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
     catalog_path = args.catalog.expanduser().resolve()
-    chunk_reference_path = args.chunk_reference.expanduser().resolve()
+    chunk_reference_path = (
+        args.chunk_reference.expanduser().resolve() if args.chunk_reference else None
+    )
     out_root = args.out.expanduser().resolve()
     out_root.mkdir(parents=True, exist_ok=True)
 
     cues = load_catalog(catalog_path)
-    chunks = load_chunks(chunk_reference_path)
+    chunks = load_chunks(chunk_reference_path) if chunk_reference_path else []
     isb_inspect_dir = args.isb_inspect.expanduser().resolve()
     audio_profile_index = build_isb_audio_profile_index(isb_inspect_dir)
     manifest = build_manifest(cues, chunks, catalog_path, chunk_reference_path, audio_profile_index)

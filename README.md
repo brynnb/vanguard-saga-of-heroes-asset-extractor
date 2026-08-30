@@ -53,6 +53,7 @@ text resources, and one-off binary formats. This project currently extracts:
 - [Static mesh extraction contract](docs/static_meshes.md)
 - [Character and animation extraction](docs/characters.md)
 - [Music data and recovered ISACT behavior](docs/music.md)
+- [Ambience data, world volumes, and recovered runtime behavior](docs/ambience.md)
 - [SpeedTree extraction and runtime contract](docs/speedtree.md)
 - [Interior room and portal authority](docs/interior_rooms_and_portals.md)
 - [Advanced extraction workflows](docs/workflows.md)
